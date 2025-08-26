@@ -28,7 +28,6 @@ import {
 
 export function NavUser({
   user,
-  isSettingsOpen,
   setIsSettingsOpen,
 }: {
   user: {
@@ -36,7 +35,6 @@ export function NavUser({
     email: string
     avatar: string
   }
-  isSettingsOpen?: boolean
   setIsSettingsOpen?: (open: boolean) => void
 }) {
   const { isMobile } = useSidebar()

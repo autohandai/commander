@@ -1,11 +1,22 @@
-import { useState, useEffect, useCallback } from "react"
-import { Settings as SettingsIcon, Monitor, Bot, MessageSquare, ExternalLink, RefreshCw, CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Settings as SettingsIcon, Monitor, Bot, ExternalLink, RefreshCw, CheckCircle, XCircle, AlertCircle, Loader2, FolderOpen, Users } from "lucide-react"
+import { invoke } from "@tauri-apps/api/core"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
@@ -13,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import { useLLMSettings } from "@/hooks/use-llm-settings"
 
 interface SettingsModalProps {
@@ -20,7 +32,7 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
-type SettingsTab = 'general' | 'llms'
+type SettingsTab = 'general' | 'llms' | 'agents'
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -41,6 +53,58 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   
   const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({})
   const [tempApiKeys, setTempApiKeys] = useState<Record<string, string>>({})
+  const [defaultProjectsFolder, setDefaultProjectsFolder] = useState('')
+  const [tempDefaultProjectsFolder, setTempDefaultProjectsFolder] = useState('')
+  const [showConsoleOutput, setShowConsoleOutput] = useState(true)
+  const [tempShowConsoleOutput, setTempShowConsoleOutput] = useState(true)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false)
+  const [agentSettings, setAgentSettings] = useState<Record<string, boolean>>({})
+  const [tempAgentSettings, setTempAgentSettings] = useState<Record<string, boolean>>({})
+  
+  // Load app settings and projects folder on mount
+  useEffect(() => {
+    const loadAppSettings = async () => {
+      try {
+        // Load app settings
+        const appSettings = await invoke('load_app_settings') as any
+        setShowConsoleOutput(appSettings.show_console_output ?? true)
+        setTempShowConsoleOutput(appSettings.show_console_output ?? true)
+
+        // First try to load saved projects folder
+        const savedFolder = await invoke('load_projects_folder') as string | null
+        
+        let folder: string
+        if (savedFolder) {
+          folder = savedFolder
+        } else {
+          // Fall back to default projects folder
+          folder = await invoke('get_default_projects_folder') as string
+        }
+        
+        setDefaultProjectsFolder(folder)
+        setTempDefaultProjectsFolder(folder)
+        
+        // Ensure the directory exists
+        await invoke('ensure_directory_exists', { path: folder })
+
+        // Load agent settings
+        const savedAgentSettings = await invoke('load_agent_settings') as Record<string, boolean> | null
+        const defaultAgentSettings = {
+          'claude': true,
+          'codex': true, 
+          'gemini': true
+        }
+        const finalAgentSettings = savedAgentSettings || defaultAgentSettings
+        setAgentSettings(finalAgentSettings)
+        setTempAgentSettings(finalAgentSettings)
+      } catch (error) {
+        console.error('Failed to load app settings:', error)
+      }
+    }
+    
+    loadAppSettings()
+  }, [])
   
   useEffect(() => {
     if (settings) {
@@ -85,6 +149,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   }, [isOpen, activeTab, settings, providerStatuses]) // Added providerStatuses dependency
   
+  // Track changes to detect unsaved changes
+  useEffect(() => {
+    const hasChanges = tempDefaultProjectsFolder !== defaultProjectsFolder ||
+                      tempShowConsoleOutput !== showConsoleOutput ||
+                      Object.keys(tempApiKeys).some(key => tempApiKeys[key] !== settings?.providers[key]?.api_key) ||
+                      Object.keys(tempAgentSettings).some(key => tempAgentSettings[key] !== agentSettings[key])
+    setHasUnsavedChanges(hasChanges)
+  }, [tempDefaultProjectsFolder, defaultProjectsFolder, tempShowConsoleOutput, showConsoleOutput, tempApiKeys, settings, tempAgentSettings, agentSettings])
+  
   const handleSaveApiKey = async (providerId: string) => {
     const apiKey = tempApiKeys[providerId]
     if (!apiKey) return
@@ -101,6 +174,95 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   }
   
+  const handleSaveProjectsFolder = async () => {
+    try {
+      // Ensure the directory exists
+      await invoke('ensure_directory_exists', { path: tempDefaultProjectsFolder })
+      
+      // Save to persistent storage
+      await invoke('save_projects_folder', { path: tempDefaultProjectsFolder })
+      
+      setDefaultProjectsFolder(tempDefaultProjectsFolder)
+      console.log('Projects folder saved:', tempDefaultProjectsFolder)
+    } catch (error) {
+      console.error('Failed to save projects folder:', error)
+    }
+  }
+
+  const handleSelectProjectsFolder = async () => {
+    try {
+      // Use Tauri's dialog to select a folder
+      // For now, user can type the path manually
+      // TODO: Implement folder picker dialog
+    } catch (error) {
+      console.error('Failed to select folder:', error)
+    }
+  }
+
+  const handleCloseModal = () => {
+    if (hasUnsavedChanges) {
+      setShowUnsavedChangesDialog(true)
+    } else {
+      onClose()
+    }
+  }
+
+  const handleDiscardChanges = () => {
+    // Reset all temp values to original values
+    setTempDefaultProjectsFolder(defaultProjectsFolder)
+    setTempShowConsoleOutput(showConsoleOutput)
+    setTempAgentSettings(agentSettings)
+    if (settings) {
+      const keys: Record<string, string> = {}
+      Object.entries(settings.providers).forEach(([id, provider]) => {
+        if (provider.api_key) {
+          keys[id] = provider.api_key
+        }
+      })
+      setTempApiKeys(keys)
+    }
+    setShowUnsavedChangesDialog(false)
+    onClose()
+  }
+
+  const handleSaveChanges = async () => {
+    try {
+      // Save app settings
+      if (tempShowConsoleOutput !== showConsoleOutput || tempDefaultProjectsFolder !== defaultProjectsFolder) {
+        await invoke('save_app_settings', {
+          settings: {
+            show_console_output: tempShowConsoleOutput,
+            projects_folder: tempDefaultProjectsFolder
+          }
+        })
+        setShowConsoleOutput(tempShowConsoleOutput)
+      }
+
+      // Save projects folder
+      if (tempDefaultProjectsFolder !== defaultProjectsFolder) {
+        await handleSaveProjectsFolder()
+      }
+
+      // Save agent settings
+      if (Object.keys(tempAgentSettings).some(key => tempAgentSettings[key] !== agentSettings[key])) {
+        await invoke('save_agent_settings', { settings: tempAgentSettings })
+        setAgentSettings(tempAgentSettings)
+      }
+      
+      // Save API keys
+      for (const [providerId, apiKey] of Object.entries(tempApiKeys)) {
+        if (apiKey && apiKey !== settings?.providers[providerId]?.api_key) {
+          await handleSaveApiKey(providerId)
+        }
+      }
+      
+      setShowUnsavedChangesDialog(false)
+      onClose()
+    } catch (error) {
+      console.error('Failed to save changes:', error)
+    }
+  }
+
   const handleFetchModels = async (providerId: string) => {
     setFetchingModels(prev => ({ ...prev, [providerId]: true }))
     try {
@@ -139,6 +301,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       icon: Monitor,
     },
     {
+      id: 'agents' as const,
+      label: 'Agents',
+      icon: Users,
+    },
+    {
       id: 'llms' as const,
       label: 'AI',
       icon: Bot,
@@ -159,12 +326,25 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="workspace-path">Default Workspace Path</Label>
-            <Input
-              id="workspace-path"
-              placeholder="/Users/username/Projects"
-              defaultValue="/Users/username/Projects"
-            />
+            <Label htmlFor="projects-folder">Default Projects Folder</Label>
+            <div className="flex gap-2">
+              <Input
+                id="projects-folder"
+                placeholder="/Users/username/Projects"
+                value={tempDefaultProjectsFolder}
+                onChange={(e) => setTempDefaultProjectsFolder(e.target.value)}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSelectProjectsFolder}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This folder will be used as the default location for cloning repositories.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="theme">Theme</Label>
@@ -193,6 +373,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <p className="text-xs text-muted-foreground">
               This prompt will be sent to all LLM providers as the system message for conversations.
             </p>
+          </div>
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium">Console Output</h4>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="console-output">Show Console Output</Label>
+                <p className="text-xs text-muted-foreground">
+                  Display real-time console output during git operations like cloning repositories.
+                </p>
+              </div>
+              <Switch
+                id="console-output"
+                checked={tempShowConsoleOutput}
+                onCheckedChange={setTempShowConsoleOutput}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -435,10 +631,49 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     )
   }
 
+  const renderAgentSettings = () => (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-medium mb-4">AI Agent Settings</h3>
+        <p className="text-sm text-muted-foreground mb-6">
+          Configure which AI coding agents are enabled and shown in the status bar. Only enabled agents will be monitored for availability.
+        </p>
+        <div className="space-y-4">
+          {[
+            { id: 'claude', name: 'Claude Code CLI', description: 'Official Claude CLI tool for coding assistance' },
+            { id: 'codex', name: 'Codex', description: 'GitHub Copilot and OpenAI Codex integration' },
+            { id: 'gemini', name: 'Gemini', description: 'Google Gemini AI coding assistant' }
+          ].map((agent) => (
+            <div key={agent.id} className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="space-y-1">
+                <div className="flex items-center gap-3">
+                  <h4 className="font-medium">{agent.name}</h4>
+                  <div 
+                    className={`w-2 h-2 rounded-full ${
+                      tempAgentSettings[agent.id] ? 'bg-green-500' : 'bg-neutral-500'
+                    }`}
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground">{agent.description}</p>
+              </div>
+              <Switch
+                checked={tempAgentSettings[agent.id] || false}
+                onCheckedChange={(checked) => 
+                  setTempAgentSettings(prev => ({ ...prev, [agent.id]: checked }))
+                }
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[85vw] max-w-[1400px] h-[90vh] p-0 flex flex-col overflow-hidden">
+    <>
+    <Dialog open={isOpen} onOpenChange={handleCloseModal}>
+      <DialogContent className="w-[85vw] !max-w-[1400px] h-[90vh] p-0 flex flex-col overflow-hidden">
         <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="h-5 w-5" />
@@ -456,7 +691,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <Button
                     key={item.id}
                     variant={activeTab === item.id ? "secondary" : "ghost"}
-                    className="w-full justify-start"
+                    className="w-full !justify-start"
                     onClick={() => setActiveTab(item.id)}
                   >
                     <Icon className="mr-2 h-4 w-4" />
@@ -471,22 +706,60 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="flex-1 p-6 overflow-y-auto min-w-0">
             <div className="max-w-4xl">
               {activeTab === 'general' && renderGeneralSettings()}
+              {activeTab === 'agents' && renderAgentSettings()}
               {activeTab === 'llms' && renderLLMSettings()}
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-6 py-4 border-t flex-shrink-0 bg-background">
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={onClose} disabled={saving}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {saving ? 'Saving...' : 'Close'}
-          </Button>
+        <div className="flex justify-between px-6 py-4 border-t flex-shrink-0 bg-background">
+          <div className="flex items-center">
+            {hasUnsavedChanges && (
+              <span className="text-sm text-muted-foreground flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                You have unsaved changes
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleCloseModal} disabled={saving}>
+              Cancel
+            </Button>
+            {hasUnsavedChanges && (
+              <Button onClick={handleSaveChanges} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            )}
+            {!hasUnsavedChanges && (
+              <Button onClick={onClose} disabled={saving}>
+                Close
+              </Button>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={showUnsavedChangesDialog} onOpenChange={setShowUnsavedChangesDialog}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+          <AlertDialogDescription>
+            You have unsaved changes that will be lost if you continue. Do you want to save your changes or discard them?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={handleDiscardChanges}>
+            Discard Changes
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={handleSaveChanges}>
+            Save Changes
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

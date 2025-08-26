@@ -1,32 +1,115 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
+import { SidebarWidthProvider } from "@/contexts/sidebar-width-context"
 import { Separator } from "@/components/ui/separator"
 import { 
   Breadcrumb, 
   BreadcrumbItem, 
-  BreadcrumbLink, 
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator 
 } from "@/components/ui/breadcrumb"
 import { 
-  Home, 
-  FolderOpen, 
-  FileText, 
-  Star, 
-  Clock, 
-  HardDrive,
-  Cloud,
-  Tags,
-  Settings
+  GitBranch,
+  Plus,
+  Copy
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { SettingsModal } from "@/components/SettingsModal"
+import { CloneRepositoryModal } from "@/components/CloneRepositoryModal"
+import { NewProjectModal } from "@/components/NewProjectModal"
+import { ToastProvider, useToast } from "@/components/ToastProvider"
+import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
+import { Button } from "@/components/ui/button"
+import { RecentProject } from "@/hooks/use-recent-projects"
 
-function App() {
+interface ProjectViewProps {
+  project: RecentProject
+}
+
+function ProjectView({ project }: ProjectViewProps) {
+  return (
+    <div className="flex-1 p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">{project.name}</h1>
+          <p className="text-muted-foreground mt-2">{project.path}</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="p-4 rounded-lg border bg-card">
+            <h3 className="font-semibold mb-2">Project Type</h3>
+            <div className="flex items-center gap-2">
+              {project.is_git_repo ? (
+                <>
+                  <GitBranch className="h-4 w-4" />
+                  <span>Git Repository</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  <span>Regular Folder</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {project.git_branch && (
+            <div className="p-4 rounded-lg border bg-card">
+              <h3 className="font-semibold mb-2">Current Branch</h3>
+              <div className="flex items-center gap-2">
+                <GitBranch className="h-4 w-4" />
+                <span>{project.git_branch}</span>
+                {project.git_status === 'dirty' && (
+                  <span className="text-orange-500 text-xs">• Modified</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="p-4 rounded-lg border bg-card">
+            <h3 className="font-semibold mb-2">Last Accessed</h3>
+            <p className="text-sm text-muted-foreground">
+              {new Date(project.last_accessed * 1000).toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-lg border bg-card">
+          <h3 className="font-semibold mb-4">Project Actions</h3>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline">
+              Open in File Manager
+            </Button>
+            <Button variant="outline">
+              Open in Terminal
+            </Button>
+            {project.is_git_repo && (
+              <>
+                <Button variant="outline">
+                  Git Status
+                </Button>
+                <Button variant="outline">
+                  View Commits
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AppContent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isCloneModalOpen, setIsCloneModalOpen] = useState(false)
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
+  const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
+  const { showSuccess } = useToast()
+  const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
 
   const handleDragStart = async (e: React.MouseEvent) => {
     // Only trigger drag if not clicking on interactive elements
@@ -44,6 +127,64 @@ function App() {
     }
   };
 
+  const handleCloneSuccess = () => {
+    showSuccess('Repository cloned successfully!', 'Clone Complete')
+    // Refresh projects list to show the newly cloned repository
+    if (projectsRefreshRef.current?.refresh) {
+      projectsRefreshRef.current.refresh()
+    }
+  }
+
+  const handleNewProjectSuccess = () => {
+    showSuccess('Project created successfully!', 'Project Created')
+    // Refresh projects list to show the newly created project
+    if (projectsRefreshRef.current?.refresh) {
+      projectsRefreshRef.current.refresh()
+    }
+  }
+
+  const handleProjectSelect = (project: RecentProject) => {
+    setCurrentProject(project)
+    // Add project to recent list
+    invoke('add_project_to_recent', { project_path: project.path }).catch(console.error)
+  }
+
+  const handleBackToWelcome = () => {
+    setCurrentProject(null)
+  }
+
+  const copyProjectPath = async () => {
+    if (!currentProject) return
+    
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(currentProject.path)
+        showSuccess('Project path copied to clipboard', 'Copied')
+      } else {
+        // Fallback for older browsers or unsecure contexts
+        const textArea = document.createElement('textarea')
+        textArea.value = currentProject.path
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+        showSuccess('Project path copied to clipboard', 'Copied')
+      }
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error)
+      showSuccess('Failed to copy to clipboard', 'Error')
+    }
+  }
+
+  // Generate breadcrumb segments from project path
+  const getBreadcrumbSegments = (path: string) => {
+    const segments = path.split('/').filter(Boolean)
+    return segments.map((segment, index) => ({
+      name: segment,
+      path: '/' + segments.slice(0, index + 1).join('/')
+    }))
+  }
+
   // Listen for global shortcut events
   useEffect(() => {
     const unlisten = listen('shortcut://open-settings', () => {
@@ -56,12 +197,17 @@ function App() {
   }, [])
 
   return (
-    <SidebarProvider>
-      <AppSidebar 
-        isSettingsOpen={isSettingsOpen} 
-        setIsSettingsOpen={setIsSettingsOpen} 
-      />
-      <SidebarInset>
+    <SidebarWidthProvider>
+      <SidebarProvider>
+        <AppSidebar 
+          isSettingsOpen={isSettingsOpen} 
+          setIsSettingsOpen={setIsSettingsOpen}
+          onRefreshProjects={projectsRefreshRef}
+          onProjectSelect={handleProjectSelect}
+          currentProject={currentProject}
+          onHomeClick={handleBackToWelcome}
+        />
+        <SidebarInset>
         {/* Title bar drag area */}
         <div 
           className="h-10 w-full drag-area" 
@@ -79,59 +225,112 @@ function App() {
             <Separator orientation="vertical" className="mr-2 h-4" />
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="#" className="no-drag">
-                    Documents
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden md:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Projects</BreadcrumbPage>
-                </BreadcrumbItem>
+                {currentProject ? (
+                  <>
+                    {getBreadcrumbSegments(currentProject.path).map((segment, index, array) => (
+                      <React.Fragment key={segment.path}>
+                        <BreadcrumbItem>
+                          {index === array.length - 1 ? (
+                            <BreadcrumbPage>{segment.name}</BreadcrumbPage>
+                          ) : (
+                            <span className="text-muted-foreground">{segment.name}</span>
+                          )}
+                        </BreadcrumbItem>
+                        {index < array.length - 1 && <BreadcrumbSeparator />}
+                      </React.Fragment>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={copyProjectPath}
+                      className="h-6 w-6 p-0 ml-2 no-drag"
+                      title="Copy project path"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </>
+                ) : (
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Welcome</BreadcrumbPage>
+                  </BreadcrumbItem>
+                )}
               </BreadcrumbList>
             </Breadcrumb>
             <div className="flex-1" data-tauri-drag-region></div>
           </div>
         </header>
-        <div className="flex-1 p-4">
-          <div className="grid gap-4">
-            <div className="rounded-lg border p-4">
-              <h2 className="text-lg font-semibold mb-2">Welcome to Commander</h2>
-              <p className="text-sm text-muted-foreground">
-                You're in control of any AI code agents installed in your machine.
-              </p>
-            </div>
-            
-            <div className="grid gap-2">
-              <h3 className="text-sm font-medium">Quick Access</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <button className="flex flex-col items-center gap-2 p-4 rounded-lg border hover:bg-accent">
-                  <FolderOpen className="h-8 w-8" />
-                  <span className="text-xs">Documents</span>
+{currentProject ? (
+          <ProjectView project={currentProject} />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-4 pb-10">
+            <div className="max-w-2xl w-full space-y-8">
+              <div className="text-center space-y-2">
+                <h1 className="text-4xl font-bold tracking-tight">Welcome to Commander</h1>
+                <p className="text-lg text-muted-foreground">
+                  Start a new project or clone an existing repository
+                </p>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button 
+                  onClick={() => setIsCloneModalOpen(true)}
+                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
+                >
+                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
+                    <GitBranch className="h-8 w-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold">Clone Repository</p>
+                    <p className="text-xs text-muted-foreground">Clone from GitHub, GitLab, etc.</p>
+                  </div>
                 </button>
-                <button className="flex flex-col items-center gap-2 p-4 rounded-lg border hover:bg-accent">
-                  <FileText className="h-8 w-8" />
-                  <span className="text-xs">Recent</span>
-                </button>
-                <button className="flex flex-col items-center gap-2 p-4 rounded-lg border hover:bg-accent">
-                  <Star className="h-8 w-8" />
-                  <span className="text-xs">Favorites</span>
-                </button>
-                <button className="flex flex-col items-center gap-2 p-4 rounded-lg border hover:bg-accent">
-                  <Cloud className="h-8 w-8" />
-                  <span className="text-xs">Cloud</span>
+                
+                <button 
+                  onClick={() => setIsNewProjectModalOpen(true)}
+                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
+                >
+                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
+                    <Plus className="h-8 w-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold">New Project</p>
+                    <p className="text-xs text-muted-foreground">Start from scratch</p>
+                  </div>
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </SidebarInset>
       
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)} 
       />
-    </SidebarProvider>
+      
+      <CloneRepositoryModal
+        isOpen={isCloneModalOpen}
+        onClose={() => setIsCloneModalOpen(false)}
+        onSuccess={handleCloneSuccess}
+      />
+      
+      <NewProjectModal
+        isOpen={isNewProjectModalOpen}
+        onClose={() => setIsNewProjectModalOpen(false)}
+        onSuccess={handleNewProjectSuccess}
+      />
+      
+      <AIAgentStatusBar />
+      </SidebarProvider>
+    </SidebarWidthProvider>
+  )
+}
+
+function App() {
+  return (
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
   )
 }
 

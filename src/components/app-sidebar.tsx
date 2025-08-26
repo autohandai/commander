@@ -1,8 +1,10 @@
 import * as React from "react"
-import { Clock } from "lucide-react"
+import { Clock, GitBranch, Folder, FolderGit, Home } from "lucide-react"
 
 import { SearchForm } from "@/components/search-form"
 import { NavUser } from "@/components/NavUser"
+import { useRecentProjects, RecentProject } from "@/hooks/use-recent-projects"
+import { ResizableSidebar } from "@/components/resizable-sidebar"
 import {
   Sidebar,
   SidebarContent,
@@ -17,30 +19,6 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 
-// Mock recent projects data
-const recentProjects = [
-  {
-    title: "Project Alpha",
-    url: "#",
-  },
-  {
-    title: "Web Dashboard",
-    url: "#",
-  },
-  {
-    title: "Mobile App",
-    url: "#",
-  },
-  {
-    title: "API Gateway",
-    url: "#",
-  },
-  {
-    title: "Data Pipeline",
-    url: "#",
-  },
-]
-
 // Mock user data
 const userData = {
   name: "John Doe",
@@ -51,9 +29,28 @@ const userData = {
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   isSettingsOpen?: boolean
   setIsSettingsOpen?: (open: boolean) => void
+  onRefreshProjects?: React.MutableRefObject<{ refresh: () => void } | null>
+  onProjectSelect?: (project: RecentProject) => void
+  currentProject?: RecentProject | null
+  onHomeClick?: () => void
 }
 
-export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, ...props }: AppSidebarProps) {
+export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProjects, onProjectSelect, currentProject, onHomeClick, ...props }: AppSidebarProps) {
+  const { projects, loading, error, refreshProjects } = useRecentProjects()
+
+  // Expose refresh function to parent component via ref
+  React.useEffect(() => {
+    if (onRefreshProjects) {
+      onRefreshProjects.current = { refresh: refreshProjects }
+    }
+    // Cleanup function to avoid stale references
+    return () => {
+      if (onRefreshProjects) {
+        onRefreshProjects.current = null
+      }
+    }
+  }, [refreshProjects, onRefreshProjects])
+
   const handleDragStart = async (e: React.MouseEvent) => {
     // Only trigger drag if not clicking on interactive elements
     if ((e.target as HTMLElement).closest('.no-drag')) {
@@ -69,47 +66,115 @@ export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, ...props }: AppS
   };
 
   return (
-    <Sidebar variant="sidebar" className="flex flex-col" {...props}>
-      {/* Sidebar title bar drag area - matching the main content */}
-      <div 
-        className="h-10 w-full drag-area" 
-        data-tauri-drag-region
-        onMouseDown={handleDragStart}
-      ></div>
-      
-      <SidebarHeader className="px-4">
-        <SearchForm />
-      </SidebarHeader>
-      
-      <SidebarContent className="flex-1">
-        <SidebarGroup>
-          <SidebarGroupLabel>Recent Projects</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {recentProjects.map((project) => (
-                <SidebarMenuItem key={project.title}>
-                  <SidebarMenuButton asChild>
-                    <a href={project.url}>
-                      <Clock className="size-4" />
-                      <span>{project.title}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+    <ResizableSidebar>
+      <Sidebar variant="sidebar" className="flex flex-col" {...props}>
+        {/* Sidebar title bar drag area - matching the main content */}
+        <div 
+          className="h-10 w-full drag-area" 
+          data-tauri-drag-region
+          onMouseDown={handleDragStart}
+        ></div>
+        
+        <SidebarHeader className="px-4">
+          <SearchForm />
+        </SidebarHeader>
+        
+        <SidebarContent className="flex-1">
+          <SidebarGroup>
+            <SidebarMenu className="mb-4">
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      if (onHomeClick) {
+                        onHomeClick()
+                      }
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Home className="size-4" />
+                    <span>Home</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-      
-      <SidebarFooter>
-        <NavUser 
-          user={userData} 
-          isSettingsOpen={isSettingsOpen}
-          setIsSettingsOpen={setIsSettingsOpen}
-        />
-      </SidebarFooter>
-      
-      <SidebarRail />
-    </Sidebar>
+            <SidebarGroupLabel>Recent Projects</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {loading ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton disabled>
+                      <Clock className="size-4 animate-pulse" />
+                      <span>Loading projects...</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : error ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton disabled>
+                      <Clock className="size-4 text-red-500" />
+                      <span className="text-red-500 text-sm">Failed to load projects</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : projects.length === 0 ? (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton disabled>
+                      <Folder className="size-4 text-muted-foreground" />
+                      <span className="text-muted-foreground text-sm">No projects found</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : (
+                  projects.map((project) => (
+                    <SidebarMenuItem key={project.path}>
+                      <SidebarMenuButton asChild>
+                        <a 
+                          href="#" 
+                          onClick={(e) => {
+                            e.preventDefault()
+                            if (onProjectSelect) {
+                              onProjectSelect(project)
+                            }
+                          }}
+                          title={`${project.path}${project.git_branch ? ` (${project.git_branch})` : ''}`}
+                          className={currentProject?.path === project.path ? 'bg-accent text-accent-foreground' : ''}
+                        >
+                          {project.is_git_repo ? (
+                            <FolderGit className="size-4" />
+                          ) : (
+                            <Folder className="size-4" />
+                          )}
+                          <div className="flex flex-col items-start">
+                            <span className="text-sm">{project.name}</span>
+                            {project.git_branch && (
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <GitBranch className="size-3" />
+                                <span>{project.git_branch}</span>
+                                {project.git_status === 'dirty' && (
+                                  <span className="text-orange-500">•</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+        
+        <SidebarFooter>
+          <NavUser 
+            user={userData} 
+            setIsSettingsOpen={setIsSettingsOpen}
+          />
+        </SidebarFooter>
+        
+        <SidebarRail />
+      </Sidebar>
+    </ResizableSidebar>
   )
 }
