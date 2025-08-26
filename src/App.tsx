@@ -9,11 +9,19 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator 
 } from "@/components/ui/breadcrumb"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs"
 import { 
   GitBranch,
   Plus,
   Copy,
-  Bot
+  Bot,
+  Code,
+  MessageCircle
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
@@ -28,15 +36,15 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RecentProject } from "@/hooks/use-recent-projects"
 
-interface ProjectViewProps {
+interface ProjectCodeTabProps {
   project: RecentProject
   selectedAgent: string
   onAgentChange: (agent: string) => void
 }
 
-function ProjectView({ project, selectedAgent, onAgentChange }: ProjectViewProps) {
+function ProjectCodeTab({ project, selectedAgent, onAgentChange }: ProjectCodeTabProps) {
   return (
-    <div className="flex-1 p-6">
+    <div className="p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-start justify-between">
           <div>
@@ -124,12 +132,58 @@ function ProjectView({ project, selectedAgent, onAgentChange }: ProjectViewProps
   )
 }
 
+interface ProjectViewProps {
+  project: RecentProject
+  selectedAgent: string
+  onAgentChange: (agent: string) => void
+  activeTab: string
+  onTabChange: (tab: string) => void
+}
+
+function ProjectView({ project, selectedAgent, onAgentChange, activeTab, onTabChange }: ProjectViewProps) {
+  return (
+    <div className="flex-1 flex flex-col">
+      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col">
+        <div className="px-4 pt-4">
+          <TabsList className="grid w-full max-w-[400px] grid-cols-2">
+            <TabsTrigger value="code" className="flex items-center gap-2">
+              <Code className="h-4 w-4" />
+              Code
+            </TabsTrigger>
+            <TabsTrigger value="chat" className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4" />
+              Chat
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        
+        <TabsContent value="code" className="flex-1 m-0">
+          <ProjectCodeTab 
+            project={project} 
+            selectedAgent={selectedAgent}
+            onAgentChange={onAgentChange}
+          />
+        </TabsContent>
+        
+        <TabsContent value="chat" className="flex-1 m-0">
+          <ChatInterface
+            isOpen={true}
+            onToggle={() => {}} // Not needed in tab mode
+            selectedAgent={selectedAgent}
+            project={project}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
 function AppContent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
-  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<string>('code')
   const [selectedAgent, setSelectedAgent] = useState<string>('Claude Code CLI')
   const { showSuccess } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
@@ -180,14 +234,20 @@ function AppContent() {
 
   const handleProjectSelect = (project: RecentProject) => {
     setCurrentProject(project)
-    setIsChatOpen(true) // Auto-open chat when project is selected
+    setActiveTab('code') // Start with code tab when project is selected
     // Add project to recent list
     invoke('add_project_to_recent', { project_path: project.path }).catch(console.error)
   }
 
   const handleBackToWelcome = () => {
     setCurrentProject(null)
-    setIsChatOpen(false) // Close chat when going back to welcome
+    setActiveTab('code') // Reset to code tab when going back to welcome
+  }
+
+  const toggleChat = () => {
+    if (currentProject) {
+      setActiveTab(activeTab === 'chat' ? 'code' : 'chat')
+    }
   }
 
   const copyProjectPath = async () => {
@@ -224,14 +284,19 @@ function AppContent() {
 
   // Listen for global shortcut events
   useEffect(() => {
-    const unlisten = listen('shortcut://open-settings', () => {
+    const unlistenSettings = listen('shortcut://open-settings', () => {
       setIsSettingsOpen(true)
     })
 
+    const unlistenChat = listen('shortcut://toggle-chat', () => {
+      toggleChat()
+    })
+
     return () => {
-      unlisten.then(fn => fn())
+      unlistenSettings.then(fn => fn())
+      unlistenChat.then(fn => fn())
     }
-  }, [])
+  }, [activeTab, currentProject])
 
   return (
     <SidebarWidthProvider>
@@ -301,6 +366,8 @@ function AppContent() {
             project={currentProject} 
             selectedAgent={selectedAgent}
             onAgentChange={setSelectedAgent}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-4 pb-10">
@@ -361,16 +428,7 @@ function AppContent() {
         onSuccess={handleNewProjectSuccess}
       />
       
-      <AIAgentStatusBar />
-      
-      {/* Chat Interface - only show when a project is selected */}
-      {currentProject && (
-        <ChatInterface
-          isOpen={isChatOpen}
-          onToggle={() => setIsChatOpen(!isChatOpen)}
-          selectedAgent={selectedAgent}
-        />
-      )}
+      <AIAgentStatusBar onChatToggle={toggleChat} showChatButton={!!currentProject} />
       </SidebarProvider>
     </SidebarWidthProvider>
   )

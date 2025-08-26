@@ -4,6 +4,9 @@ use tauri::Emitter;
 use tauri_plugin_store::StoreExt;
 use std::path::Path;
 use std::fs;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use std::process::Stdio;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIAgent {
@@ -76,6 +79,22 @@ pub struct LLMSettings {
     pub system_prompt: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: String,
+    pub content: String,
+    pub role: String, // "user" or "assistant"
+    pub timestamp: i64,
+    pub agent: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamChunk {
+    pub session_id: String,
+    pub content: String,
+    pub finished: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenRouterModel {
     id: String,
@@ -97,6 +116,124 @@ struct OpenRouterResponse {
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+
+#[tauri::command]
+async fn execute_cli_command(
+    app: tauri::AppHandle,
+    session_id: String,
+    command: String,
+    args: Vec<String>,
+    working_dir: Option<String>,
+) -> Result<(), String> {
+    let app_clone = app.clone();
+    let session_id_clone = session_id.clone();
+    
+    tokio::spawn(async move {
+        let mut cmd = Command::new(&command);
+        cmd.args(&args)
+           .stdin(Stdio::null())
+           .stdout(Stdio::piped())
+           .stderr(Stdio::piped());
+           
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = app_clone.emit("cli-error", format!("Failed to start {}: {}", command, e));
+                return;
+            }
+        };
+        
+        // Stream stdout
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+            
+            while let Ok(Some(line)) = lines.next_line().await {
+                let chunk = StreamChunk {
+                    session_id: session_id_clone.clone(),
+                    content: line + "\n",
+                    finished: false,
+                };
+                let _ = app_clone.emit("cli-stream", chunk);
+            }
+        }
+        
+        // Stream stderr
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+            
+            while let Ok(Some(line)) = lines.next_line().await {
+                let chunk = StreamChunk {
+                    session_id: session_id_clone.clone(),
+                    content: format!("ERROR: {}\n", line),
+                    finished: false,
+                };
+                let _ = app_clone.emit("cli-stream", chunk);
+            }
+        }
+        
+        // Wait for process to complete
+        let status = match child.wait().await {
+            Ok(status) => status,
+            Err(_) => {
+                let _ = app_clone.emit("cli-error", "Failed to wait for process completion");
+                return;
+            }
+        };
+        
+        // Send completion signal
+        let final_chunk = StreamChunk {
+            session_id: session_id_clone,
+            content: if status.success() { 
+                "Command completed successfully.\n".to_string() 
+            } else { 
+                format!("Command failed with exit code: {:?}\n", status.code()) 
+            },
+            finished: true,
+        };
+        let _ = app_clone.emit("cli-stream", final_chunk);
+    });
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn execute_claude_command(
+    app: tauri::AppHandle,
+    session_id: String,
+    message: String,
+    working_dir: Option<String>,
+) -> Result<(), String> {
+    let args = vec![message];
+    execute_cli_command(app, session_id, "claude".to_string(), args, working_dir).await
+}
+
+#[tauri::command]
+async fn execute_codex_command(
+    app: tauri::AppHandle,
+    session_id: String,
+    message: String,
+    working_dir: Option<String>,
+) -> Result<(), String> {
+    let args = vec![message];
+    execute_cli_command(app, session_id, "codex".to_string(), args, working_dir).await
+}
+
+#[tauri::command]
+async fn execute_gemini_command(
+    app: tauri::AppHandle,
+    session_id: String,
+    message: String,
+    working_dir: Option<String>,
+) -> Result<(), String> {
+    let args = vec![message];
+    execute_cli_command(app, session_id, "gemini".to_string(), args, working_dir).await
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -858,6 +995,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet, 
             start_drag,
+            execute_cli_command,
+            execute_claude_command,
+            execute_codex_command,
+            execute_gemini_command,
             validate_git_repository_url,
             clone_repository,
             get_user_home_directory,
@@ -896,12 +1037,25 @@ pub fn run() {
             
             // Register Cmd+, shortcut for Settings on macOS
             let shortcut_manager = app.global_shortcut();
-            let shortcut = Shortcut::new(Some(tauri_plugin_global_shortcut::Modifiers::SUPER), tauri_plugin_global_shortcut::Code::Comma);
+            let settings_shortcut = Shortcut::new(Some(tauri_plugin_global_shortcut::Modifiers::SUPER), tauri_plugin_global_shortcut::Code::Comma);
             
-            shortcut_manager.on_shortcut(shortcut, move |app, _shortcut, event| {
+            shortcut_manager.on_shortcut(settings_shortcut, move |app, _shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
                     // Emit an event to the frontend to open settings
                     app.emit("shortcut://open-settings", ()).unwrap();
+                }
+            })?;
+            
+            // Register Cmd+Shift+P shortcut for Chat on macOS  
+            let chat_shortcut = Shortcut::new(
+                Some(tauri_plugin_global_shortcut::Modifiers::SUPER | tauri_plugin_global_shortcut::Modifiers::SHIFT), 
+                tauri_plugin_global_shortcut::Code::KeyP
+            );
+            
+            shortcut_manager.on_shortcut(chat_shortcut, move |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    // Emit an event to the frontend to toggle chat
+                    app.emit("shortcut://toggle-chat", ()).unwrap();
                 }
             })?;
             

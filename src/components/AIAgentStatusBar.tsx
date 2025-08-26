@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useSidebarWidth, COLLAPSED_SIDEBAR_WIDTH } from '@/contexts/sidebar-width-context';
 import { useSidebar } from '@/components/ui/sidebar';
+import { MessageCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface AIAgent {
   name: string;
@@ -17,7 +19,12 @@ interface AgentStatus {
   agents: AIAgent[];
 }
 
-export function AIAgentStatusBar() {
+interface AIAgentStatusBarProps {
+  onChatToggle?: () => void;
+  showChatButton?: boolean;
+}
+
+export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatusBarProps) {
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const { sidebarWidth } = useSidebarWidth();
   const { state } = useSidebar();
@@ -91,6 +98,20 @@ export function AIAgentStatusBar() {
       style={{ left: `${actualSidebarWidth}px` }}
     >
       <div className="flex items-center gap-4">
+        {showChatButton && onChatToggle && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onChatToggle}
+              className="h-5 px-2 text-xs text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800"
+            >
+              <MessageCircle className="h-3 w-3 mr-1" />
+              Chat
+            </Button>
+            <div className="w-px h-3 bg-neutral-700" />
+          </>
+        )}
         <span className="text-neutral-400">Agents:</span>
         {agents.map((agent) => {
           const status = getAgentStatus(agent);
