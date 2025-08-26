@@ -713,6 +713,80 @@ async fn refresh_recent_projects(app: tauri::AppHandle) -> Result<Vec<RecentProj
 }
 
 #[tauri::command]
+async fn check_project_name_conflict(projects_folder: String, project_name: String) -> Result<bool, String> {
+    let project_path = std::path::Path::new(&projects_folder).join(&project_name);
+    Ok(project_path.exists())
+}
+
+#[tauri::command]
+async fn create_new_project_with_git(projects_folder: String, project_name: String) -> Result<String, String> {
+    use std::process::Stdio;
+    
+    let project_path = std::path::Path::new(&projects_folder).join(&project_name);
+    let project_path_str = project_path.to_string_lossy().to_string();
+    
+    // Check if project already exists
+    if project_path.exists() {
+        return Err(format!("A project named '{}' already exists", project_name));
+    }
+    
+    // Create the directory
+    std::fs::create_dir_all(&project_path)
+        .map_err(|e| format!("Failed to create project directory: {}", e))?;
+    
+    // Initialize git repository
+    let git_init = tokio::process::Command::new("git")
+        .args(&["init"])
+        .current_dir(&project_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to initialize git repository: {}", e))?;
+    
+    if !git_init.status.success() {
+        let stderr = String::from_utf8_lossy(&git_init.stderr);
+        return Err(format!("Git init failed: {}", stderr));
+    }
+    
+    // Create README.md file
+    let readme_content = format!("# {}\n\nA new project created with Commander.\n", project_name);
+    let readme_path = project_path.join("README.md");
+    std::fs::write(&readme_path, readme_content)
+        .map_err(|e| format!("Failed to create README.md: {}", e))?;
+    
+    // Stage and commit the README
+    let git_add = tokio::process::Command::new("git")
+        .args(&["add", "README.md"])
+        .current_dir(&project_path)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to stage README: {}", e))?;
+    
+    if !git_add.status.success() {
+        let stderr = String::from_utf8_lossy(&git_add.stderr);
+        return Err(format!("Git add failed: {}", stderr));
+    }
+    
+    let git_commit = tokio::process::Command::new("git")
+        .args(&["commit", "-m", "Initial commit with README"])
+        .current_dir(&project_path)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to commit README: {}", e))?;
+    
+    if !git_commit.status.success() {
+        let stderr = String::from_utf8_lossy(&git_commit.stderr);
+        return Err(format!("Git commit failed: {}", stderr));
+    }
+    
+    Ok(project_path_str)
+}
+
+#[tauri::command]
 async fn get_default_llm_settings() -> Result<LLMSettings, String> {
     let mut providers = HashMap::new();
     
@@ -806,7 +880,9 @@ pub fn run() {
             load_agent_settings,
             list_recent_projects,
             add_project_to_recent,
-            refresh_recent_projects
+            refresh_recent_projects,
+            check_project_name_conflict,
+            create_new_project_with_git
         ])
         .setup(|app| {
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};

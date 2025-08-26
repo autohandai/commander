@@ -137,8 +137,12 @@ export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProject
                             }
                           }}
                           title={`${project.path}${project.git_branch ? ` (${project.git_branch})` : ''}`}
-                          className={currentProject?.path === project.path ? 'bg-accent text-accent-foreground' : ''}
+                          className={`relative ${currentProject?.path === project.path ? 'bg-primary text-primary-foreground font-medium' : ''}`}
                         >
+                          {/* Active project indicator */}
+                          {currentProject?.path === project.path && (
+                            <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-1 h-6 bg-primary-foreground rounded-r-full"></div>
+                          )}
                           {project.is_git_repo ? (
                             <FolderGit className="size-4" />
                           ) : (

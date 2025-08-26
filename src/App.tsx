@@ -12,7 +12,8 @@ import {
 import { 
   GitBranch,
   Plus,
-  Copy
+  Copy,
+  Bot
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
@@ -22,20 +23,40 @@ import { CloneRepositoryModal } from "@/components/CloneRepositoryModal"
 import { NewProjectModal } from "@/components/NewProjectModal"
 import { ToastProvider, useToast } from "@/components/ToastProvider"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
+import { ChatInterface } from "@/components/ChatInterface"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RecentProject } from "@/hooks/use-recent-projects"
 
 interface ProjectViewProps {
   project: RecentProject
+  selectedAgent: string
+  onAgentChange: (agent: string) => void
 }
 
-function ProjectView({ project }: ProjectViewProps) {
+function ProjectView({ project, selectedAgent, onAgentChange }: ProjectViewProps) {
   return (
     <div className="flex-1 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">{project.name}</h1>
-          <p className="text-muted-foreground mt-2">{project.path}</p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">{project.name}</h1>
+            <p className="text-muted-foreground mt-2">{project.path}</p>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-muted-foreground" />
+            <Select value={selectedAgent} onValueChange={onAgentChange}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Select AI Agent" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Claude Code CLI">Claude Code CLI</SelectItem>
+                <SelectItem value="Codex">Codex</SelectItem>
+                <SelectItem value="Gemini">Gemini</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -108,6 +129,8 @@ function AppContent() {
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [selectedAgent, setSelectedAgent] = useState<string>('Claude Code CLI')
   const { showSuccess } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
 
@@ -135,22 +158,36 @@ function AppContent() {
     }
   }
 
-  const handleNewProjectSuccess = () => {
+  const handleNewProjectSuccess = (projectPath: string) => {
     showSuccess('Project created successfully!', 'Project Created')
     // Refresh projects list to show the newly created project
     if (projectsRefreshRef.current?.refresh) {
       projectsRefreshRef.current.refresh()
     }
+    
+    // Set the newly created project as active
+    // Create a temporary project object for immediate display
+    const newProject: RecentProject = {
+      name: projectPath.split('/').pop() || 'New Project',
+      path: projectPath,
+      last_accessed: Math.floor(Date.now() / 1000), // Convert to Unix timestamp
+      is_git_repo: true, // We know it's a git repo since we created it
+      git_branch: 'main', // Default branch name
+      git_status: 'clean'
+    }
+    setCurrentProject(newProject)
   }
 
   const handleProjectSelect = (project: RecentProject) => {
     setCurrentProject(project)
+    setIsChatOpen(true) // Auto-open chat when project is selected
     // Add project to recent list
     invoke('add_project_to_recent', { project_path: project.path }).catch(console.error)
   }
 
   const handleBackToWelcome = () => {
     setCurrentProject(null)
+    setIsChatOpen(false) // Close chat when going back to welcome
   }
 
   const copyProjectPath = async () => {
@@ -260,7 +297,11 @@ function AppContent() {
           </div>
         </header>
 {currentProject ? (
-          <ProjectView project={currentProject} />
+          <ProjectView 
+            project={currentProject} 
+            selectedAgent={selectedAgent}
+            onAgentChange={setSelectedAgent}
+          />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-4 pb-10">
             <div className="max-w-2xl w-full space-y-8">
@@ -321,6 +362,15 @@ function AppContent() {
       />
       
       <AIAgentStatusBar />
+      
+      {/* Chat Interface - only show when a project is selected */}
+      {currentProject && (
+        <ChatInterface
+          isOpen={isChatOpen}
+          onToggle={() => setIsChatOpen(!isChatOpen)}
+          selectedAgent={selectedAgent}
+        />
+      )}
       </SidebarProvider>
     </SidebarWidthProvider>
   )
