@@ -19,9 +19,10 @@ import {
   GitBranch,
   Plus,
   Copy,
-  Bot,
   Code,
-  MessageCircle
+  MessageCircle,
+  FolderOpen,
+  CheckSquare
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
@@ -32,105 +33,12 @@ import { NewProjectModal } from "@/components/NewProjectModal"
 import { ToastProvider, useToast } from "@/components/ToastProvider"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
 import { ChatInterface } from "@/components/ChatInterface"
+import { CodeView } from "@/components/CodeView"
+import { TasksView } from "@/components/TasksView"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RecentProject } from "@/hooks/use-recent-projects"
+import type { MenuEventPayload } from "@/types/menu"
 
-interface ProjectCodeTabProps {
-  project: RecentProject
-  selectedAgent: string
-  onAgentChange: (agent: string) => void
-}
-
-function ProjectCodeTab({ project, selectedAgent, onAgentChange }: ProjectCodeTabProps) {
-  return (
-    <div className="p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">{project.name}</h1>
-            <p className="text-muted-foreground mt-2">{project.path}</p>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Bot className="h-4 w-4 text-muted-foreground" />
-            <Select value={selectedAgent} onValueChange={onAgentChange}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select AI Agent" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Claude Code CLI">Claude Code CLI</SelectItem>
-                <SelectItem value="Codex">Codex</SelectItem>
-                <SelectItem value="Gemini">Gemini</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="p-4 rounded-lg border bg-card">
-            <h3 className="font-semibold mb-2">Project Type</h3>
-            <div className="flex items-center gap-2">
-              {project.is_git_repo ? (
-                <>
-                  <GitBranch className="h-4 w-4" />
-                  <span>Git Repository</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4" />
-                  <span>Regular Folder</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          {project.git_branch && (
-            <div className="p-4 rounded-lg border bg-card">
-              <h3 className="font-semibold mb-2">Current Branch</h3>
-              <div className="flex items-center gap-2">
-                <GitBranch className="h-4 w-4" />
-                <span>{project.git_branch}</span>
-                {project.git_status === 'dirty' && (
-                  <span className="text-orange-500 text-xs">• Modified</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="p-4 rounded-lg border bg-card">
-            <h3 className="font-semibold mb-2">Last Accessed</h3>
-            <p className="text-sm text-muted-foreground">
-              {new Date(project.last_accessed * 1000).toLocaleString()}
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-lg border bg-card">
-          <h3 className="font-semibold mb-4">Project Actions</h3>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline">
-              Open in File Manager
-            </Button>
-            <Button variant="outline">
-              Open in Terminal
-            </Button>
-            {project.is_git_repo && (
-              <>
-                <Button variant="outline">
-                  Git Status
-                </Button>
-                <Button variant="outline">
-                  View Commits
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 interface ProjectViewProps {
   project: RecentProject
@@ -140,38 +48,42 @@ interface ProjectViewProps {
   onTabChange: (tab: string) => void
 }
 
-function ProjectView({ project, selectedAgent, onAgentChange, activeTab, onTabChange }: ProjectViewProps) {
+function ProjectView({ project, selectedAgent, activeTab, onTabChange }: ProjectViewProps) {
   return (
-    <div className="flex-1 flex flex-col">
-      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col h-full">
+      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col h-full">
         <div className="px-4 pt-4">
-          <TabsList className="grid w-full max-w-[400px] grid-cols-2">
-            <TabsTrigger value="code" className="flex items-center gap-2">
-              <Code className="h-4 w-4" />
-              Code
-            </TabsTrigger>
+          <TabsList className="grid w-full max-w-[600px] grid-cols-3">
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <MessageCircle className="h-4 w-4" />
               Chat
             </TabsTrigger>
+            <TabsTrigger value="code" className="flex items-center gap-2">
+              <Code className="h-4 w-4" />
+              Code
+            </TabsTrigger>
+            <TabsTrigger value="tasks" className="flex items-center gap-2">
+              <CheckSquare className="h-4 w-4" />
+              Tasks
+            </TabsTrigger>
           </TabsList>
         </div>
         
-        <TabsContent value="code" className="flex-1 m-0">
-          <ProjectCodeTab 
-            project={project} 
-            selectedAgent={selectedAgent}
-            onAgentChange={onAgentChange}
-          />
-        </TabsContent>
-        
-        <TabsContent value="chat" className="flex-1 m-0">
+        <TabsContent value="chat" className="flex-1 m-0 h-full">
           <ChatInterface
             isOpen={true}
             onToggle={() => {}} // Not needed in tab mode
             selectedAgent={selectedAgent}
             project={project}
           />
+        </TabsContent>
+        
+        <TabsContent value="code" className="flex-1 m-0">
+          <CodeView project={project} />
+        </TabsContent>
+        
+        <TabsContent value="tasks" className="flex-1 m-0 h-full">
+          <TasksView project={project} />
         </TabsContent>
       </Tabs>
     </div>
@@ -183,9 +95,9 @@ function AppContent() {
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
-  const [activeTab, setActiveTab] = useState<string>('code')
+  const [activeTab, setActiveTab] = useState<string>('chat')
   const [selectedAgent, setSelectedAgent] = useState<string>('Claude Code CLI')
-  const { showSuccess } = useToast()
+  const { showSuccess, showError } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
 
   const handleDragStart = async (e: React.MouseEvent) => {
@@ -212,12 +124,55 @@ function AppContent() {
     }
   }
 
+  const handleOpenProject = async () => {
+    try {
+      console.log('📂 Opening git project selection dialog...')
+      const selectedPath = await invoke('select_git_project_folder') as string | null
+      
+      if (selectedPath) {
+        console.log('📁 Git project selected:', selectedPath)
+        
+        // Create a project object from the selected folder
+        const projectName = selectedPath.split('/').pop() || 'Opened Project'
+        const newProject: RecentProject = {
+          name: projectName,
+          path: selectedPath,
+          last_accessed: Math.floor(Date.now() / 1000),
+          is_git_repo: true, // We know it's a git repo because we validated it
+          git_branch: null, // Will be updated by backend when added to recent
+          git_status: null
+        }
+        
+        // Add to recent projects and set as current
+        await invoke('add_project_to_recent', { project_path: selectedPath })
+        setCurrentProject(newProject)
+        
+        // Refresh projects list
+        if (projectsRefreshRef.current?.refresh) {
+          projectsRefreshRef.current.refresh()
+        }
+        
+        showSuccess('Git project opened successfully!', 'Project Opened')
+      }
+    } catch (error) {
+      console.error('❌ Failed to open git project:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to open project folder'
+      showError(errorMessage, 'Error')
+    }
+  }
+
   const handleNewProjectSuccess = (projectPath: string) => {
     showSuccess('Project created successfully!', 'Project Created')
-    // Refresh projects list to show the newly created project
-    if (projectsRefreshRef.current?.refresh) {
-      projectsRefreshRef.current.refresh()
-    }
+    
+    // Add the project to recent list first
+    invoke('add_project_to_recent', { project_path: projectPath })
+      .catch(console.error)
+      .then(() => {
+        // Refresh projects list to show the newly created project
+        if (projectsRefreshRef.current?.refresh) {
+          projectsRefreshRef.current.refresh()
+        }
+      })
     
     // Set the newly created project as active
     // Create a temporary project object for immediate display
@@ -282,7 +237,7 @@ function AppContent() {
     }))
   }
 
-  // Listen for global shortcut events
+  // Listen for global shortcut and menu events
   useEffect(() => {
     const unlistenSettings = listen('shortcut://open-settings', () => {
       setIsSettingsOpen(true)
@@ -292,11 +247,77 @@ function AppContent() {
       toggleChat()
     })
 
+    // Menu event listeners
+    const unlistenMenuNewProject = listen<MenuEventPayload<'menu://new-project'>>('menu://new-project', () => {
+      setIsNewProjectModalOpen(true)
+    })
+
+    const unlistenMenuCloneProject = listen<MenuEventPayload<'menu://clone-project'>>('menu://clone-project', () => {
+      setIsCloneModalOpen(true)
+    })
+
+    const unlistenMenuOpenProject = listen<MenuEventPayload<'menu://open-project'>>('menu://open-project', async (event) => {
+      try {
+        // Handle opening project from menu
+        console.log('Opening project from menu:', event.payload)
+        
+        if (event.payload && typeof event.payload === 'string') {
+          const projectPath = event.payload
+          console.log('📁 Project opened via menu:', projectPath)
+          
+          // Create a project object from the selected folder
+          const projectName = projectPath.split('/').pop() || 'Opened Project'
+          const newProject: RecentProject = {
+            name: projectName,
+            path: projectPath,
+            last_accessed: Math.floor(Date.now() / 1000),
+            is_git_repo: true, // We know it's a git repo because backend validated it
+            git_branch: null, // Will be updated by backend when added to recent
+            git_status: null
+          }
+          
+          // Set as current project
+          setCurrentProject(newProject)
+          setActiveTab('code') // Start with code tab
+          
+          // Refresh projects list to show the newly opened project
+          if (projectsRefreshRef.current?.refresh) {
+            projectsRefreshRef.current.refresh()
+          }
+          
+          showSuccess('Git project opened successfully!', 'Project Opened')
+        } else {
+          // Just refresh if no path (user cancelled)
+          projectsRefreshRef.current?.refresh()
+        }
+      } catch (error) {
+        console.error('❌ Failed to handle menu project opening:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Failed to open project from menu'
+        showError(errorMessage, 'Menu Error')
+      }
+    })
+
+    const unlistenMenuCloseProject = listen<MenuEventPayload<'menu://close-project'>>('menu://close-project', () => {
+      setCurrentProject(null)
+    })
+
+    const unlistenMenuDeleteProject = listen<MenuEventPayload<'menu://delete-project'>>('menu://delete-project', () => {
+      if (currentProject) {
+        // TODO: Implement delete project confirmation dialog
+        console.log('Delete project requested:', currentProject.name)
+      }
+    })
+
     return () => {
       unlistenSettings.then(fn => fn())
       unlistenChat.then(fn => fn())
+      unlistenMenuNewProject.then(fn => fn())
+      unlistenMenuCloneProject.then(fn => fn())
+      unlistenMenuOpenProject.then(fn => fn())
+      unlistenMenuCloseProject.then(fn => fn())
+      unlistenMenuDeleteProject.then(fn => fn())
     }
-  }, [activeTab, currentProject])
+  }, [activeTab, currentProject, toggleChat])
 
   return (
     <SidebarWidthProvider>
@@ -309,20 +330,20 @@ function AppContent() {
           currentProject={currentProject}
           onHomeClick={handleBackToWelcome}
         />
-        <SidebarInset>
+        <SidebarInset className="flex flex-col h-screen">
         {/* Title bar drag area */}
         <div 
-          className="h-10 w-full drag-area" 
+          className="h-6 w-full drag-area" 
           data-tauri-drag-region
           onMouseDown={handleDragStart}
         ></div>
         
         <header 
-          className="flex h-12 shrink-0 items-center gap-2 border-b w-full drag-fallback" 
+          className="flex h-10 shrink-0 items-center gap-2 border-b w-full drag-fallback" 
           data-tauri-drag-region
           onMouseDown={handleDragStart}
         >
-          <div className="flex items-center gap-2 px-3 w-full">
+          <div className="flex items-center gap-2 px-2 w-full">
             <SidebarTrigger className="no-drag" />
             <Separator orientation="vertical" className="mr-2 h-4" />
             <Breadcrumb>
@@ -361,16 +382,17 @@ function AppContent() {
             <div className="flex-1" data-tauri-drag-region></div>
           </div>
         </header>
-{currentProject ? (
-          <ProjectView 
-            project={currentProject} 
-            selectedAgent={selectedAgent}
-            onAgentChange={setSelectedAgent}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 pb-10">
+        <div className="flex-1 flex flex-col min-h-0">
+          {currentProject ? (
+            <ProjectView 
+              project={currentProject} 
+              selectedAgent={selectedAgent}
+              onAgentChange={setSelectedAgent}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center p-4 pb-10">
             <div className="max-w-2xl w-full space-y-8">
               <div className="text-center space-y-2">
                 <h1 className="text-4xl font-bold tracking-tight">Welcome to Commander</h1>
@@ -405,10 +427,24 @@ function AppContent() {
                     <p className="text-xs text-muted-foreground">Start from scratch</p>
                   </div>
                 </button>
+
+                <button 
+                  onClick={handleOpenProject}
+                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
+                >
+                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
+                    <FolderOpen className="h-8 w-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold">Open Git Project</p>
+                    <p className="text-xs text-muted-foreground">Open existing git repository</p>
+                  </div>
+                </button>
               </div>
             </div>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </SidebarInset>
       
       <SettingsModal 

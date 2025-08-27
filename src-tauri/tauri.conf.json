@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Commander",
+        "title": "Autohand.ai - Commander",
         "width": 1280,
         "height": 800,
         "minWidth": 800,

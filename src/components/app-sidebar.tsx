@@ -70,7 +70,7 @@ export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProject
       <Sidebar variant="sidebar" className="flex flex-col" {...props}>
         {/* Sidebar title bar drag area - matching the main content */}
         <div 
-          className="h-10 w-full drag-area" 
+          className="h-7 w-full drag-area" 
           data-tauri-drag-region
           onMouseDown={handleDragStart}
         ></div>
