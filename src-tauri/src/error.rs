@@ -264,6 +264,7 @@ impl From<CommanderError> for String {
 }
 
 /// Result type alias for Commander operations
+#[allow(dead_code)] // Used in tests
 pub type CommanderResult<T> = Result<T, CommanderError>;
 
 /// Helper macros for creating errors quickly

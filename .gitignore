@@ -30,4 +30,6 @@ dist-ssr
 .env.development
 .env.production
 .env.test
+user_prompts/
 CLAUDE.md
+CHANGE_LOG.md

@@ -143,8 +143,8 @@ function AppContent() {
           git_status: null
         }
         
-        // Add to recent projects and set as current
-        await invoke('add_project_to_recent', { project_path: selectedPath })
+        // Open via backend (validates, sets cwd, updates recents w/ dedup)
+        await invoke('open_existing_project', { project_path: selectedPath, projectPath: selectedPath })
         setCurrentProject(newProject)
         
         // Refresh projects list
@@ -190,8 +190,8 @@ function AppContent() {
   const handleProjectSelect = (project: RecentProject) => {
     setCurrentProject(project)
     setActiveTab('code') // Start with code tab when project is selected
-    // Add project to recent list
-    invoke('add_project_to_recent', { project_path: project.path }).catch(console.error)
+    // Ensure backend marks it active and updates recents
+    invoke('open_existing_project', { project_path: project.path, projectPath: project.path }).catch(console.error)
   }
 
   const handleBackToWelcome = () => {

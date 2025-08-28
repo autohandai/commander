@@ -300,6 +300,14 @@ pub async fn clear_recent_projects(app: tauri::AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub async fn open_existing_project(
+    app: tauri::AppHandle,
+    project_path: String,
+) -> Result<crate::models::RecentProject, String> {
+    project_service::open_existing_project(&app, project_path).await
+}
+
+#[tauri::command]
 pub async fn check_project_name_conflict(projects_folder: String, project_name: String) -> Result<bool, String> {
     Ok(project_service::check_project_name_conflict(&projects_folder, &project_name))
 }

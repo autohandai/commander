@@ -1,8 +1,6 @@
-use std::path::Path;
 use tauri::Emitter;
 
-use crate::commands::project_commands::add_project_to_recent;
-use crate::commands::git_commands::is_valid_git_repository;
+use crate::commands::project_commands::open_existing_project as cmd_open_existing_project;
 
 // Menu command handlers
 #[tauri::command]
@@ -47,18 +45,15 @@ pub async fn menu_open_project(app: tauri::AppHandle) -> Result<(), String> {
                 tauri_plugin_dialog::FilePath::Path(p) => p.to_string_lossy().to_string(),
                 tauri_plugin_dialog::FilePath::Url(u) => u.to_string(),
             };
-            
-            // Validate that the selected folder is a git repository
-            let selected_path = Path::new(&path_str);
-            if !is_valid_git_repository(selected_path) {
-                return Err("Selected folder is not a valid git repository. Please select a folder containing a .git directory.".to_string());
+
+            // Delegate to backend service via command: validates, sets cwd, dedups + persists recent
+            match cmd_open_existing_project(app.clone(), path_str.clone()).await {
+                Ok(_recent) => {
+                    // Emit event to frontend with selected project path
+                    app.emit("menu://open-project", path_str).map_err(|e| e.to_string())?;
+                },
+                Err(e) => return Err(e),
             }
-            
-            // Add to recent projects
-            let _ = add_project_to_recent(app.clone(), path_str.clone()).await;
-            
-            // Emit event to frontend with selected project path
-            app.emit("menu://open-project", path_str).map_err(|e| e.to_string())?;
         },
         Ok(None) => {
             // User cancelled

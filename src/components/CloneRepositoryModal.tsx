@@ -211,11 +211,11 @@ export function CloneRepositoryModal({
       // Step 4: Complete
       updateStepStatus(3, 'running', 'Finalizing setup...')
       
-      // Add the newly cloned project to recent projects
+      // Open the newly cloned project via backend (validates, sets cwd, updates recents w/ dedup)
       try {
-        await invoke('add_project_to_recent', { project_path: localPath })
+        await invoke('open_existing_project', { projectPath: localPath, project_path: localPath })
       } catch (err) {
-        console.warn('Failed to add project to recent list:', err)
+        console.warn('Failed to open cloned project in backend:', err)
         // Don't fail the whole operation if this fails
       }
       

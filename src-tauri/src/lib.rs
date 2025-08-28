@@ -61,16 +61,6 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
             .build(app)?)
         .build()?;
     
-    // Create Edit submenu for standard editing commands
-    let edit_submenu = SubmenuBuilder::new(app, "Edit")
-        .item(&PredefinedMenuItem::undo(app, None)?)
-        .item(&PredefinedMenuItem::redo(app, None)?)
-        .separator()
-        .item(&PredefinedMenuItem::cut(app, None)?)
-        .item(&PredefinedMenuItem::copy(app, None)?)
-        .item(&PredefinedMenuItem::paste(app, None)?)
-        .item(&PredefinedMenuItem::select_all(app, None)?)
-        .build()?;
     
     // Create Help submenu
     let help_submenu = SubmenuBuilder::new(app, "Help")
@@ -87,8 +77,7 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
     let menu = MenuBuilder::new(app)
         .item(&app_submenu)        // Commander menu (first)
         .item(&projects_submenu)   // Projects menu (second)
-        .item(&edit_submenu)       // Edit menu (third)
-        .item(&help_submenu)       // Help menu (fourth)
+        .item(&help_submenu)       // Help menu (third)
         .build()?;
     
     Ok(menu)
@@ -148,6 +137,7 @@ pub fn run() {
             add_project_to_recent,
             refresh_recent_projects,
             clear_recent_projects,
+            open_existing_project,
             check_project_name_conflict,
             create_new_project_with_git,
             get_git_global_config,
