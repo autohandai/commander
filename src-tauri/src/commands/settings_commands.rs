@@ -32,11 +32,7 @@ pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, Str
         },
         None => {
             // Return default settings
-            Ok(AppSettings {
-                show_console_output: true,
-                projects_folder: None,
-                file_mentions_enabled: true,
-            })
+            Ok(AppSettings::default())
         },
     }
 }

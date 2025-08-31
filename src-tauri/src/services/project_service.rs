@@ -31,16 +31,16 @@ pub fn check_project_name_conflict(projects_folder: &str, project_name: &str) ->
 
 /// Add a project to the recent projects list
 pub async fn add_project_to_recent_projects(app: &tauri::AppHandle, project_path: String) -> Result<(), String> {
-    // Align with commands recent projects store
+    // Align with commands recent projects store: keep "projects" as an ARRAY of RecentProject
     let store = app
         .store("recent-projects.json")
         .map_err(|e| format!("Failed to access recent projects store: {}", e))?;
-    
-    // Get existing projects
-    let mut projects_data: ProjectsData = store
+
+    // Get existing projects as an array for consistent schema
+    let mut existing: Vec<RecentProject> = store
         .get("projects")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or(ProjectsData { projects: vec![] });
+        .unwrap_or_default();
 
     // Create new recent project entry
     let project_name = Path::new(&project_path)
@@ -71,12 +71,11 @@ pub async fn add_project_to_recent_projects(app: &tauri::AppHandle, project_path
     };
 
     // Dedup, MRU insert, and cap at 20
-    projects_data.projects = upsert_recent_projects(projects_data.projects, new_project, 20);
+    existing = upsert_recent_projects(existing, new_project, 20);
 
-    // Save back to store
-    let serialized = serde_json::to_value(&projects_data)
+    // Save back to store as array (consistent with list_recent_projects and open_existing_project)
+    let serialized = serde_json::to_value(&existing)
         .map_err(|e| format!("Failed to serialize projects: {}", e))?;
-    
     store.set("projects", serialized);
     store.save().map_err(|e| format!("Failed to save store: {}", e))?;
 

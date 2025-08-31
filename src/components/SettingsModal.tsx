@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard } from "lucide-react"
+import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard, Code2, MessageSquare } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { 
@@ -8,7 +8,9 @@ import {
   GitSettings,
   AgentSettings,
   LLMSettings,
-  ShortCutsUISettings
+  ShortCutsUISettings,
+  CodeSettings,
+  PromptsUISettings
 } from "@/components/settings"
 import {
   Dialog,
@@ -68,7 +70,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [fetchingAgentModels, setFetchingAgentModels] = useState<Record<string, boolean>>({})
   const [agentSettingsLoading, setAgentSettingsLoading] = useState(true)
   const [agentSettingsError, setAgentSettingsError] = useState<string | null>(null)
-  
+
+  // Code settings
+  const [codeTheme, setCodeTheme] = useState<string>('github')
+  const [tempCodeTheme, setTempCodeTheme] = useState<string>('github')
+  const [codeFontSize, setCodeFontSize] = useState<number>(14)
+  const [tempCodeFontSize, setTempCodeFontSize] = useState<number>(14)
+
   // Git-related state
   const [gitConfig, setGitConfig] = useState<{
     global: Record<string, string>
@@ -91,7 +99,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         
         // Load app settings with error handling
         try {
-          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean }>('get_app_settings')
+          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, code_settings?: { theme: string, font_size: number } }>('load_app_settings')
           console.log('✅ App settings loaded:', appSettings)
           if (appSettings) {
             setShowConsoleOutput(appSettings.show_console_output)
@@ -102,6 +110,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               setDefaultProjectsFolder(appSettings.projects_folder)
               setTempDefaultProjectsFolder(appSettings.projects_folder)
             }
+            const code = appSettings.code_settings || { theme: 'github', font_size: 14 }
+            setCodeTheme(code.theme)
+            setTempCodeTheme(code.theme)
+            setCodeFontSize(code.font_size)
+            setTempCodeFontSize(code.font_size)
           }
         } catch (appError) {
           console.warn('⚠️ Failed to load app settings (using defaults):', appError)
@@ -124,7 +137,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         
         // Load agent settings
         try {
-          const agents = await invoke<Record<string, boolean> | null>('get_agent_settings')
+          const agents = await invoke<Record<string, boolean> | null>('load_agent_settings')
           console.log('🤖 Agent settings loaded:', agents)
           if (agents) {
             setAgentSettings(agents)
@@ -155,7 +168,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setAgentSettingsError(null)
         console.log('🔄 Loading all agent settings...')
         
-        const allSettings = await invoke<any>('get_all_agent_settings')
+        const allSettings = await invoke<any>('load_all_agent_settings')
         console.log('🤖 All agent settings loaded:', allSettings)
         
         if (allSettings && typeof allSettings === 'object') {
@@ -223,6 +236,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       tempDefaultProjectsFolder !== defaultProjectsFolder ||
       tempShowConsoleOutput !== showConsoleOutput ||
       tempFileMentionsEnabled !== fileMentionsEnabled ||
+      tempCodeTheme !== codeTheme ||
+      tempCodeFontSize !== codeFontSize ||
       JSON.stringify(tempAgentSettings) !== JSON.stringify(agentSettings) ||
       (tempAllAgentSettings && allAgentSettings && JSON.stringify(tempAllAgentSettings) !== JSON.stringify(allAgentSettings))
     
@@ -373,7 +388,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       const appSettings = {
         show_console_output: tempShowConsoleOutput,
         projects_folder: tempDefaultProjectsFolder,
-        file_mentions_enabled: tempFileMentionsEnabled
+        file_mentions_enabled: tempFileMentionsEnabled,
+        code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize }
       }
       await invoke('save_app_settings', { settings: appSettings })
       
@@ -391,6 +407,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setShowConsoleOutput(tempShowConsoleOutput)
       setFileMentionsEnabled(tempFileMentionsEnabled)
       setDefaultProjectsFolder(tempDefaultProjectsFolder)
+      setCodeTheme(tempCodeTheme)
+      setCodeFontSize(tempCodeFontSize)
       setAgentSettings(tempAgentSettings)
       setAllAgentSettings(tempAllAgentSettings)
       
@@ -413,6 +431,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTempDefaultProjectsFolder(defaultProjectsFolder)
     setTempShowConsoleOutput(showConsoleOutput)
     setTempFileMentionsEnabled(fileMentionsEnabled)
+    setTempCodeTheme(codeTheme)
+    setTempCodeFontSize(codeFontSize)
     setTempAgentSettings({ ...agentSettings })
     if (allAgentSettings) {
       setTempAllAgentSettings({ ...allAgentSettings })
@@ -428,6 +448,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       icon: Monitor,
     },
     {
+      id: 'code' as const,
+      label: 'Code',
+      icon: Code2,
+    },
+    {
       id: 'git' as const,
       label: 'Git',
       icon: GitBranch,
@@ -436,6 +461,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       id: 'chat' as const,
       label: 'Chat',
       icon: MessageCircle,
+    },
+    {
+      id: 'prompts' as const,
+      label: 'Prompts',
+      icon: MessageSquare,
     },
     {
       id: 'shortcuts' as const,
@@ -548,12 +578,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   onToggleWorktree={handleGitWorktreeToggle}
                 />
               )}
+              {activeTab === 'code' && (
+                <CodeSettings />
+              )}
               {activeTab === 'chat' && (
                 <ChatSettings
                   tempFileMentionsEnabled={tempFileMentionsEnabled}
                   onFileMentionsChange={setTempFileMentionsEnabled}
                 />
               )}
+              {activeTab === 'prompts' && <PromptsUISettings />}
               {activeTab === 'shortcuts' && <ShortCutsUISettings />}
               {activeTab === 'agents' && (
                 <AgentSettings
@@ -587,6 +621,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   onUpdateSelectedModel={handleUpdateSelectedModel}
                   onSaveApiKey={handleSaveApiKey}
                   onTempApiKeyChange={handleTempApiKeyChange}
+                  onUpdateSystemPrompt={updateSystemPrompt}
                 />
               )}
             </div>

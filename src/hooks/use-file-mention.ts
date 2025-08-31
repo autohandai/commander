@@ -78,7 +78,12 @@ export const useFileMention = (): UseFileMentionReturn => {
         maxDepth: options?.max_depth,
       });
 
-      setFiles(listing.files);
+      // Ensure extension is populated for UI consumers
+      const filesWithExt = listing.files.map((f) => ({
+        ...f,
+        extension: f.extension ?? (f.name.includes('.') ? f.name.split('.').pop()?.toLowerCase() : undefined),
+      }))
+      setFiles(filesWithExt);
       setCurrentDirectoryState(listing.current_directory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to list files';
@@ -109,7 +114,11 @@ export const useFileMention = (): UseFileMentionReturn => {
         maxDepth: options?.max_depth,
       });
 
-      setFiles(listing.files);
+      const filesWithExt = listing.files.map((f) => ({
+        ...f,
+        extension: f.extension ?? (f.name.includes('.') ? f.name.split('.').pop()?.toLowerCase() : undefined),
+      }))
+      setFiles(filesWithExt);
       setCurrentDirectoryState(listing.current_directory);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to search files';

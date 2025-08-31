@@ -7,6 +7,8 @@ pub mod session_commands;
 pub mod file_commands;
 pub mod settings_commands;
 pub mod menu_commands;
+pub mod prompt_commands;
+pub mod sub_agent_commands;
 
 // Re-export all command functions for easy access
 pub use cli_commands::*;
@@ -17,3 +19,5 @@ pub use session_commands::*;
 pub use file_commands::*;
 pub use settings_commands::*;
 pub use menu_commands::*;
+pub use prompt_commands::*;
+pub use sub_agent_commands::*;

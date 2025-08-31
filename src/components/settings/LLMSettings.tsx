@@ -1,10 +1,11 @@
-import { ExternalLink, RefreshCw, CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-react"
+import { ExternalLink, RefreshCw, CheckCircle, XCircle, AlertCircle, Loader2, MessageSquare } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
 import type { LLMSettingsProps } from "@/types/settings"
 
 export function LLMSettings({
@@ -22,7 +23,8 @@ export function LLMSettings({
   onOpenOllamaWebsite,
   onUpdateSelectedModel,
   onSaveApiKey,
-  onTempApiKeyChange
+  onTempApiKeyChange,
+  onUpdateSystemPrompt
 }: LLMSettingsProps) {
   if (loading) {
     return (
@@ -84,6 +86,31 @@ export function LLMSettings({
 
   return (
     <div className="space-y-6">
+      {/* System Prompt Configuration */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <MessageSquare className="h-5 w-5 text-muted-foreground" />
+          <h3 className="text-lg font-medium">System Prompt</h3>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="system-prompt">Global System Prompt</Label>
+          <Textarea
+            id="system-prompt"
+            placeholder="You are a helpful AI assistant. You provide clear, accurate, and helpful responses to user questions..."
+            value={settings?.system_prompt || ''}
+            onChange={(e) => onUpdateSystemPrompt(e.target.value)}
+            disabled={saving}
+            rows={4}
+            className="resize-vertical"
+          />
+          <p className="text-xs text-muted-foreground">
+            This prompt will be sent to all LLM providers as the system message for conversations. It defines the AI's personality and behavior.
+          </p>
+        </div>
+      </div>
+      
+      <Separator />
+      
       {/* Active Provider Selection */}
       <div>
         <h3 className="text-lg font-medium mb-4">Active Provider</h3>

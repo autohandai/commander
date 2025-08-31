@@ -31,6 +31,7 @@ import { SettingsModal } from "@/components/SettingsModal"
 import { CloneRepositoryModal } from "@/components/CloneRepositoryModal"
 import { NewProjectModal } from "@/components/NewProjectModal"
 import { ToastProvider, useToast } from "@/components/ToastProvider"
+import { SettingsProvider } from "@/contexts/settings-context"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
 import { ChatInterface } from "@/components/ChatInterface"
 import { CodeView } from "@/components/CodeView"
@@ -50,8 +51,8 @@ interface ProjectViewProps {
 
 function ProjectView({ project, selectedAgent, activeTab, onTabChange }: ProjectViewProps) {
   return (
-    <div className="flex-1 flex flex-col h-full">
-      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col h-full">
+    <div className="flex-1 flex flex-col h-full min-w-0">
+      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col h-full min-w-0">
         <div className="px-4 pt-4">
           <TabsList className="grid w-full max-w-[600px] grid-cols-3">
             <TabsTrigger value="chat" className="flex items-center gap-2">
@@ -69,7 +70,7 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           </TabsList>
         </div>
         
-        <TabsContent value="chat" className="flex-1 m-0 h-full">
+        <TabsContent value="chat" className="flex-1 m-0 h-full min-w-0">
           <ChatInterface
             isOpen={true}
             onToggle={() => {}} // Not needed in tab mode
@@ -78,11 +79,11 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           />
         </TabsContent>
         
-        <TabsContent value="code" className="flex-1 m-0">
+        <TabsContent value="code" className="flex-1 m-0 h-full min-w-0">
           <CodeView project={project} />
         </TabsContent>
         
-        <TabsContent value="tasks" className="flex-1 m-0 h-full">
+        <TabsContent value="tasks" className="flex-1 m-0 h-full min-w-0">
           <TasksView project={project} />
         </TabsContent>
       </Tabs>
@@ -97,8 +98,29 @@ function AppContent() {
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
   const [activeTab, setActiveTab] = useState<string>('chat')
   const [selectedAgent, setSelectedAgent] = useState<string>('Claude Code CLI')
+  const [welcomePhrase, setWelcomePhrase] = useState<string>("")
   const { showSuccess, showError } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
+
+  const WELCOME_PHRASES = [
+    'Command any AI coding CLI agent from one screen',
+    'Your AI coding command center — one screen, all agents',
+    'Orchestrate CLI coding agents with ease',
+    'Spin up, chat, code — all in one place',
+    'Command, collaborate, and ship with AI agents',
+    'One hub to drive every AI coding workflow',
+    'Clone, create, and command — faster together',
+  ]
+
+  const pickRandomPhrase = (prev?: string) => {
+    if (WELCOME_PHRASES.length === 0) return ''
+    let next = WELCOME_PHRASES[Math.floor(Math.random() * WELCOME_PHRASES.length)]
+    if (WELCOME_PHRASES.length > 1 && next === prev) {
+      // Try once more to avoid repeats on quick toggles
+      next = WELCOME_PHRASES[Math.floor(Math.random() * WELCOME_PHRASES.length)]
+    }
+    return next
+  }
 
   const handleDragStart = async (e: React.MouseEvent) => {
     // Only trigger drag if not clicking on interactive elements
@@ -132,20 +154,9 @@ function AppContent() {
       if (selectedPath) {
         console.log('📁 Git project selected:', selectedPath)
         
-        // Create a project object from the selected folder
-        const projectName = selectedPath.split('/').pop() || 'Opened Project'
-        const newProject: RecentProject = {
-          name: projectName,
-          path: selectedPath,
-          last_accessed: Math.floor(Date.now() / 1000),
-          is_git_repo: true, // We know it's a git repo because we validated it
-          git_branch: null, // Will be updated by backend when added to recent
-          git_status: null
-        }
-        
-        // Open via backend (validates, sets cwd, updates recents w/ dedup)
-        await invoke('open_existing_project', { project_path: selectedPath, projectPath: selectedPath })
-        setCurrentProject(newProject)
+        // Open via backend (validates, sets cwd, updates recents w/ dedup) and use returned data
+        const opened = await invoke<RecentProject>('open_existing_project', { project_path: selectedPath, projectPath: selectedPath })
+        setCurrentProject(opened)
         
         // Refresh projects list
         if (projectsRefreshRef.current?.refresh) {
@@ -188,10 +199,11 @@ function AppContent() {
   }
 
   const handleProjectSelect = (project: RecentProject) => {
-    setCurrentProject(project)
     setActiveTab('code') // Start with code tab when project is selected
-    // Ensure backend marks it active and updates recents
-    invoke('open_existing_project', { project_path: project.path, projectPath: project.path }).catch(console.error)
+    // Ensure backend marks it active and updates recents and use returned project info
+    invoke<RecentProject>('open_existing_project', { project_path: project.path, projectPath: project.path })
+      .then(setCurrentProject)
+      .catch(console.error)
   }
 
   const handleBackToWelcome = () => {
@@ -264,25 +276,14 @@ function AppContent() {
         if (event.payload && typeof event.payload === 'string') {
           const projectPath = event.payload
           console.log('📁 Project opened via menu:', projectPath)
-          
-          // Create a project object from the selected folder
-          const projectName = projectPath.split('/').pop() || 'Opened Project'
-          const newProject: RecentProject = {
-            name: projectName,
-            path: projectPath,
-            last_accessed: Math.floor(Date.now() / 1000),
-            is_git_repo: true, // We know it's a git repo because backend validated it
-            git_branch: null, // Will be updated by backend when added to recent
-            git_status: null
-          }
-          
-          // Set as current project
-          setCurrentProject(newProject)
-          setActiveTab('code') // Start with code tab
-          
-          // Refresh projects list to show the newly opened project
-          if (projectsRefreshRef.current?.refresh) {
-            projectsRefreshRef.current.refresh()
+          // Query backend for updated recents and set the first (MRU) as current including git info
+          const recents = await invoke<RecentProject[]>('list_recent_projects')
+          if (recents && recents.length > 0) {
+            setCurrentProject(recents[0])
+            setActiveTab('code') // Start with code tab
+            if (projectsRefreshRef.current?.refresh) {
+              projectsRefreshRef.current.refresh()
+            }
           }
           
           showSuccess('Git project opened successfully!', 'Project Opened')
@@ -318,6 +319,19 @@ function AppContent() {
       unlistenMenuDeleteProject.then(fn => fn())
     }
   }, [activeTab, currentProject, toggleChat])
+
+  // Initialize a phrase on first load
+  useEffect(() => {
+    if (!welcomePhrase) setWelcomePhrase(pickRandomPhrase())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Change phrase whenever we land on the welcome screen
+  useEffect(() => {
+    if (!currentProject) {
+      setWelcomePhrase(prev => pickRandomPhrase(prev))
+    }
+  }, [currentProject])
 
   return (
     <SidebarWidthProvider>
@@ -397,7 +411,7 @@ function AppContent() {
               <div className="text-center space-y-2">
                 <h1 className="text-4xl font-bold tracking-tight">Welcome to Commander</h1>
                 <p className="text-lg text-muted-foreground">
-                  Start a new project or clone an existing repository
+                  {welcomePhrase || 'Command any AI coding CLI agent from one screen'}
                 </p>
               </div>
               
@@ -473,7 +487,9 @@ function AppContent() {
 function App() {
   return (
     <ToastProvider>
-      <AppContent />
+      <SettingsProvider>
+        <AppContent />
+      </SettingsProvider>
     </ToastProvider>
   )
 }

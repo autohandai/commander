@@ -66,6 +66,21 @@ export function CloneRepositoryModal({
   const [showConsoleOutput, setShowConsoleOutput] = useState(true)
   const consoleEndRef = useRef<HTMLDivElement>(null)
 
+  // Cmd+Enter shortcut to start clone on URL step
+  const handleKeyDown: React.KeyboardEventHandler = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      if (
+        currentStep === 'url' &&
+        repoUrl.trim() &&
+        localPath.trim()
+      ) {
+        startClone()
+      }
+    }
+  }
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '');
+
   // Load app settings and default projects folder on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -391,7 +406,7 @@ export function CloneRepositoryModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px]" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitBranch className="h-5 w-5" />
@@ -409,9 +424,18 @@ export function CloneRepositoryModal({
             <Button variant="outline" onClick={handleClose}>
               Cancel
             </Button>
-            <Button onClick={startClone} disabled={!repoUrl.trim() || !localPath.trim()}>
-              Start Clone
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button onClick={startClone} disabled={!repoUrl.trim() || !localPath.trim()}>
+                Start Clone
+              </Button>
+              <span className="hidden sm:flex items-center text-[10px] leading-none text-muted-foreground gap-1 opacity-70">
+                <span>Shortcut</span>
+                <span>•</span>
+                <kbd className="px-1 py-0 rounded border bg-muted">{isMac ? 'Cmd' : 'Ctrl'}</kbd>
+                <span>+</span>
+                <kbd className="px-1 py-0 rounded border bg-muted">Enter</kbd>
+              </span>
+            </div>
           </div>
         )}
       </DialogContent>

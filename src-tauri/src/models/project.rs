@@ -23,6 +23,8 @@ pub struct AppSettings {
     pub projects_folder: Option<String>,
     #[serde(default = "default_file_mentions_enabled")]
     pub file_mentions_enabled: bool,
+    #[serde(default)]
+    pub code_settings: CodeSettings,
 }
 
 fn default_show_console_output() -> bool {
@@ -31,4 +33,32 @@ fn default_show_console_output() -> bool {
 
 fn default_file_mentions_enabled() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSettings {
+    #[serde(default = "default_code_theme")]
+    pub theme: String, // e.g., "github" | "dracula"
+    #[serde(default = "default_font_size")]
+    pub font_size: u16, // in px
+}
+
+fn default_code_theme() -> String { "github".to_string() }
+fn default_font_size() -> u16 { 14 }
+
+impl Default for CodeSettings {
+    fn default() -> Self {
+        Self { theme: default_code_theme(), font_size: default_font_size() }
+    }
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            show_console_output: default_show_console_output(),
+            projects_folder: None,
+            file_mentions_enabled: default_file_mentions_enabled(),
+            code_settings: CodeSettings::default(),
+        }
+    }
 }

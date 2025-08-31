@@ -30,6 +30,15 @@ pub async fn fetch_openrouter_models(api_key: String) -> Result<Vec<LLMModel>, S
 }
 
 #[tauri::command]
+pub async fn fetch_openai_models(api_key: String) -> Result<Vec<LLMModel>, String> {
+    if api_key.trim().is_empty() {
+        return Err("OpenAI API key is required to fetch models".to_string());
+    }
+    
+    llm_service::fetch_openai_models(&api_key).await
+}
+
+#[tauri::command]
 pub async fn check_ollama_installation() -> Result<bool, String> {
     let output = tokio::process::Command::new("ollama")
         .arg("--version")
@@ -384,6 +393,62 @@ pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, Strin
     Ok(AgentStatus {
         agents: checked_agents,
     })
+}
+
+#[tauri::command]
+pub async fn generate_plan(prompt: String, system_prompt: String) -> Result<String, String> {
+    // Check if Ollama is available
+    if !check_ollama_installation().await? {
+        return Err("Ollama is not installed or not running".to_string());
+    }
+
+    // Get available Ollama models
+    let models = fetch_ollama_models().await?;
+    if models.is_empty() {
+        return Err("No Ollama models available. Please pull a model first with 'ollama pull <model>'".to_string());
+    }
+
+    // Use the first available model (you could make this configurable)
+    let model = &models[0].id;
+
+    // Combine system prompt with user prompt
+    let full_prompt = format!("{}\n\nUser request: {}", system_prompt, prompt);
+
+    // Call Ollama to generate the plan
+    let output = tokio::process::Command::new("ollama")
+        .arg("run")
+        .arg(model)
+        .arg(&full_prompt)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute ollama run: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Ollama command failed: {}", stderr));
+    }
+
+    let response = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to parse ollama output: {}", e))?;
+
+    // Try to extract JSON from the response if it's embedded in other text
+    let response = response.trim();
+    
+    // Look for JSON in the response
+    if let Some(json_start) = response.find('{') {
+        if let Some(json_end) = response.rfind('}') {
+            if json_start <= json_end {
+                let json_part = &response[json_start..=json_end];
+                // Validate that it's valid JSON
+                if serde_json::from_str::<serde_json::Value>(json_part).is_ok() {
+                    return Ok(json_part.to_string());
+                }
+            }
+        }
+    }
+
+    // If no valid JSON found, return the raw response
+    Ok(response.to_string())
 }
 
 #[tauri::command]

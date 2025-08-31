@@ -382,6 +382,7 @@ pub async fn create_new_project_with_git(
     }
     
     // Add the newly created project to recent projects
+    // TODO: Be able to handle this better, I think the history of projects is always flagging the new project correctly but unflagging the previous one I was working.
     if let Err(e) = add_project_to_recent(app, project_path_str.clone()).await {
         eprintln!("⚠️ Warning: Failed to add project to recent projects: {}", e);
         // Don't fail the whole operation, just log the warning

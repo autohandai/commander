@@ -97,13 +97,6 @@ const SafeAgentSettings = ({
     onUpdateAgentSetting(agentId, key, value)
   }
 
-  const setTempAllAgentSettings = (updater: (prev: any) => any) => {
-    const newSettings = updater(tempAllAgentSettings)
-    // Call the parent's update function for max_concurrent_sessions
-    if (newSettings?.max_concurrent_sessions !== tempAllAgentSettings?.max_concurrent_sessions) {
-      onUpdateAgentSetting('global', 'max_concurrent_sessions', newSettings.max_concurrent_sessions)
-    }
-  }
 
   try {
     return (
@@ -120,10 +113,10 @@ const SafeAgentSettings = ({
               min="1"
               max="20"
               value={tempAllAgentSettings?.max_concurrent_sessions || 10}
-              onChange={(e) => setTempAllAgentSettings((prev: any) => ({
-                ...prev,
-                max_concurrent_sessions: parseInt(e.target.value) || 10
-              }))}
+              onChange={(e) => {
+                const newValue = parseInt(e.target.value) || 10
+                onUpdateAgentSetting('global', 'max_concurrent_sessions', newValue)
+              }}
               className="w-32"
             />
             <p className="text-xs text-muted-foreground">

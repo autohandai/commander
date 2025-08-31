@@ -21,9 +21,10 @@ import {
 
 // Mock user data
 const userData = {
-  name: "John Doe",
-  email: "john@example.com",
-  avatar: "/avatars/john-doe.jpg",
+  name: "Igor Costa",
+  email: "igor@autohand.ai",
+  // Use canonical GitHub avatar endpoint (handles redirects and size)
+  avatar: "https://github.com/igorcosta.png?size=128",
 }
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {

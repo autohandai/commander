@@ -50,3 +50,15 @@ pub(crate) struct OpenRouterPricing {
 pub(crate) struct OpenRouterResponse {
     pub data: Vec<OpenRouterModel>,
 }
+
+// OpenAI API response structs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct OpenAIModel {
+    pub id: String,
+    pub owned_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct OpenAIModelsResponse {
+    pub data: Vec<OpenAIModel>,
+}

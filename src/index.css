@@ -156,6 +156,40 @@
     overflow-y: auto;
     max-height: calc(100vh - 300px); /* Reserve space for header and footer */
   }
+
+  /* Make code editor scrollbars visible and stable */
+  .with-scrollbars {
+    /* Reserve gutter so the scrollbar doesn’t overlay content */
+    scrollbar-gutter: stable both-edges;
+  }
+  .with-scrollbars::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .with-scrollbars::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 8px;
+  }
+  .with-scrollbars::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* Horizontal scrollbar styling for code blocks */
+  pre.overflow-x-auto::-webkit-scrollbar {
+    height: 10px;
+  }
+  pre.overflow-x-auto::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 8px;
+  }
+  pre.overflow-x-auto::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* Firefox */
+  .with-scrollbars,
+  pre.overflow-x-auto {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
   
   .drag-fallback:active {
     cursor: -webkit-grabbing;

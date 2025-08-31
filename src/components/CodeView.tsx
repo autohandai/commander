@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
-import { FileText, Folder, FolderOpen, File, ChevronRight, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Folder, FolderOpen, File, ChevronRight, ChevronDown } from 'lucide-react';
+import { FileTypeIcon } from '@/components/FileTypeIcon';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Highlight, themes, type Language } from 'prism-react-renderer';
+import { invoke } from '@tauri-apps/api/core';
 import { useFileMention } from '@/hooks/use-file-mention';
+import { useSettings } from '@/contexts/settings-context';
 import { FileInfo } from '@/types/file-mention';
 import { RecentProject } from '@/hooks/use-recent-projects';
 
@@ -62,7 +66,7 @@ function FileTreeNode({ item, onFileSelect, selectedFile }: FileTreeNodeProps) {
         ) : (
           <>
             <div className="w-4 mr-1" /> {/* Spacer for alignment */}
-            <FileText className="h-4 w-4 mr-2 text-muted-foreground" />
+            <FileTypeIcon filename={item.name} className="mr-2" />
           </>
         )}
         <span className="truncate text-left flex-1">
@@ -162,7 +166,7 @@ function FileExplorer({ project, onFileSelect, selectedFile }: {
   }
 
   return (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="h-full">
       <div className="p-2">
         <div className="mb-2 px-2">
           <h3 className="font-semibold text-sm">{project.name}</h3>
@@ -187,6 +191,45 @@ function FileExplorer({ project, onFileSelect, selectedFile }: {
 function CodeEditor({ file }: { file: FileInfo | null }) {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const { settings } = useSettings();
+
+  const language = useMemo<Language | undefined>(() => {
+    if (!file || file.is_directory) return undefined;
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'ts': return 'ts';
+      case 'tsx': return 'tsx';
+      case 'js': return 'javascript';
+      case 'jsx': return 'jsx';
+      case 'json': return 'json';
+      case 'md':
+      case 'mdx': return 'markdown';
+      case 'html': return 'markup';
+      case 'css': return 'css';
+      case 'scss':
+      case 'sass': return 'scss';
+      case 'py': return 'python';
+      case 'rs': return 'rust';
+      case 'go': return 'go';
+      case 'rb': return 'ruby';
+      case 'sh':
+      case 'bash': return 'bash';
+      case 'yml':
+      case 'yaml': return 'yaml';
+      case 'toml': return 'toml';
+      case 'java': return 'java';
+      case 'kt': return 'kotlin';
+      case 'swift': return 'swift';
+      case 'c': return 'c';
+      case 'h': return 'c';
+      case 'cpp':
+      case 'cc':
+      case 'cxx': return 'cpp';
+      case 'hpp': return 'cpp';
+      default:
+        return undefined;
+    }
+  }, [file]);
 
   useEffect(() => {
     if (!file || file.is_directory) {
@@ -194,15 +237,24 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
       return;
     }
 
-    // Load file content
+    // Load file content via Tauri and apply settings
     setLoading(true);
-    // For now, just show a placeholder
-    // In a real implementation, you'd use Tauri to read the file content
-    setTimeout(() => {
-      setContent(`// File: ${file.relative_path}\n// Size: Loading...\n// Last modified: Loading...\n\n// File content would be loaded here\n// This is a placeholder for the VSCode-like editor\n\nconsole.log('File content for ${file.name}');`);
-      setLoading(false);
-    }, 500);
+    (async () => {
+      try {
+        const txt = await invoke<string>('read_file_content', { filePath: file.path });
+        setContent(txt);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setContent(`/* Failed to load file: ${msg} */`);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [file]);
+
+  // Get theme and font size from settings context
+  const themeName = settings.code_settings.theme === 'dracula' ? 'dracula' : 'github';
+  const fontSize = settings.code_settings.font_size;
 
   if (!file) {
     return (
@@ -231,24 +283,68 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0">
       {/* File tab */}
       <div className="border-b bg-muted/30 px-4 py-2 flex items-center gap-2">
-        <FileText className="h-4 w-4" />
+        <FileTypeIcon filename={file.name} className="" />
         <span className="font-medium">{file.name}</span>
         <span className="text-xs text-muted-foreground ml-auto">{file.relative_path}</span>
       </div>
       
       {/* Editor content */}
-      <div className="flex-1 p-4">
+      <div className="flex-1 p-0 min-h-0 h-full min-w-0">
         {loading ? (
           <div className="flex items-center justify-center h-32">
             <p className="text-sm text-muted-foreground">Loading file content...</p>
           </div>
         ) : (
-          <pre className="text-sm font-mono whitespace-pre-wrap break-words bg-muted/20 p-4 rounded-lg">
-            {content}
-          </pre>
+          <div className="h-full overflow-auto min-w-0 with-scrollbars">
+            <div className="p-4">
+              {language ? (
+                <Highlight theme={themeName === 'dracula' ? themes.dracula : themes.github} code={content} language={language}>
+                  {({ className, style, tokens, getLineProps, getTokenProps }: any) => (
+                    <pre
+                      className={`${className} font-mono bg-muted/20 rounded-lg p-4 overflow-x-auto`}
+                      style={{ ...style, fontSize }}
+                    >
+                      {tokens.map((line: any, i: number) => {
+                        const lineProps = getLineProps({ line });
+                        return (
+                          <div key={i} {...lineProps} className={`flex ${lineProps.className || ''}`}>
+                            <span
+                              className="select-none w-12 shrink-0 text-right mr-4 pr-2 text-muted-foreground/70 border-r border-border"
+                              aria-hidden="true"
+                            >
+                              {i + 1}
+                            </span>
+                            <span className="flex-1">
+                              {line.map((token: any, key: number) => (
+                                <span key={key} {...getTokenProps({ token })} />
+                              ))}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </pre>
+                  )}
+                </Highlight>
+              ) : (
+                <pre className="font-mono whitespace-pre bg-muted/20 p-4 rounded-lg overflow-x-auto" style={{ fontSize }}>
+                  {content.split('\n').map((line, i) => (
+                    <div key={i} className="flex">
+                      <span
+                        className="select-none w-12 shrink-0 text-right mr-4 pr-2 text-muted-foreground/70 border-r border-border"
+                        aria-hidden="true"
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="flex-1">{line}</span>
+                    </div>
+                  ))}
+                </pre>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -263,9 +359,9 @@ export function CodeView({ project }: CodeViewProps) {
   };
 
   return (
-    <div className="flex-1 flex">
+    <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
       {/* File Explorer Sidebar */}
-      <div className="w-80 border-r bg-muted/30 flex flex-col">
+      <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
         <FileExplorer
           project={project}
           onFileSelect={handleFileSelect}

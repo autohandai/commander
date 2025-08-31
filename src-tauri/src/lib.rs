@@ -27,7 +27,17 @@ async fn start_drag(window: tauri::Window) -> Result<(), String> {
 // Helper function to create the native menu structure
 fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
     use tauri::menu::PredefinedMenuItem;
-    
+    // Create standard Edit submenu so Cmd/Ctrl+C/V work in inputs
+    let edit_submenu = SubmenuBuilder::new(app, "Edit")
+        .item(&PredefinedMenuItem::undo(app, None)?)
+        .item(&PredefinedMenuItem::redo(app, None)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, None)?)
+        .item(&PredefinedMenuItem::copy(app, None)?)
+        .item(&PredefinedMenuItem::paste(app, None)?)
+        .item(&PredefinedMenuItem::select_all(app, None)?)
+        .build()?;
+
     // Create the app menu (Commander) - this will be the first menu on macOS
     let app_submenu = SubmenuBuilder::new(app, "Commander")
         .item(&MenuItemBuilder::with_id("about", "About Commander")
@@ -77,7 +87,8 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
     let menu = MenuBuilder::new(app)
         .item(&app_submenu)        // Commander menu (first)
         .item(&projects_submenu)   // Projects menu (second)
-        .item(&help_submenu)       // Help menu (third)
+        .item(&edit_submenu)       // Edit menu (third) enables keyboard copy/paste
+        .item(&help_submenu)       // Help menu (fourth)
         .build()?;
     
     Ok(menu)
@@ -85,7 +96,7 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
@@ -117,6 +128,7 @@ pub fn run() {
             save_app_settings,
             load_app_settings,
             fetch_openrouter_models,
+            fetch_openai_models,
             check_ollama_installation,
             fetch_ollama_models,
             open_ollama_website,
@@ -129,6 +141,13 @@ pub fn run() {
             fetch_agent_models,
             check_ai_agents,
             monitor_ai_agents,
+            generate_plan,
+            load_prompts,
+            save_prompts,
+            get_default_prompts,
+            update_prompt,
+            delete_prompt,
+            create_prompt_category,
             save_agent_settings,
             load_agent_settings,
             save_all_agent_settings,
@@ -140,6 +159,9 @@ pub fn run() {
             open_existing_project,
             check_project_name_conflict,
             create_new_project_with_git,
+            load_all_sub_agents,
+            load_sub_agents_for_cli,
+            load_sub_agents_grouped,
             get_git_global_config,
             get_git_local_config,
             get_git_aliases,
@@ -151,6 +173,7 @@ pub fn run() {
             list_files_in_directory,
             search_files_by_name,
             get_file_info,
+            read_file_content,
             menu_new_project,
             menu_clone_project,
             menu_open_project,
@@ -272,7 +295,11 @@ pub fn run() {
             })?;
             
             Ok(())
-        })
+        });
+
+    // Only run the app loop in non-test builds to avoid duplicate context symbols
+    #[cfg(not(test))]
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

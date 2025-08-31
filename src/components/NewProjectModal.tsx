@@ -110,6 +110,17 @@ export function NewProjectModal({ isOpen, onClose, onSuccess }: NewProjectModalP
     }
   };
 
+  // Cmd+Enter shortcut to create
+  const handleKeyDown: React.KeyboardEventHandler = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      // Allow Ctrl+Enter on non-mac keyboards as well
+      e.preventDefault()
+      if (!isCreating && projectName.trim() && !nameConflict) {
+        handleCreateProject()
+      }
+    }
+  }
+
   const resetForm = () => {
     setProjectName('');
     setNameConflict(false);
@@ -122,9 +133,11 @@ export function NewProjectModal({ isOpen, onClose, onSuccess }: NewProjectModalP
     }
   };
 
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '');
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[600px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[600px]" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>Create New Project</DialogTitle>
           <DialogDescription>
@@ -169,12 +182,21 @@ export function NewProjectModal({ isOpen, onClose, onSuccess }: NewProjectModalP
           <Button variant="outline" onClick={handleClose} disabled={isCreating}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleCreateProject} 
-            disabled={isCreating || !projectName.trim() || nameConflict}
-          >
-            {isCreating ? 'Creating...' : 'Create Project'}
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Button 
+              onClick={handleCreateProject} 
+              disabled={isCreating || !projectName.trim() || nameConflict}
+            >
+              {isCreating ? 'Creating...' : 'Create Project'}
+            </Button>
+            <span className="hidden sm:flex items-center text-[10px] leading-none text-muted-foreground gap-1 opacity-70">
+              <span>Shortcut</span>
+              <span>•</span>
+              <kbd className="px-1 py-0 rounded border bg-muted">{isMac ? 'Cmd' : 'Ctrl'}</kbd>
+              <span>+</span>
+              <kbd className="px-1 py-0 rounded border bg-muted">Enter</kbd>
+            </span>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

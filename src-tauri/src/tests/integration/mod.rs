@@ -1,2 +1,3 @@
 // Integration tests
-// TODO: Add integration tests when we have proper app mocking setup
+pub mod store_persistence;
+pub mod new_project_persistence;

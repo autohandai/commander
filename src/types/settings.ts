@@ -7,7 +7,7 @@
 // Core Settings Types
 // ============================
 
-export type SettingsTab = 'general' | 'git' | 'chat' | 'agents' | 'llms' | 'shortcuts';
+export type SettingsTab = 'general' | 'code' | 'git' | 'chat' | 'prompts' | 'agents' | 'llms' | 'shortcuts';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -22,6 +22,7 @@ export interface AppSettings {
   show_console_output: boolean;
   projects_folder: string;
   file_mentions_enabled: boolean;
+  code_settings?: { theme: string; font_size: number };
 }
 
 // ============================
@@ -201,6 +202,7 @@ export interface LLMSettingsProps {
   onUpdateSelectedModel: (providerId: string, modelId: string) => void;
   onSaveApiKey: (providerId: string) => Promise<void>;
   onTempApiKeyChange: (providerId: string, key: string) => void;
+  onUpdateSystemPrompt: (prompt: string) => void;
 }
 
 // ============================

@@ -3,6 +3,7 @@ use std::fs;
 use std::env;
 
 use crate::models::*;
+use crate::services::file_service;
 
 // File system helper functions for file mention system
 fn is_valid_file_extension(path: &Path, allowed_extensions: &[&str]) -> bool {
@@ -238,4 +239,9 @@ pub async fn get_file_info(file_path: String) -> Result<Option<FileInfo>, String
         is_directory: path.is_dir(),
         extension,
     }))
+}
+
+#[tauri::command]
+pub async fn read_file_content(file_path: String) -> Result<String, String> {
+    file_service::read_file_content(&file_path)
 }

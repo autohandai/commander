@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen } from 'lucide-react';
+import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,7 +10,9 @@ import { listen } from '@tauri-apps/api/event';
 import { RecentProject } from '@/hooks/use-recent-projects';
 import { useFileMention } from '@/hooks/use-file-mention';
 import { CODE_EXTENSIONS } from '@/types/file-mention';
-import { FileText } from 'lucide-react';
+import { PlanBreakdown } from './PlanBreakdown';
+import { FileTypeIcon } from './FileTypeIcon';
+import { SubAgent, SubAgentGroup } from '@/types/sub-agent';
 
 interface Agent {
   id: string;
@@ -27,11 +29,16 @@ interface AgentCapability {
   category: string;
 }
 
+interface SubAgentOption extends AutocompleteOption {
+  subAgent?: SubAgent;
+  cliName?: string;
+}
+
 interface AutocompleteOption {
   id: string;
   label: string;
   description: string;
-  icon?: React.ComponentType<{ className?: string }>;
+  icon?: React.ComponentType<{ className?: string }> | (() => React.ReactElement);
   category?: string;
   filePath?: string; // For file mentions
 }
@@ -42,6 +49,25 @@ interface StreamChunk {
   finished: boolean;
 }
 
+interface PlanStep {
+  id: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  estimatedTime?: string;
+  dependencies?: string[];
+  details?: string;
+}
+
+interface Plan {
+  id: string;
+  title: string;
+  description: string;
+  steps: PlanStep[];
+  progress: number;
+  isGenerating?: boolean;
+}
+
 interface ChatMessage {
   id: string;
   content: string;
@@ -49,6 +75,7 @@ interface ChatMessage {
   timestamp: number;
   agent: string;
   isStreaming?: boolean;
+  plan?: Plan;
 }
 
 interface CLISession {
@@ -161,6 +188,9 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [agentSettings, setAgentSettings] = useState<AllAgentSettings | null>(null);
   const [workspaceEnabled, setWorkspaceEnabled] = useState(false);
   const [fileMentionsEnabled, setFileMentionsEnabled] = useState(true);
+  const [planModeEnabled, setPlanModeEnabled] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
+  const [subAgents, setSubAgents] = useState<SubAgentGroup>({});
   const { files, listFiles, searchFiles } = useFileMention();
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<HTMLDivElement>(null);
@@ -182,6 +212,16 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       setAgentSettings(settings);
     } catch (error) {
       console.error('Failed to load agent settings:', error);
+    }
+  }, []);
+
+  const loadSubAgents = useCallback(async () => {
+    try {
+      const agents = await invoke<SubAgentGroup>('load_sub_agents_grouped');
+      setSubAgents(agents);
+      console.log('Loaded sub-agents:', agents);
+    } catch (error) {
+      console.error('Failed to load sub-agents:', error);
     }
   }, []);
 
@@ -292,7 +332,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
               id: `file-${file.relative_path}`,
               label: file.name,
               description: file.relative_path,
-              icon: FileText,
+              icon: () => FileTypeIcon({ filename: file.name }),
               category: 'Files',
               filePath: file.relative_path
             }));
@@ -302,6 +342,30 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
           console.error('Failed to load files for autocomplete:', error);
         }
       }
+      
+      // Add sub-agents from CLI agent files
+      Object.entries(subAgents).forEach(([cliName, agents]) => {
+        agents
+          .filter(agent => 
+            query === '' ||
+            agent.name.toLowerCase().includes(query.toLowerCase()) ||
+            agent.description.toLowerCase().includes(query.toLowerCase())
+          )
+          .forEach(agent => {
+            allOptions.push({
+              id: `subagent-${cliName}-${agent.name}`,
+              label: `@${agent.name}`,
+              description: agent.description.split('\n')[0].substring(0, 100), // First line, truncated
+              category: `${cliName.charAt(0).toUpperCase() + cliName.slice(1)} Sub-Agents`,
+              icon: () => (
+                <div className="flex items-center justify-center h-4 w-4 rounded-full text-xs font-bold" 
+                     style={{ backgroundColor: agent.color || '#6b7280', color: 'white' }}>
+                  {agent.name.charAt(0).toUpperCase()}
+                </div>
+              )
+            } as AutocompleteOption);
+          });
+      });
       
       // Add agent capabilities
       AGENTS.forEach(agent => {
@@ -323,10 +387,12 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
           });
       });
       
-      // Sort options: Files first, then capabilities
+      // Sort options: Files first, then sub-agents, then capabilities
       options = allOptions.sort((a, b) => {
         if (a.category === 'Files' && b.category !== 'Files') return -1;
         if (a.category !== 'Files' && b.category === 'Files') return 1;
+        if (a.category?.includes('Sub-Agents') && !b.category?.includes('Sub-Agents')) return -1;
+        if (!a.category?.includes('Sub-Agents') && b.category?.includes('Sub-Agents')) return 1;
         return a.label.localeCompare(b.label);
       });
     }
@@ -334,7 +400,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     setAutocompleteOptions(options);
     setSelectedOptionIndex(0);
     setShowAutocomplete(options.length > 0);
-  }, [fileMentionsEnabled, project, files, listFiles, searchFiles]);
+  }, [fileMentionsEnabled, project, files, listFiles, searchFiles, subAgents]);
 
   // Handle input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -361,17 +427,26 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     const afterSelection = commandEnd !== -1 ? afterCommand.slice(commandEnd) : '';
     
     let newValue: string;
+    let insertText: string;
+    
     if (commandType === '/') {
       // Replace with agent command
-      newValue = beforeCommand + '/' + option.label + ' ' + afterSelection.trimStart();
+      insertText = option.label;
+      newValue = beforeCommand + '/' + insertText + ' ' + afterSelection.trimStart();
     } else {
-      // Replace with file path or capability reference
-      if (option.filePath) {
+      // Check if it's a sub-agent selection
+      if (option.id.startsWith('subagent-')) {
+        // Sub-agent mention - use the name without @ since we already have @
+        insertText = option.label.replace('@', '');
+        newValue = beforeCommand + '@' + insertText + ' ' + afterSelection.trimStart();
+      } else if (option.filePath) {
         // File mention
-        newValue = beforeCommand + '@' + option.filePath + ' ' + afterSelection.trimStart();
+        insertText = option.filePath;
+        newValue = beforeCommand + '@' + insertText + ' ' + afterSelection.trimStart();
       } else {
         // Capability reference
-        newValue = beforeCommand + '@' + option.label + ' ' + afterSelection.trimStart();
+        insertText = option.label;
+        newValue = beforeCommand + '@' + insertText + ' ' + afterSelection.trimStart();
       }
     }
     
@@ -381,7 +456,6 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     // Focus input and position cursor after the selection
     setTimeout(() => {
       if (inputRef.current) {
-        const insertText = option.filePath || option.label;
         const cursorPos = beforeCommand.length + 1 + insertText.length + 1;
         inputRef.current.focus();
         inputRef.current.setSelectionRange(cursorPos, cursorPos);
@@ -389,9 +463,180 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     }, 0);
   };
 
+  // Generate plan using Ollama
+  const generatePlan = async (userInput: string): Promise<Plan> => {
+    let systemPrompt = `You are an expert project planner. Break down the user's request into clear, actionable steps. 
+
+For each step, provide:
+1. A clear title (what needs to be done)
+2. A brief description (how to do it)
+3. Estimated time (be realistic)
+4. Dependencies (if any)
+5. Detailed implementation notes
+
+Format your response as JSON:
+{
+  "title": "Plan title",
+  "description": "Brief description of what this plan accomplishes", 
+  "steps": [
+    {
+      "id": "step-1",
+      "title": "Step title",
+      "description": "Brief description",
+      "estimatedTime": "5 minutes",
+      "dependencies": ["step-0"],
+      "details": "Detailed implementation notes and considerations"
+    }
+  ]
+}
+
+Make the plan comprehensive but practical. Focus on implementation steps that can be executed by AI coding assistants.`;
+
+    try {
+      // Try to load the system prompt from prompts config
+      const promptsConfig = await invoke<any>('load_prompts');
+      const planSystemPrompt = promptsConfig?.prompts?.plan_mode?.system?.content;
+      if (planSystemPrompt) {
+        systemPrompt = planSystemPrompt;
+      }
+    } catch (error) {
+      console.warn('Could not load plan system prompt, using default:', error);
+    }
+
+    try {
+      // Call Ollama API through Tauri backend
+      const response = await invoke<string>('generate_plan', {
+        prompt: userInput,
+        systemPrompt
+      });
+      
+      const planData = JSON.parse(response);
+      
+      return {
+        id: `plan-${Date.now()}`,
+        title: planData.title,
+        description: planData.description,
+        steps: planData.steps.map((step: any) => ({
+          ...step,
+          status: 'pending' as const
+        })),
+        progress: 0,
+        isGenerating: false
+      };
+    } catch (error) {
+      console.error('Failed to generate plan:', error);
+      
+      // Fallback plan generation
+      const steps = userInput.split(' ').length > 10 ? [
+        {
+          id: 'step-1',
+          title: 'Analyze Requirements',
+          description: 'Break down the user request and identify key components',
+          status: 'pending' as const,
+          estimatedTime: '2 minutes',
+          details: 'Review the user input and identify what needs to be implemented'
+        },
+        {
+          id: 'step-2', 
+          title: 'Design Solution',
+          description: 'Plan the implementation approach',
+          status: 'pending' as const,
+          estimatedTime: '5 minutes',
+          dependencies: ['step-1'],
+          details: 'Define the architecture and approach for implementation'
+        },
+        {
+          id: 'step-3',
+          title: 'Implement Changes',
+          description: 'Execute the planned solution',
+          status: 'pending' as const,
+          estimatedTime: '10 minutes',
+          dependencies: ['step-2'],
+          details: 'Write code and make necessary changes'
+        }
+      ] : [
+        {
+          id: 'step-1',
+          title: 'Execute Request',
+          description: userInput,
+          status: 'pending' as const,
+          estimatedTime: '3 minutes',
+          details: 'Simple request that can be executed directly'
+        }
+      ];
+      
+      return {
+        id: `plan-${Date.now()}`,
+        title: 'Generated Plan',
+        description: `Plan for: ${userInput}`,
+        steps,
+        progress: 0,
+        isGenerating: false
+      };
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !project || isExecuting) return;
     
+    // If plan mode is enabled, generate a plan instead of executing directly
+    if (planModeEnabled) {
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        content: inputValue,
+        role: 'user',
+        timestamp: Date.now(),
+        agent: 'Plan Mode',
+      };
+      
+      setMessages(prev => [...prev, userMessage]);
+      
+      // Create assistant message with generating plan
+      const assistantMessageId = `assistant-${Date.now()}`;
+      const planMessage: ChatMessage = {
+        id: assistantMessageId,
+        content: '',
+        role: 'assistant',
+        timestamp: Date.now(),
+        agent: 'Plan Mode',
+        plan: {
+          id: `plan-${Date.now()}`,
+          title: 'Generating Plan...',
+          description: 'Analyzing your request and creating a step-by-step plan',
+          steps: [],
+          progress: 0,
+          isGenerating: true
+        }
+      };
+      
+      setMessages(prev => [...prev, planMessage]);
+      setInputValue('');
+      setShowAutocomplete(false);
+      setCommandType(null);
+      
+      try {
+        const plan = await generatePlan(inputValue);
+        setCurrentPlan(plan);
+        
+        // Update the message with the generated plan
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantMessageId 
+            ? { ...msg, plan: plan }
+            : msg
+        ));
+      } catch (error) {
+        console.error('Failed to generate plan:', error);
+        setMessages(prev => prev.map(msg => 
+          msg.id === assistantMessageId 
+            ? { ...msg, content: `Error generating plan: ${error}`, plan: undefined }
+            : msg
+        ));
+      }
+      
+      return;
+    }
+    
+    // Regular message handling (existing logic)
     // Parse command from input (e.g., "/claude help" -> agent="claude", message="help")
     let agentToUse = selectedAgent;
     let messageToSend = inputValue;
@@ -483,6 +728,224 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
           ? { ...msg, content: `Error: ${error}`, isStreaming: false }
           : msg
       ));
+      setIsExecuting(false);
+    }
+  };
+
+  // Handle plan execution
+  const handleExecutePlan = async () => {
+    if (!currentPlan || !project) return;
+    
+    const planSteps = currentPlan.steps.map(step => step.title + ': ' + step.description).join('\n');
+    const planPrompt = `Execute this plan step by step:
+
+${currentPlan.title}
+${currentPlan.description}
+
+Steps to execute:
+${planSteps}
+
+Please execute each step systematically.`;
+    
+    // Create a message for plan execution
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      content: `Execute Plan: ${currentPlan.title}`,
+      role: 'user',
+      timestamp: Date.now(),
+      agent: selectedAgent || 'claude',
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Create assistant message for execution response
+    const assistantMessageId = `assistant-${Date.now()}`;
+    const assistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      content: '',
+      role: 'assistant',
+      timestamp: Date.now(),
+      agent: selectedAgent || 'claude',
+      isStreaming: true,
+    };
+    
+    setMessages(prev => [...prev, assistantMessage]);
+    setIsExecuting(true);
+    
+    try {
+      // Execute with the selected agent
+      const agentCommandMap = {
+        'claude': 'execute_claude_command',
+        'codex': 'execute_codex_command', 
+        'gemini': 'execute_gemini_command',
+        'test': 'execute_test_command',
+      };
+      
+      const displayNameToCommand = {
+        'Claude Code CLI': 'claude',
+        'Codex': 'codex',
+        'Gemini': 'gemini',
+        'Test CLI': 'test',
+      };
+      
+      const finalAgent = selectedAgent || 'claude';
+      const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
+      const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
+      
+      if (commandFunction) {
+        await invoke(commandFunction, {
+          sessionId: assistantMessageId,
+          message: planPrompt,
+          workingDir: project.path,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to execute plan:', error);
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMessageId 
+          ? { ...msg, content: `Error executing plan: ${error}`, isStreaming: false }
+          : msg
+      ));
+      setIsExecuting(false);
+    }
+  };
+
+  // Handle individual step execution  
+  const handleExecuteStep = async (stepId: string) => {
+    if (!currentPlan || !project) return;
+    
+    const step = currentPlan.steps.find(s => s.id === stepId);
+    if (!step) return;
+    
+    const stepPrompt = `Execute this specific step from the plan:
+
+Step: ${step.title}
+Description: ${step.description}
+${step.details ? `Details: ${step.details}` : ''}
+
+Please focus only on this step.`;
+    
+    // Update step status to in_progress
+    setCurrentPlan(prev => prev ? {
+      ...prev,
+      steps: prev.steps.map(s => 
+        s.id === stepId ? { ...s, status: 'in_progress' as const } : s
+      )
+    } : null);
+    
+    // Update the plan in messages
+    setMessages(prev => prev.map(msg => 
+      msg.plan ? {
+        ...msg,
+        plan: {
+          ...msg.plan,
+          steps: msg.plan.steps.map(s => 
+            s.id === stepId ? { ...s, status: 'in_progress' as const } : s
+          )
+        }
+      } : msg
+    ));
+    
+    // Create execution message
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      content: `Execute Step: ${step.title}`,
+      role: 'user',
+      timestamp: Date.now(),
+      agent: selectedAgent || 'claude',
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Create assistant response
+    const assistantMessageId = `assistant-${Date.now()}`;
+    const assistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      content: '',
+      role: 'assistant', 
+      timestamp: Date.now(),
+      agent: selectedAgent || 'claude',
+      isStreaming: true,
+    };
+    
+    setMessages(prev => [...prev, assistantMessage]);
+    setIsExecuting(true);
+    
+    try {
+      const agentCommandMap = {
+        'claude': 'execute_claude_command',
+        'codex': 'execute_codex_command', 
+        'gemini': 'execute_gemini_command',
+        'test': 'execute_test_command',
+      };
+      
+      const displayNameToCommand = {
+        'Claude Code CLI': 'claude',
+        'Codex': 'codex',
+        'Gemini': 'gemini',
+        'Test CLI': 'test',
+      };
+      
+      const finalAgent = selectedAgent || 'claude';
+      const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
+      const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
+      
+      if (commandFunction) {
+        await invoke(commandFunction, {
+          sessionId: assistantMessageId,
+          message: stepPrompt,
+          workingDir: project.path,
+        });
+        
+        // Mark step as completed after successful execution
+        setTimeout(() => {
+          setCurrentPlan(prev => prev ? {
+            ...prev,
+            steps: prev.steps.map(s => 
+              s.id === stepId ? { ...s, status: 'completed' as const } : s
+            )
+          } : null);
+          
+          setMessages(prev => prev.map(msg => 
+            msg.plan ? {
+              ...msg,
+              plan: {
+                ...msg.plan,
+                steps: msg.plan.steps.map(s => 
+                  s.id === stepId ? { ...s, status: 'completed' as const } : s
+                )
+              }
+            } : msg
+          ));
+        }, 2000); // Mark as completed after 2 seconds
+      }
+    } catch (error) {
+      console.error('Failed to execute step:', error);
+      // Mark step as pending again on error
+      setCurrentPlan(prev => prev ? {
+        ...prev,
+        steps: prev.steps.map(s => 
+          s.id === stepId ? { ...s, status: 'pending' as const } : s
+        )
+      } : null);
+      
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === assistantMessageId) {
+          return { ...msg, content: `Error executing step: ${error}`, isStreaming: false };
+        }
+        if (msg.plan) {
+          return {
+            ...msg,
+            plan: {
+              ...msg.plan,
+              steps: msg.plan.steps.map(s => 
+                s.id === stepId ? { ...s, status: 'pending' as const } : s
+              )
+            }
+          };
+        }
+        return msg;
+      }));
       setIsExecuting(false);
     }
   };
@@ -584,6 +1047,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     if (isOpen) {
       loadSessionStatus();
       loadAgentSettings();
+      loadSubAgents();
       
       // Load file mentions setting
       const loadFileMentionsSetting = async () => {
@@ -596,7 +1060,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       };
       loadFileMentionsSetting();
     }
-  }, [isOpen, loadSessionStatus, loadAgentSettings]);
+  }, [isOpen, loadSessionStatus, loadAgentSettings, loadSubAgents]);
 
   // Click outside to close autocomplete
   useEffect(() => {
@@ -785,6 +1249,19 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
                     <div className="whitespace-pre-wrap text-sm">
                       {message.content || (message.isStreaming ? 'Thinking...' : '')}
                     </div>
+                    {message.plan && (
+                      <div className="mt-3">
+                        <PlanBreakdown
+                          title={message.plan.title}
+                          description={message.plan.description}
+                          steps={message.plan.steps}
+                          progress={message.plan.progress}
+                          isGenerating={message.plan.isGenerating}
+                          onExecutePlan={handleExecutePlan}
+                          onExecuteStep={handleExecuteStep}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -820,7 +1297,11 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
                       }`}
                     >
                       {IconComponent && (
-                        <IconComponent className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        typeof IconComponent === 'function' && IconComponent.length === 0 ? (
+                          <IconComponent />
+                        ) : (
+                          <IconComponent className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        )
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm">{option.label}</div>
@@ -840,8 +1321,30 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
             </div>
           )}
           
-          {/* Workspace Toggle */}
-          <div className="flex justify-end mb-3">
+          {/* Toggle Controls */}
+          <div className="flex justify-end gap-6 mb-3">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="h-4 w-4 text-muted-foreground" />
+                    <label htmlFor="plan-mode-switch" className="text-sm text-muted-foreground cursor-pointer">
+                      Plan Mode
+                    </label>
+                    <Switch
+                      id="plan-mode-switch"
+                      checked={planModeEnabled}
+                      onCheckedChange={setPlanModeEnabled}
+                      aria-label="Enable plan mode"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Generate step-by-step plans before execution using Ollama</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -873,7 +1376,9 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
                 onChange={handleInputChange}
                 onSelect={handleInputSelect}
                 onKeyDown={handleKeyDown}
-                placeholder="Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'..."
+                placeholder={planModeEnabled ? 
+                  "Describe what you want to accomplish - I'll create a step-by-step plan..." : 
+                  "Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'..."}
                 className="pr-12 py-2.5 text-base"
                 autoComplete="off"
                 disabled={isExecuting}

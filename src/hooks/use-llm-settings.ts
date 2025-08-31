@@ -66,16 +66,29 @@ export const useLLMSettings = () => {
           }
         } else if (provider.provider_type === 'openrouter') {
           status.configured = !!provider.api_key;
-          // Always try to fetch models (no API key needed for model list)
-          try {
-            const models = await invoke<unknown>('fetch_openrouter_models');
-            status.models_loaded = Array.isArray(models) && models.length > 0;
-          } catch {
-            status.error = 'Failed to fetch models';
+          if (provider.api_key) {
+            // Only try to fetch models if API key is available
+            try {
+              const models = await invoke<LLMModel[]>('fetch_openrouter_models', { apiKey: provider.api_key });
+              status.models_loaded = Array.isArray(models) && models.length > 0;
+            } catch {
+              status.error = 'Failed to fetch OpenRouter models';
+            }
           }
         } else if (provider.provider_type === 'openai') {
           status.configured = !!provider.api_key;
-          status.models_loaded = provider.models.length > 0;
+          if (provider.api_key) {
+            // Try to fetch live models from OpenAI API
+            try {
+              const models = await invoke<LLMModel[]>('fetch_openai_models', { apiKey: provider.api_key });
+              status.models_loaded = Array.isArray(models) && models.length > 0;
+            } catch {
+              status.error = 'Failed to fetch OpenAI models';
+            }
+          } else {
+            // Use default models if no API key
+            status.models_loaded = provider.models.length > 0;
+          }
         }
       } catch (err) {
         status.error = err as string;
@@ -144,12 +157,17 @@ export const useLLMSettings = () => {
     try {
       switch (provider.provider_type) {
         case 'openrouter':
-          return await invoke<LLMModel[]>('fetch_openrouter_models');
-          break;
+          if (provider.api_key) {
+            return await invoke<LLMModel[]>('fetch_openrouter_models', { apiKey: provider.api_key });
+          }
+          return [];
         case 'ollama':
           return await invoke<LLMModel[]>('fetch_ollama_models');
         case 'openai':
-          return provider.models;
+          if (provider.api_key) {
+            return await invoke<LLMModel[]>('fetch_openai_models', { apiKey: provider.api_key });
+          }
+          return provider.models; // Return default models if no API key
         default:
           break;
       }
