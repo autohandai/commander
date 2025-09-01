@@ -35,7 +35,7 @@ const SafeAgentSettings = ({
     return (
       <div className="flex items-center justify-center py-8">
         <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        Loading agent settings...
+        Loading CLI agent settings...
       </div>
     )
   }
@@ -47,7 +47,7 @@ const SafeAgentSettings = ({
       <div className="flex flex-col items-center justify-center py-8 space-y-4">
         <XCircle className="h-8 w-8 text-destructive" />
         <div className="text-center">
-          <p className="text-destructive font-medium">Failed to load agent settings</p>
+          <p className="text-destructive font-medium">Failed to load CLI agent settings</p>
           <p className="text-sm text-muted-foreground mt-1">{agentSettingsError}</p>
           <Button
             variant="outline"
@@ -68,7 +68,7 @@ const SafeAgentSettings = ({
     return (
       <div className="flex items-center justify-center py-8">
         <AlertCircle className="h-6 w-6 text-muted-foreground mr-2" />
-        <span className="text-muted-foreground">No agent settings available</span>
+        <span className="text-muted-foreground">No CLI agent settings available</span>
       </div>
     )
   }
@@ -79,7 +79,7 @@ const SafeAgentSettings = ({
     return (
       <div className="flex items-center justify-center py-8">
         <AlertCircle className="h-6 w-6 text-muted-foreground mr-2" />
-        <span className="text-muted-foreground">Invalid agent configuration</span>
+        <span className="text-muted-foreground">Invalid CLI agent configuration</span>
       </div>
     )
   }
@@ -404,9 +404,9 @@ const SafeAgentSettings = ({
       <div className="flex flex-col items-center justify-center py-8 space-y-4">
         <XCircle className="h-8 w-8 text-destructive" />
         <div className="text-center">
-          <p className="text-destructive font-medium">Error rendering agent settings</p>
+          <p className="text-destructive font-medium">Error rendering CLI agent settings</p>
           <p className="text-sm text-muted-foreground mt-1">
-            An unexpected error occurred while displaying the agent settings.
+            An unexpected error occurred while displaying the CLI agent settings.
           </p>
           <p className="text-xs text-muted-foreground mt-2">
             Check browser console for details: {error instanceof Error ? error.message : String(error)}
@@ -432,15 +432,15 @@ export function AgentSettings(props: AgentSettingsProps) {
   return (
     <ErrorBoundary
       onError={(error, errorInfo) => {
-        console.error('🚨 ErrorBoundary caught error in agent settings:', error, errorInfo)
+        console.error('🚨 ErrorBoundary caught error in CLI agent settings:', error, errorInfo)
       }}
       fallback={
         <div className="flex flex-col items-center justify-center py-8 space-y-4">
           <XCircle className="h-8 w-8 text-destructive" />
           <div className="text-center">
-            <p className="text-destructive font-medium">Agent Settings Error</p>
+            <p className="text-destructive font-medium">CLI Agent Settings Error</p>
             <p className="text-sm text-muted-foreground mt-1">
-              The agent settings component crashed unexpectedly.
+              The CLI agent settings component crashed unexpectedly.
             </p>
             <Button
               variant="outline"

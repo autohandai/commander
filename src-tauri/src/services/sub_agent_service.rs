@@ -29,7 +29,61 @@ impl SubAgentService {
         
         Ok(all_agents)
     }
-    
+
+    /// Save the full content to the given agent file path
+    pub fn save_agent_file(file_path: &Path, content: &str) -> Result<(), String> {
+        let parent = file_path.parent().ok_or_else(|| "Invalid file path".to_string())?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
+        fs::write(file_path, content).map_err(|e| format!("Failed to write file {}: {}", file_path.display(), e))
+    }
+
+    /// Create a new agent file under the user's home directory for the given CLI
+    pub async fn create_sub_agent(
+        cli_name: &str,
+        name: &str,
+        description: Option<String>,
+        color: Option<String>,
+        model: Option<String>,
+        content: String,
+    ) -> Result<SubAgent, String> {
+        let slug = Self::slugify(name);
+        // Prefer hidden directory: ~/.{cli}/agents
+        let base_hidden = format!("~/.{}/agents", cli_name);
+        let target_dir = Self::expand_tilde(&base_hidden)?;
+        fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("Failed to create agents directory {}: {}", target_dir.display(), e))?;
+
+        let file_path = target_dir.join(format!("{}.md", slug));
+        let mut frontmatter = String::from("---\n");
+        frontmatter.push_str(&format!("name: {}\n", name));
+        if let Some(d) = description.as_ref() { frontmatter.push_str(&format!("description: {}\n", d)); }
+        if let Some(c) = color.as_ref() { frontmatter.push_str(&format!("color: {}\n", c)); }
+        if let Some(m) = model.as_ref() { frontmatter.push_str(&format!("model: {}\n", m)); }
+        frontmatter.push_str("---\n");
+
+        let full = format!("{}{}", frontmatter, content);
+        Self::save_agent_file(&file_path, &full)?;
+
+        // Return parsed agent structure
+        Self::parse_agent_file(&file_path).await
+    }
+
+    fn slugify(name: &str) -> String {
+        let lower = name.to_lowercase();
+        let mut s = String::with_capacity(lower.len());
+        let mut prev_hyphen = false;
+        for ch in lower.chars() {
+            if ch.is_ascii_alphanumeric() {
+                s.push(ch);
+                prev_hyphen = false;
+            } else if !prev_hyphen {
+                s.push('-');
+                prev_hyphen = true;
+            }
+        }
+        s.trim_matches('-').to_string()
+    }
+
     /// Load agents from a specific CLI tool
     pub async fn load_agents_for_cli(cli_name: &str) -> Result<Vec<SubAgent>, String> {
         let paths = vec![
@@ -168,7 +222,7 @@ impl SubAgentService {
             Ok(PathBuf::from(path))
         }
     }
-    
+
     /// Get agents grouped by their CLI tool
     pub async fn get_agents_by_cli() -> Result<HashMap<String, Vec<SubAgent>>, String> {
         let mut grouped_agents: HashMap<String, Vec<SubAgent>> = HashMap::new();
@@ -182,5 +236,28 @@ impl SubAgentService {
         }
         
         Ok(grouped_agents)
+    }
+
+    /// Delete a sub-agent file safely (must be under an agents directory in user's home)
+    pub fn delete_agent_file(file_path: &Path) -> Result<(), String> {
+        let p = file_path;
+        if !p.exists() {
+            return Err("File does not exist".to_string());
+        }
+
+        // Only allow deleting files under ~/.<cli>/agents or ~/<cli>/agents
+        let home = home::home_dir().ok_or_else(|| "Failed to get home directory".to_string())?;
+        let normalized = p.canonicalize().map_err(|e| format!("Failed to resolve path: {}", e))?;
+
+        if !normalized.starts_with(&home) {
+            return Err("Refusing to delete file outside home directory".to_string());
+        }
+
+        // Ensure path contains an agents directory segment
+        if !normalized.components().any(|c| c.as_os_str() == "agents") {
+            return Err("Refusing to delete file outside agents directory".to_string());
+        }
+
+        fs::remove_file(&normalized).map_err(|e| format!("Failed to delete file {}: {}", normalized.display(), e))
     }
 }

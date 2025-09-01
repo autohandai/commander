@@ -30,6 +30,7 @@ import React, { useState, useEffect, useRef } from "react"
 import { SettingsModal } from "@/components/SettingsModal"
 import { CloneRepositoryModal } from "@/components/CloneRepositoryModal"
 import { NewProjectModal } from "@/components/NewProjectModal"
+import { AboutDialog } from "@/components/AboutDialog"
 import { ToastProvider, useToast } from "@/components/ToastProvider"
 import { SettingsProvider } from "@/contexts/settings-context"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
@@ -93,6 +94,8 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
 
 function AppContent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<import('@/types/settings').SettingsTab | undefined>(undefined)
+  const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
@@ -254,6 +257,14 @@ function AppContent() {
     const unlistenSettings = listen('shortcut://open-settings', () => {
       setIsSettingsOpen(true)
     })
+    const unlistenMenuSettings = listen('menu://open-settings', () => {
+      setSettingsInitialTab(undefined)
+      setIsSettingsOpen(true)
+    })
+    const unlistenMenuShortcuts = listen('menu://open-shortcuts', () => {
+      setSettingsInitialTab('shortcuts')
+      setIsSettingsOpen(true)
+    })
 
     const unlistenChat = listen('shortcut://toggle-chat', () => {
       toggleChat()
@@ -308,15 +319,21 @@ function AppContent() {
         console.log('Delete project requested:', currentProject.name)
       }
     })
+    const unlistenMenuAbout = listen('menu://open-about', () => {
+      setIsAboutOpen(true)
+    })
 
     return () => {
       unlistenSettings.then(fn => fn())
       unlistenChat.then(fn => fn())
+      unlistenMenuSettings.then(fn => fn())
+      unlistenMenuShortcuts.then(fn => fn())
       unlistenMenuNewProject.then(fn => fn())
       unlistenMenuCloneProject.then(fn => fn())
       unlistenMenuOpenProject.then(fn => fn())
       unlistenMenuCloseProject.then(fn => fn())
       unlistenMenuDeleteProject.then(fn => fn())
+      unlistenMenuAbout.then(fn => fn())
     }
   }, [activeTab, currentProject, toggleChat])
 
@@ -463,7 +480,8 @@ function AppContent() {
       
       <SettingsModal 
         isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+        onClose={() => setIsSettingsOpen(false)}
+        initialTab={settingsInitialTab}
       />
       
       <CloneRepositoryModal
@@ -477,6 +495,8 @@ function AppContent() {
         onClose={() => setIsNewProjectModalOpen(false)}
         onSuccess={handleNewProjectSuccess}
       />
+      
+      <AboutDialog isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
       
       <AIAgentStatusBar onChatToggle={toggleChat} showChatButton={!!currentProject} />
       </SidebarProvider>

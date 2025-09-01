@@ -6,6 +6,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import type { GeneralSettingsProps } from "@/types/settings"
+import { useState } from "react"
+import { useToast } from "@/components/ToastProvider"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 export function GeneralSettings({
   tempDefaultProjectsFolder,
@@ -13,13 +25,35 @@ export function GeneralSettings({
   systemPrompt,
   saving,
   tempUiTheme = 'auto',
+  gitConfig: _gitConfig,
+  gitWorktreeEnabled: _gitWorktreeEnabled,
+  gitConfigLoading: _gitConfigLoading,
+  gitConfigError: _gitConfigError,
   onFolderChange,
   onSelectFolder,
   onConsoleOutputChange,
   onSystemPromptChange,
   onClearRecentProjects,
-  onUiThemeChange
+  onUiThemeChange,
+  onRefreshGitConfig: _onRefreshGitConfig,
+  onToggleGitWorktree: _onToggleGitWorktree,
 }: GeneralSettingsProps) {
+  const { showSuccess, showError } = useToast()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [clearing, setClearing] = useState(false)
+
+  const handleConfirmClear = async () => {
+    try {
+      setClearing(true)
+      await onClearRecentProjects()
+      showSuccess('Recent projects cleared', 'Success')
+      setConfirmOpen(false)
+    } catch (e) {
+      showError('Failed to clear recent projects', 'Error')
+    } finally {
+      setClearing(false)
+    }
+  }
   return (
     <div className="space-y-6">
       <div>
@@ -98,13 +132,13 @@ export function GeneralSettings({
                 <div className="space-y-0.5">
                   <Label>Clear Recent Projects</Label>
                   <p className="text-xs text-muted-foreground">
-                    Clear all recent projects from local storage (development only)
+                    Clear all recent projects from local storage. This action is irreversible.
                   </p>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={onClearRecentProjects}
+                  onClick={() => setConfirmOpen(true)}
                   disabled={saving}
                 >
                   Clear
@@ -114,6 +148,24 @@ export function GeneralSettings({
           </div>
         </div>
       </div>
+
+      {/* Confirmation dialog for clearing recent projects */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear recent projects?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove all recent projects from local storage. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmClear} disabled={clearing}>
+              {clearing ? 'Clearing…' : 'Yes, clear them'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

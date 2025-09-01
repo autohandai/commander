@@ -10,6 +10,7 @@ import {
   LLMSettings,
   ShortCutsUISettings,
   CodeSettings,
+  SubAgentsSettings,
   PromptsUISettings
 } from "@/components/settings"
 import {
@@ -32,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { useLLMSettings } from "@/hooks/use-llm-settings"
 import type { SettingsModalProps, SettingsTab } from "@/types/settings"
 
-export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
   console.log('🏗️ SettingsModal render - isOpen:', isOpen)
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   console.log('📋 Current activeTab:', activeTab)
@@ -204,6 +205,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       loadAppSettings()
     }
   }, [isOpen])
+
+  // Switch to an externally requested tab when opening
+  useEffect(() => {
+    if (isOpen && initialTab && initialTab !== activeTab) {
+      setActiveTab(initialTab)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialTab])
 
   // Load git configuration
   const loadGitConfig = useCallback(async () => {
@@ -536,6 +545,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       icon: GitBranch,
     },
     {
+      id: 'subagents' as const,
+      label: 'Sub Agents',
+      icon: Bot,
+    },
+    {
       id: 'chat' as const,
       label: 'Chat',
       icon: MessageCircle,
@@ -552,7 +566,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     },
     {
       id: 'agents' as const,
-      label: 'Agents',
+      label: 'CLI Agents',
       icon: Bot,
     },
     {
@@ -657,6 +671,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   onRefreshConfig={loadGitConfig}
                   onToggleWorktree={handleGitWorktreeToggle}
                 />
+              )}
+              {activeTab === 'subagents' && (
+                <SubAgentsSettings />
               )}
               {activeTab === 'code' && (
                 <CodeSettings />

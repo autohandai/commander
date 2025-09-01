@@ -7,11 +7,12 @@
 // Core Settings Types
 // ============================
 
-export type SettingsTab = 'general' | 'code' | 'git' | 'chat' | 'prompts' | 'agents' | 'llms' | 'shortcuts';
+export type SettingsTab = 'general' | 'code' | 'git' | 'chat' | 'prompts' | 'agents' | 'llms' | 'shortcuts' | 'subagents';
 
 export interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: SettingsTab;
 }
 
 // ============================
