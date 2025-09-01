@@ -60,6 +60,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [tempShowConsoleOutput, setTempShowConsoleOutput] = useState(true)
   const [fileMentionsEnabled, setFileMentionsEnabled] = useState(true)
   const [tempFileMentionsEnabled, setTempFileMentionsEnabled] = useState(true)
+  // UI Theme state
+  const [uiTheme, setUiTheme] = useState<string>('auto')
+  const [tempUiTheme, setTempUiTheme] = useState<string>('auto')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false)
   const [agentSettings, setAgentSettings] = useState<Record<string, boolean>>({})
@@ -99,7 +102,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         
         // Load app settings with error handling
         try {
-          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, code_settings?: { theme: string, font_size: number } }>('load_app_settings')
+          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number } }>('load_app_settings')
           console.log('✅ App settings loaded:', appSettings)
           if (appSettings) {
             setShowConsoleOutput(appSettings.show_console_output)
@@ -115,6 +118,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             setTempCodeTheme(code.theme)
             setCodeFontSize(code.font_size)
             setTempCodeFontSize(code.font_size)
+            const themePref = appSettings.ui_theme || 'auto'
+            setUiTheme(themePref)
+            setTempUiTheme(themePref)
           }
         } catch (appError) {
           console.warn('⚠️ Failed to load app settings (using defaults):', appError)
@@ -236,13 +242,69 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       tempDefaultProjectsFolder !== defaultProjectsFolder ||
       tempShowConsoleOutput !== showConsoleOutput ||
       tempFileMentionsEnabled !== fileMentionsEnabled ||
+      tempUiTheme !== uiTheme ||
       tempCodeTheme !== codeTheme ||
       tempCodeFontSize !== codeFontSize ||
       JSON.stringify(tempAgentSettings) !== JSON.stringify(agentSettings) ||
       (tempAllAgentSettings && allAgentSettings && JSON.stringify(tempAllAgentSettings) !== JSON.stringify(allAgentSettings))
     
     setHasUnsavedChanges(hasChanges)
-  }, [tempDefaultProjectsFolder, defaultProjectsFolder, tempShowConsoleOutput, showConsoleOutput, tempFileMentionsEnabled, fileMentionsEnabled, tempAgentSettings, agentSettings, tempAllAgentSettings, allAgentSettings])
+  }, [
+    tempDefaultProjectsFolder,
+    defaultProjectsFolder,
+    tempShowConsoleOutput,
+    showConsoleOutput,
+    tempFileMentionsEnabled,
+    fileMentionsEnabled,
+    tempUiTheme,
+    uiTheme,
+    tempCodeTheme,
+    codeTheme,
+    tempCodeFontSize,
+    codeFontSize,
+    tempAgentSettings,
+    agentSettings,
+    tempAllAgentSettings,
+    allAgentSettings,
+  ])
+
+  // Live-apply UI theme while editing, and auto-save the preference
+  useEffect(() => {
+    const root = document.documentElement
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)')
+    const isDark = tempUiTheme === 'dark' || (tempUiTheme === 'auto' && prefersDark.matches)
+    // Manage dark and force-light classes to cooperate with OS media query
+    if (tempUiTheme === 'light') {
+      root.classList.remove('dark')
+      root.classList.add('force-light')
+    } else if (isDark) {
+      root.classList.add('dark')
+      root.classList.remove('force-light')
+    } else {
+      root.classList.remove('dark')
+      root.classList.remove('force-light')
+    }
+
+    // Persist theme selection immediately without affecting other unsaved changes
+    const saveTheme = async () => {
+      try {
+        const appSettings = {
+          show_console_output: showConsoleOutput,
+          projects_folder: defaultProjectsFolder,
+          file_mentions_enabled: fileMentionsEnabled,
+          ui_theme: tempUiTheme,
+          code_settings: { theme: codeTheme, font_size: codeFontSize }
+        }
+        await invoke('save_app_settings', { settings: appSettings })
+        // Also update native window theme
+        await invoke('set_window_theme', { theme: tempUiTheme })
+        setUiTheme(tempUiTheme)
+      } catch (e) {
+        console.error('Failed to auto-save ui_theme:', e)
+      }
+    }
+    saveTheme()
+  }, [tempUiTheme])
 
   // Load git config when tab is activated
   useEffect(() => {
@@ -380,6 +442,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTempApiKeys(prev => ({ ...prev, [providerId]: key }))
   }
 
+  const applyUiTheme = (theme: string) => {
+    const root = document.documentElement
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    const isDark = theme === 'dark' || (theme === 'auto' && prefersDark)
+    if (isDark) {
+      root.classList.add('dark')
+    } else {
+      root.classList.remove('dark')
+    }
+  }
+
   const handleSaveChanges = async () => {
     try {
       console.log('💾 Saving settings changes...')
@@ -389,6 +462,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         show_console_output: tempShowConsoleOutput,
         projects_folder: tempDefaultProjectsFolder,
         file_mentions_enabled: tempFileMentionsEnabled,
+        ui_theme: tempUiTheme,
         code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize }
       }
       await invoke('save_app_settings', { settings: appSettings })
@@ -407,10 +481,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setShowConsoleOutput(tempShowConsoleOutput)
       setFileMentionsEnabled(tempFileMentionsEnabled)
       setDefaultProjectsFolder(tempDefaultProjectsFolder)
+      setUiTheme(tempUiTheme)
       setCodeTheme(tempCodeTheme)
       setCodeFontSize(tempCodeFontSize)
       setAgentSettings(tempAgentSettings)
       setAllAgentSettings(tempAllAgentSettings)
+      // Apply theme immediately
+      applyUiTheme(tempUiTheme)
       
       console.log('✅ Settings saved successfully')
     } catch (error) {
@@ -431,6 +508,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTempDefaultProjectsFolder(defaultProjectsFolder)
     setTempShowConsoleOutput(showConsoleOutput)
     setTempFileMentionsEnabled(fileMentionsEnabled)
+    setTempUiTheme(uiTheme)
     setTempCodeTheme(codeTheme)
     setTempCodeFontSize(codeFontSize)
     setTempAgentSettings({ ...agentSettings })
@@ -555,6 +633,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   tempShowConsoleOutput={tempShowConsoleOutput}
                   systemPrompt={settings?.system_prompt}
                   saving={saving}
+                  tempUiTheme={tempUiTheme}
                   gitConfig={gitConfig}
                   gitWorktreeEnabled={gitWorktreeEnabled}
                   gitConfigLoading={gitConfigLoading}
@@ -566,6 +645,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   onClearRecentProjects={handleClearRecentProjects}
                   onRefreshGitConfig={loadGitConfig}
                   onToggleGitWorktree={handleGitWorktreeToggle}
+                  onUiThemeChange={setTempUiTheme}
                 />
               )}
               {activeTab === 'git' && (

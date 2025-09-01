@@ -12,11 +12,13 @@ export function GeneralSettings({
   tempShowConsoleOutput,
   systemPrompt,
   saving,
+  tempUiTheme = 'auto',
   onFolderChange,
   onSelectFolder,
   onConsoleOutputChange,
   onSystemPromptChange,
-  onClearRecentProjects
+  onClearRecentProjects,
+  onUiThemeChange
 }: GeneralSettingsProps) {
   return (
     <div className="space-y-6">
@@ -46,7 +48,7 @@ export function GeneralSettings({
           </div>
           <div className="space-y-2">
             <Label htmlFor="theme">Theme</Label>
-            <Select defaultValue="auto">
+            <Select value={tempUiTheme} onValueChange={(v) => onUiThemeChange?.(v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>

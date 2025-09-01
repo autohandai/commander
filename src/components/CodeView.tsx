@@ -8,6 +8,7 @@ import { Highlight, themes, type Language } from 'prism-react-renderer';
 import { invoke } from '@tauri-apps/api/core';
 import { useFileMention } from '@/hooks/use-file-mention';
 import { useSettings } from '@/contexts/settings-context';
+import { resolvePrismTheme } from '@/lib/code-theme';
 import { FileInfo } from '@/types/file-mention';
 import { RecentProject } from '@/hooks/use-recent-projects';
 
@@ -253,7 +254,7 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
   }, [file]);
 
   // Get theme and font size from settings context
-  const themeName = settings.code_settings.theme === 'dracula' ? 'dracula' : 'github';
+  const themeName = resolvePrismTheme(settings.code_settings.theme, settings.ui_theme);
   const fontSize = settings.code_settings.font_size;
 
   if (!file) {

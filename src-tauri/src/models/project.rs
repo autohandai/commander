@@ -23,6 +23,9 @@ pub struct AppSettings {
     pub projects_folder: Option<String>,
     #[serde(default = "default_file_mentions_enabled")]
     pub file_mentions_enabled: bool,
+    #[serde(default = "default_ui_theme")]
+    /// UI theme preference: "auto" | "light" | "dark"
+    pub ui_theme: String,
     #[serde(default)]
     pub code_settings: CodeSettings,
 }
@@ -34,6 +37,8 @@ fn default_show_console_output() -> bool {
 fn default_file_mentions_enabled() -> bool {
     true
 }
+
+fn default_ui_theme() -> String { "auto".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSettings {
@@ -58,6 +63,7 @@ impl Default for AppSettings {
             show_console_output: default_show_console_output(),
             projects_folder: None,
             file_mentions_enabled: default_file_mentions_enabled(),
+            ui_theme: default_ui_theme(),
             code_settings: CodeSettings::default(),
         }
     }

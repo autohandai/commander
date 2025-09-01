@@ -58,20 +58,17 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
   const getAgentStatus = (agent: AIAgent) => {
     if (!agent.enabled) {
       return {
-        color: 'bg-neutral-600',
-        textColor: 'text-neutral-500',
+        color: 'bg-neutral-400',
         status: 'disabled'
       };
     } else if (agent.available) {
       return {
         color: 'bg-green-500',
-        textColor: 'text-green-400',
         status: 'available'
       };
     } else {
       return {
         color: 'bg-red-500',
-        textColor: 'text-red-400',
         status: 'unavailable'
       };
     }
@@ -94,7 +91,7 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
 
   return (
     <div 
-      className="fixed bottom-0 right-0 h-6 bg-neutral-900 border-t border-neutral-800 flex items-center justify-end px-4 text-xs z-50 transition-[left] duration-200 ease-linear"
+      className="fixed bottom-0 right-0 h-6 bg-muted/70 border-t border-border flex items-center justify-end px-4 text-xs z-50 transition-[left] duration-200 ease-linear"
       style={{ left: `${actualSidebarWidth}px` }}
     >
       <div className="flex items-center gap-4">
@@ -104,15 +101,15 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
               variant="ghost"
               size="sm"
               onClick={onChatToggle}
-              className="h-5 px-2 text-xs text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800"
+              className="h-5 px-2 text-xs"
             >
               <MessageCircle className="h-3 w-3 mr-1" />
               Chat
             </Button>
-            <div className="w-px h-3 bg-neutral-700" />
+            <div className="w-px h-3 bg-border" />
           </>
         )}
-        <span className="text-neutral-400">Agents:</span>
+        <span className="text-muted-foreground">Agents:</span>
         {agents.map((agent) => {
           const status = getAgentStatus(agent);
           return (
@@ -126,22 +123,20 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
                   !agent.enabled ? 'opacity-60' : ''
                 }`}
               />
-              <span className={`${status.textColor} ${
-                !agent.enabled ? 'opacity-60' : ''
-              }`}>
+              <span className={`text-foreground ${!agent.enabled ? 'opacity-60' : ''}`}>
                 {agent.display_name}
               </span>
               
               {/* Tooltip on hover */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-neutral-800 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-popover text-popover-foreground border border-border text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
                 {getTooltipMessage(agent)}
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-transparent border-t-neutral-800"></div>
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-2 border-transparent border-t-border"></div>
               </div>
             </div>
           );
         })}
         {agents.length === 0 && (
-          <span className="text-neutral-500">Checking...</span>
+          <span className="text-muted-foreground">Checking...</span>
         )}
       </div>
     </div>

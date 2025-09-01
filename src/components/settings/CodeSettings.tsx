@@ -57,6 +57,7 @@ export function CodeSettings() {
               <SelectValue placeholder="Select a theme" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="auto">Auto (match UI)</SelectItem>
               <SelectItem value="github">GitHub (light)</SelectItem>
               <SelectItem value="dracula">Dracula (dark)</SelectItem>
             </SelectContent>
@@ -89,4 +90,3 @@ export function CodeSettings() {
     </div>
   );
 }
-

@@ -6,6 +6,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use once_cell::sync::Lazy;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 use crate::models::*;
 use crate::commands::settings_commands::load_all_agent_settings;
@@ -245,16 +246,108 @@ async fn cleanup_inactive_sessions() -> Result<(), String> {
 
 // Check if a command is available in the system
 async fn check_command_available(command: &str) -> bool {
-    let check_cmd = if cfg!(target_os = "windows") {
-        Command::new("where").arg(command).output().await
-    } else {
-        Command::new("which").arg(command).output().await
-    };
-    
-    match check_cmd {
-        Ok(output) => output.status.success(),
-        Err(_) => false,
-    }
+    // Prefer Rust which crate for reliability in GUI app contexts (PATH differences)
+    which::which(command).is_ok()
+}
+
+// Try to spawn the command inside a PTY to get unbuffered, real-time output.
+// Falls back to stdio pipes in the caller if PTY spawn fails.
+async fn try_spawn_with_pty(
+    app: tauri::AppHandle,
+    session_id: String,
+    program: &str,
+    args: &[String],
+    working_dir: Option<String>,
+) -> Result<(), String> {
+    // PTY must be used in blocking context; spawn a blocking task.
+    let app_clone = app.clone();
+    let program_s = program.to_string();
+    let args_v = args.to_vec();
+    let session_id_clone = session_id.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 32,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+        let mut cmd = CommandBuilder::new(program_s);
+        for a in &args_v {
+            cmd.arg(a);
+        }
+        if let Some(dir) = working_dir.clone() {
+            cmd.cwd(dir);
+        }
+
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Failed to spawn PTY command: {}", e))?;
+
+        // Reader for master end
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+
+        // Read loop: emit chunks as they arrive
+        let mut buf = [0u8; 4096];
+        loop {
+            match std::io::Read::read(&mut reader, &mut buf) {
+                Ok(0) => break, // EOF
+                Ok(n) => {
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    // Emit synchronously — safe on main thread; tauri queues it.
+                    let _ = app_clone.emit(
+                        "cli-stream",
+                        StreamChunk {
+                            session_id: session_id_clone.clone(),
+                            content: text,
+                            finished: false,
+                        },
+                    );
+                }
+                Err(e) => {
+                    let _ = app_clone.emit(
+                        "cli-stream",
+                        StreamChunk {
+                            session_id: session_id_clone.clone(),
+                            content: format!("\n❌ PTY read error: {}\n", e),
+                            finished: false,
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+
+        // Wait for child to exit
+        let status = child
+            .wait()
+            .map_err(|e| format!("Failed to wait on PTY child: {}", e))?;
+        let _ = app_clone.emit(
+            "cli-stream",
+            StreamChunk {
+                session_id: session_id_clone,
+                content: if status.success() {
+                    "\n✅ Command completed successfully\n".to_string()
+                } else {
+                    format!("\n❌ Command failed with status\n")
+                },
+                finished: true,
+            },
+        );
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("PTY task join error: {}", e))??;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -307,18 +400,38 @@ pub async fn execute_persistent_cli_command(
             return;
         }
         
-        // Execute non-interactive command directly instead of persistent session
+        // Build args once
         let command_args = build_agent_command_args(&agent_name, &actual_message, &app_clone).await;
-        
-        let mut cmd = Command::new(&agent_name);
+
+        // Resolve absolute path of the executable to avoid PATH issues in GUI contexts
+        let resolved_prog = which::which(&agent_name)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(agent_name.clone());
+
+        // First try PTY for real-time unbuffered output. If it errors, fall back to pipes.
+        if let Err(e) = try_spawn_with_pty(app_clone.clone(), session_id_clone.clone(), &resolved_prog, &command_args, working_dir.clone()).await {
+            // Inform about PTY fallback
+            let _ = app_clone.emit(
+                "cli-stream",
+                StreamChunk {
+                    session_id: session_id_clone.clone(),
+                    content: format!("ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n", e),
+                    finished: false,
+                },
+            );
+        } else {
+            return; // PTY path handled end-to-end
+        }
+
+        let mut cmd = Command::new(&resolved_prog);
         cmd.args(&command_args)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
-           
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
         if let Some(dir) = &working_dir {
             cmd.current_dir(dir);
         }
-        
+
         match cmd.spawn() {
             Ok(mut child) => {
                 // Stream stdout

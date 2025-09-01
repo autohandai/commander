@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen, Lightbulb } from 'lucide-react';
+import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen, Lightbulb, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -11,8 +11,9 @@ import { RecentProject } from '@/hooks/use-recent-projects';
 import { useFileMention } from '@/hooks/use-file-mention';
 import { CODE_EXTENSIONS } from '@/types/file-mention';
 import { PlanBreakdown } from './PlanBreakdown';
+import { useToast } from '@/components/ToastProvider';
 import { FileTypeIcon } from './FileTypeIcon';
-import { SubAgent, SubAgentGroup } from '@/types/sub-agent';
+import { SubAgentGroup } from '@/types/sub-agent';
 
 interface Agent {
   id: string;
@@ -29,10 +30,7 @@ interface AgentCapability {
   category: string;
 }
 
-interface SubAgentOption extends AutocompleteOption {
-  subAgent?: SubAgent;
-  cliName?: string;
-}
+// (Removed unused SubAgentOption to satisfy noUnusedLocals)
 
 interface AutocompleteOption {
   id: string;
@@ -176,16 +174,22 @@ const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
 
 export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceProps) {
   const [inputValue, setInputValue] = useState('');
+  const [typedPlaceholder, setTypedPlaceholder] = useState('');
+  const placeholderTimerRef = useRef<number | null>(null);
+  const typingIntervalRef = useRef<number | null>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const [autocompleteOptions, setAutocompleteOptions] = useState<AutocompleteOption[]>([]);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(0);
   const [commandType, setCommandType] = useState<'/' | '@' | null>(null);
   const [commandStart, setCommandStart] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isExecuting, setIsExecuting] = useState(false);
+  // Allow parallel executions: track active streaming sessions
+  const [executingSessions, setExecutingSessions] = useState<Set<string>>(new Set());
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AllAgentSettings | null>(null);
+  const [enabledAgents, setEnabledAgents] = useState<Record<string, boolean> | null>(null);
   const [workspaceEnabled, setWorkspaceEnabled] = useState(false);
   const [fileMentionsEnabled, setFileMentionsEnabled] = useState(true);
   const [planModeEnabled, setPlanModeEnabled] = useState(false);
@@ -195,6 +199,78 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const storageKey = React.useMemo(() => project ? `chat:${project.path}` : null, [project]);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const { showError } = useToast();
+
+  // Utilities to normalize agent id and check enablement
+  const displayNameToId = React.useMemo(() => ({
+    'Claude Code CLI': 'claude',
+    'Codex': 'codex',
+    'Gemini': 'gemini',
+    'Test CLI': 'test',
+  } as const), []);
+
+  const getAgentId = (nameOrDisplay: string | undefined | null): string => {
+    if (!nameOrDisplay) return 'claude';
+    const lower = String(nameOrDisplay).toLowerCase();
+    // match display names
+    const fromDisplay = (displayNameToId as any)[nameOrDisplay];
+    if (fromDisplay) return fromDisplay;
+    // already an id
+    if (['claude','codex','gemini','test'].includes(lower)) return lower;
+    return lower;
+  };
+
+  const ensureEnabled = async (agentId: string): Promise<boolean> => {
+    if (!enabledAgents) {
+      // Lazy refresh if not yet loaded or stale
+      try {
+        const map = await invoke<Record<string, boolean>>('load_agent_settings');
+        setEnabledAgents(map);
+        return map[agentId] !== false;
+      } catch (e) {
+        console.error('Failed to refresh enabled agents:', e);
+        // Fail safe: block when unknown to honor security/disable intent
+        return false;
+      }
+    }
+    return enabledAgents[agentId] !== false;
+  };
+
+  const isLongMessage = (text: string | undefined) => {
+    if (!text) return false;
+    if (text.length > 100) return true;
+    const lines = text.split('\n');
+    return lines.length > 6;
+  };
+
+  const truncateMessage = (text: string, limit = 100) => {
+    if (text.length <= limit) return text;
+    return text.slice(0, limit).trimEnd() + '…';
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Rotating placeholder messages
+  const NORMAL_PLACEHOLDERS = React.useMemo(() => [
+    "Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'...",
+    "Ask to generate tests for a function…",
+    "Try @file to mention code in your repo…",
+    "Say ‘refactor this component to hooks’…",
+    "Run a CLI task with /codex quickly…",
+  ], []);
+  const PLAN_PLACEHOLDERS = React.useMemo(() => [
+    "Describe what you want to accomplish — I’ll plan it…",
+    "E.g., ‘Add dark mode with a toggle and tests’…",
+    "Outline a multi-step refactor and I’ll break it down…",
+  ], []);
 
   // Session management functions
   const loadSessionStatus = useCallback(async () => {
@@ -212,6 +288,16 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       setAgentSettings(settings);
     } catch (error) {
       console.error('Failed to load agent settings:', error);
+    }
+  }, []);
+
+  const loadEnabledAgents = useCallback(async () => {
+    try {
+      const map = await invoke<Record<string, boolean>>('load_agent_settings');
+      setEnabledAgents(map);
+    } catch (error) {
+      console.error('Failed to load enabled agents:', error);
+      setEnabledAgents(null);
     }
   }, []);
 
@@ -292,6 +378,11 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     if (command === '/') {
       // Filter agents based on query
       options = AGENTS
+        .filter(agent => {
+          // Hide disabled agents; when map unknown, conservatively hide
+          if (!enabledAgents) return false;
+          return enabledAgents[agent.id] !== false;
+        })
         .filter(agent => 
           query === '' || 
           agent.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -369,6 +460,8 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       
       // Add agent capabilities
       AGENTS.forEach(agent => {
+        // Skip disabled agents; when map unknown, skip conservatively
+        if (!enabledAgents || enabledAgents[agent.id] === false) return;
         const capabilities = AGENT_CAPABILITIES[agent.id] || [];
         capabilities
           .filter(cap => 
@@ -400,7 +493,112 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     setAutocompleteOptions(options);
     setSelectedOptionIndex(0);
     setShowAutocomplete(options.length > 0);
-  }, [fileMentionsEnabled, project, files, listFiles, searchFiles, subAgents]);
+  }, [fileMentionsEnabled, project, files, listFiles, searchFiles, subAgents, agentSettings]);
+
+  // Focus input when chat opens
+  useEffect(() => {
+    if (isOpen) {
+      // Defer to ensure element is mounted
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [isOpen]);
+
+  // Load persisted messages for current project on mount/change
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { messages: ChatMessage[] };
+        if (Array.isArray(parsed.messages)) {
+          setMessages(parsed.messages);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load chat history:', e);
+    }
+  }, [storageKey]);
+
+  // Persist messages whenever they change
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({ messages }));
+    } catch (e) {
+      console.warn('Failed to persist chat history:', e);
+    }
+  }, [messages, storageKey]);
+
+  // Animated typing for rotating placeholder
+  useEffect(() => {
+    // Run only when input is empty and nothing is executing
+    const shouldAnimate = isOpen && executingSessions.size === 0 && !isInputFocused && inputValue.trim() === '';
+    const messages = planModeEnabled ? PLAN_PLACEHOLDERS : NORMAL_PLACEHOLDERS;
+    let idx = 0;
+
+    const clearTimers = () => {
+      if (typingIntervalRef.current) {
+        window.clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+      if (placeholderTimerRef.current) {
+        window.clearTimeout(placeholderTimerRef.current);
+        placeholderTimerRef.current = null;
+      }
+    };
+
+    const typeMessage = (text: string, done: () => void) => {
+      setTypedPlaceholder('');
+      let i = 0;
+      typingIntervalRef.current = window.setInterval(() => {
+        i += 1;
+        setTypedPlaceholder(text.slice(0, i));
+        if (i >= text.length) {
+          if (typingIntervalRef.current) {
+            window.clearInterval(typingIntervalRef.current);
+            typingIntervalRef.current = null;
+          }
+          done();
+        }
+      }, 35);
+    };
+
+    const cycle = () => {
+      if (!shouldAnimate || messages.length === 0) return;
+      const text = messages[idx % messages.length];
+      typeMessage(text, () => {
+        placeholderTimerRef.current = window.setTimeout(() => {
+          // small pause, then clear and move to next
+          setTypedPlaceholder('');
+          idx += 1;
+          cycle();
+        }, 1400);
+      });
+    };
+
+    clearTimers();
+    if (shouldAnimate) {
+      cycle();
+    } else {
+      setTypedPlaceholder('');
+    }
+
+    return () => {
+      clearTimers();
+    };
+  }, [isOpen, executingSessions, isInputFocused, inputValue, planModeEnabled, NORMAL_PLACEHOLDERS, PLAN_PLACEHOLDERS]);
+
+  // Global shortcut: Cmd/Ctrl+Enter focuses the input so you can type immediately
+  useEffect(() => {
+    const onGlobalKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onGlobalKey);
+    return () => window.removeEventListener('keydown', onGlobalKey);
+  }, []);
 
   // Handle input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -577,7 +775,7 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !project || isExecuting) return;
+    if (!inputValue.trim() || !project) return;
     
     // If plan mode is enabled, generate a plan instead of executing directly
     if (planModeEnabled) {
@@ -668,6 +866,15 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
       agent: agentToUse || selectedAgent || 'claude',
     };
     
+    // Respect settings: block disabled agents (refresh map if needed)
+    const targetDisplay = agentToUse || selectedAgent || 'claude';
+    const targetId = getAgentId(targetDisplay);
+    const allowed = await ensureEnabled(targetId);
+    if (!allowed) {
+      showError(`${targetDisplay} is disabled in Settings`, 'Agent disabled');
+      return;
+    }
+
     setMessages(prev => [...prev, userMessage]);
     
     // Create assistant message for streaming response
@@ -682,7 +889,11 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
     };
     
     setMessages(prev => [...prev, assistantMessage]);
-    setIsExecuting(true);
+    setExecutingSessions(prev => {
+      const s = new Set(prev);
+      s.add(assistantMessageId);
+      return s;
+    });
     
     // Clear input and hide autocomplete
     setInputValue('');
@@ -715,7 +926,7 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: messageToSend,
-          workingDir: project.path,
+          working_dir: project.path,
         });
         
         // Refresh session status after command execution
@@ -728,7 +939,11 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
           ? { ...msg, content: `Error: ${error}`, isStreaming: false }
           : msg
       ));
-      setIsExecuting(false);
+      setExecutingSessions(prev => {
+        const s = new Set(prev);
+        s.delete(assistantMessageId);
+        return s;
+      });
     }
   };
 
@@ -770,7 +985,11 @@ Please execute each step systematically.`;
     };
     
     setMessages(prev => [...prev, assistantMessage]);
-    setIsExecuting(true);
+    setExecutingSessions(prev => {
+      const s = new Set(prev);
+      s.add(assistantMessageId);
+      return s;
+    });
     
     try {
       // Execute with the selected agent
@@ -789,6 +1008,12 @@ Please execute each step systematically.`;
       };
       
       const finalAgent = selectedAgent || 'claude';
+      const targetId2 = getAgentId(finalAgent);
+      if (!(await ensureEnabled(targetId2))) {
+        showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
+        setMessages(prev => prev.map(m => m.id === assistantMessageId ? { ...m, content: 'Agent disabled in Settings', isStreaming: false } : m));
+        return;
+      }
       const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
@@ -796,7 +1021,7 @@ Please execute each step systematically.`;
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: planPrompt,
-          workingDir: project.path,
+          working_dir: project.path,
         });
       }
     } catch (error) {
@@ -806,7 +1031,11 @@ Please execute each step systematically.`;
           ? { ...msg, content: `Error executing plan: ${error}`, isStreaming: false }
           : msg
       ));
-      setIsExecuting(false);
+      setExecutingSessions(prev => {
+        const s = new Set(prev);
+        s.delete(assistantMessageId);
+        return s;
+      });
     }
   };
 
@@ -869,7 +1098,11 @@ Please focus only on this step.`;
     };
     
     setMessages(prev => [...prev, assistantMessage]);
-    setIsExecuting(true);
+    setExecutingSessions(prev => {
+      const s = new Set(prev);
+      s.add(assistantMessageId);
+      return s;
+    });
     
     try {
       const agentCommandMap = {
@@ -887,6 +1120,12 @@ Please focus only on this step.`;
       };
       
       const finalAgent = selectedAgent || 'claude';
+      const targetId3 = getAgentId(finalAgent);
+      if (!(await ensureEnabled(targetId3))) {
+        showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
+        setMessages(prev => prev.map(m => m.id === assistantMessageId ? { ...m, content: 'Agent disabled in Settings', isStreaming: false } : m));
+        return;
+      }
       const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
@@ -894,7 +1133,7 @@ Please focus only on this step.`;
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: stepPrompt,
-          workingDir: project.path,
+          working_dir: project.path,
         });
         
         // Mark step as completed after successful execution
@@ -946,7 +1185,11 @@ Please focus only on this step.`;
         }
         return msg;
       }));
-      setIsExecuting(false);
+      setExecutingSessions(prev => {
+        const s = new Set(prev);
+        s.delete(assistantMessageId);
+        return s;
+      });
     }
   };
 
@@ -1013,13 +1256,16 @@ Please focus only on this step.`;
       }));
       
       if (chunk.finished) {
-        setIsExecuting(false);
+        setExecutingSessions(prev => {
+          const s = new Set(prev);
+          s.delete(chunk.session_id);
+          return s;
+        });
       }
     });
 
     const unlistenError = listen<string>('cli-error', (event) => {
       console.error('CLI Error:', event.payload);
-      setIsExecuting(false);
     });
 
     return () => {
@@ -1060,7 +1306,7 @@ Please focus only on this step.`;
       };
       loadFileMentionsSetting();
     }
-  }, [isOpen, loadSessionStatus, loadAgentSettings, loadSubAgents]);
+  }, [isOpen, loadSessionStatus, loadAgentSettings, loadEnabledAgents, loadSubAgents]);
 
   // Click outside to close autocomplete
   useEffect(() => {
@@ -1243,12 +1489,35 @@ Please focus only on this step.`;
                       <span>•</span>
                       <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
                       {message.isStreaming && (
-                        <span className="animate-pulse">•••</span>
+                        <Loader2 className="h-3 w-3 animate-spin" />
                       )}
-                    </div>
+                  </div>
                     <div className="whitespace-pre-wrap text-sm">
-                      {message.content || (message.isStreaming ? 'Thinking...' : '')}
+                      {(() => {
+                        const content = message.content || '';
+                        const long = isLongMessage(content);
+                        const expanded = expandedMessages.has(message.id);
+                        if (!content && message.isStreaming) return 'Thinking...';
+                        if (!long || expanded) return content;
+                        return truncateMessage(content, 100);
+                      })()}
                     </div>
+                    {(() => {
+                      const content = message.content || '';
+                      const long = isLongMessage(content);
+                      if (!long) return null;
+                      const expanded = expandedMessages.has(message.id);
+                      return (
+                        <div className="mt-2 text-right">
+                          <button
+                            onClick={() => toggleExpand(message.id)}
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            {expanded ? 'Show less' : 'Show more'}
+                          </button>
+                        </div>
+                      );
+                    })()}
                     {message.plan && (
                       <div className="mt-3">
                         <PlanBreakdown
@@ -1376,12 +1645,14 @@ Please focus only on this step.`;
                 onChange={handleInputChange}
                 onSelect={handleInputSelect}
                 onKeyDown={handleKeyDown}
-                placeholder={planModeEnabled ? 
-                  "Describe what you want to accomplish - I'll create a step-by-step plan..." : 
-                  "Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'..."}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                placeholder={typedPlaceholder || (planModeEnabled ?
+                  "Describe what you want to accomplish - I'll create a step-by-step plan..." :
+                  "Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'...")}
                 className="pr-12 py-2.5 text-base"
                 autoComplete="off"
-                disabled={isExecuting}
+                disabled={false}
               />
               {inputValue && (
                 <button
@@ -1397,7 +1668,7 @@ Please focus only on this step.`;
             </div>
             <Button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isExecuting}
+              disabled={!inputValue.trim()}
               size="icon"
               className="h-10 w-10"
             >

@@ -22,6 +22,8 @@ export interface AppSettings {
   show_console_output: boolean;
   projects_folder: string;
   file_mentions_enabled: boolean;
+  // UI theme for the app: 'auto' | 'light' | 'dark'
+  ui_theme?: string;
   code_settings?: { theme: string; font_size: number };
 }
 
@@ -145,6 +147,8 @@ export interface GeneralSettingsProps {
   tempShowConsoleOutput: boolean;
   systemPrompt?: string;
   saving: boolean;
+  // UI theme state (temporary for unsaved changes)
+  tempUiTheme?: string;
   gitConfig: GitConfig;
   gitWorktreeEnabled: boolean;
   gitConfigLoading: boolean;
@@ -156,6 +160,8 @@ export interface GeneralSettingsProps {
   onClearRecentProjects: () => Promise<void>;
   onRefreshGitConfig: () => Promise<void>;
   onToggleGitWorktree: (enabled: boolean) => Promise<void>;
+  // Theme change handler
+  onUiThemeChange?: (theme: string) => void;
 }
 
 export interface GitSettingsProps {

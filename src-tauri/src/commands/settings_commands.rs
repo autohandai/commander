@@ -20,6 +20,20 @@ pub async fn save_app_settings(app: tauri::AppHandle, settings: AppSettings) -> 
 }
 
 #[tauri::command]
+pub async fn set_window_theme(window: tauri::Window, theme: String) -> Result<(), String> {
+    use tauri::Theme;
+    let opt = match theme.as_str() {
+        "dark" => Some(Theme::Dark),
+        "light" => Some(Theme::Light),
+        // "auto" or anything else: follow system
+        _ => None,
+    };
+    window
+        .set_theme(opt)
+        .map_err(|e| format!("Failed to set window theme: {}", e))
+}
+
+#[tauri::command]
 pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
     let store = app.store("app-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;

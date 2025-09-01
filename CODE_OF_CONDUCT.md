@@ -48,7 +48,7 @@ an individual is officially representing the community in public spaces.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported by opening an issue on this repository or by contacting the
-maintainers at oss@autohand.ai. All complaints will be reviewed and
+maintainers at hey@autohand.ai. All complaints will be reviewed and
 investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
