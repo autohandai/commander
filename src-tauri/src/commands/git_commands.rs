@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use tauri::Emitter;
 use std::path::Path;
 use crate::services::git_service;
+use std::path::PathBuf;
 
 #[tauri::command]
 pub async fn validate_git_repository_url(url: String) -> Result<bool, String> {
@@ -168,7 +169,7 @@ pub async fn get_git_aliases() -> Result<HashMap<String, String>, String> {
 
 #[tauri::command]
 pub async fn get_git_worktree_enabled() -> Result<bool, String> {
-    // Check if git worktree is supported and available
+    // Backward-compat: returns if git worktree is supported and available
     let output = tokio::process::Command::new("git")
         .args(&["worktree", "--help"])
         .output()
@@ -177,6 +178,16 @@ pub async fn get_git_worktree_enabled() -> Result<bool, String> {
 
     // Git worktree is available if the help command succeeds
     Ok(output.status.success())
+}
+
+/// Returns user's preference for using worktrees (defaults to true if unset)
+#[tauri::command]
+pub async fn get_git_worktree_preference(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("app-settings.json")
+        .map_err(|e| format!("Failed to access store: {}", e))?;
+    let value = store.get("git_worktree_enabled").and_then(|v| v.as_bool());
+    Ok(value.unwrap_or(true))
 }
 
 #[tauri::command]
@@ -297,4 +308,43 @@ pub async fn select_git_project_folder(app: tauri::AppHandle) -> Result<Option<S
             Err("Failed to receive folder selection result".to_string())
         },
     }
+}
+
+#[tauri::command]
+pub async fn create_workspace_worktree(app: tauri::AppHandle, project_path: String, name: String) -> Result<String, String> {
+    // Ensure valid repo
+    let repo = PathBuf::from(&project_path);
+    if !is_valid_git_repository(&repo) { return Err("Not a valid git repository".to_string()); }
+
+    // Ensure .commander directory
+    let commander_dir = repo.join(".commander");
+    std::fs::create_dir_all(&commander_dir).map_err(|e| format!("Failed to create .commander: {}", e))?;
+
+    // Generate branch name
+    let branch = format!("workspace/{}", name);
+    let target_path = commander_dir.join(&name);
+
+    // Create worktree on new branch
+    let status = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["worktree","add","-B", &branch, target_path.to_string_lossy().as_ref()])
+        .output().await.map_err(|e| format!("git worktree add failed: {}", e))?;
+    if !status.status.success() {
+        return Err(format!("Failed to add worktree: {}", String::from_utf8_lossy(&status.stderr)));
+    }
+
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn remove_workspace_worktree(project_path: String, worktree_path: String) -> Result<(), String> {
+    // Remove worktree (prunes checked-out tree)
+    let status = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["worktree","remove","--force", &worktree_path])
+        .output().await.map_err(|e| format!("git worktree remove failed: {}", e))?;
+    if !status.status.success() {
+        return Err(format!("Failed to remove worktree: {}", String::from_utf8_lossy(&status.stderr)));
+    }
+    Ok(())
 }

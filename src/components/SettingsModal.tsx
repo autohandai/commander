@@ -92,6 +92,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     aliases: {}
   })
   const [gitWorktreeEnabled, setGitWorktreeEnabled] = useState(false)
+  const [gitWorktreeSupported, setGitWorktreeSupported] = useState(false)
   const [gitConfigLoading, setGitConfigLoading] = useState(false)
   const [gitConfigError, setGitConfigError] = useState<string | null>(null)
   
@@ -222,21 +223,23 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     try {
       console.log('🔄 Loading git configuration...')
       
-      const [globalConfig, localConfig, aliases, worktreeEnabled] = await Promise.all([
+      const [globalConfig, localConfig, aliases, worktreePref, worktreeSupported] = await Promise.all([
         invoke<Record<string, string>>('get_git_global_config').catch(() => ({})),
         invoke<Record<string, string>>('get_git_local_config').catch(() => ({})),
         invoke<Record<string, string>>('get_git_aliases').catch(() => ({})),
-        invoke<boolean>('get_git_worktree_enabled').catch(() => false)
+        invoke<boolean>('get_git_worktree_preference').catch(() => true),
+        invoke<boolean>('get_git_worktree_enabled').catch(() => false),
       ])
 
-      console.log('✅ Git config loaded:', { globalConfig, localConfig, aliases, worktreeEnabled })
+      console.log('✅ Git config loaded:', { globalConfig, localConfig, aliases, worktreePref, worktreeSupported })
       
       setGitConfig({
         global: globalConfig,
         local: localConfig,
         aliases: aliases
       })
-      setGitWorktreeEnabled(worktreeEnabled)
+      setGitWorktreeEnabled(worktreePref)
+      setGitWorktreeSupported(worktreeSupported)
     } catch (error) {
       console.error('❌ Error loading git configuration:', error)
       setGitConfigError(error instanceof Error ? error.message : String(error))
@@ -666,6 +669,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 <GitSettings
                   gitConfig={gitConfig}
                   gitWorktreeEnabled={gitWorktreeEnabled}
+                  gitWorktreeSupported={gitWorktreeSupported}
                   gitConfigLoading={gitConfigLoading}
                   gitConfigError={gitConfigError}
                   onRefreshConfig={loadGitConfig}

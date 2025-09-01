@@ -168,6 +168,7 @@ export interface GeneralSettingsProps {
 export interface GitSettingsProps {
   gitConfig: GitConfig;
   gitWorktreeEnabled: boolean;
+  gitWorktreeSupported?: boolean;
   gitConfigLoading: boolean;
   gitConfigError: string | null;
   onRefreshConfig: () => Promise<void>;

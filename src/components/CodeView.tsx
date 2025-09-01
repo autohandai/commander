@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Folder, FolderOpen, File, ChevronRight, ChevronDown } from 'lucide-react';
+import { Folder, FolderOpen, File, ChevronRight, ChevronDown, Plus } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { invoke } from '@tauri-apps/api/core';
 import { FileTypeIcon } from '@/components/FileTypeIcon';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Highlight, themes, type Language } from 'prism-react-renderer';
-import { invoke } from '@tauri-apps/api/core';
 import { useFileMention } from '@/hooks/use-file-mention';
 import { useSettings } from '@/contexts/settings-context';
 import { resolvePrismTheme } from '@/lib/code-theme';
@@ -91,10 +93,11 @@ function FileTreeNode({ item, onFileSelect, selectedFile }: FileTreeNodeProps) {
   );
 }
 
-function FileExplorer({ project, onFileSelect, selectedFile }: {
+function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
   project: RecentProject;
   onFileSelect: (file: FileInfo) => void;
   selectedFile: string | null;
+  rootPath: string;
 }) {
   const { files, listFiles, loading } = useFileMention();
   const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
@@ -102,10 +105,10 @@ function FileExplorer({ project, onFileSelect, selectedFile }: {
   useEffect(() => {
     // Load all files from the project directory
     listFiles({
-      directory_path: project.path,
+      directory_path: rootPath || project.path,
       max_depth: 10, // Deep traversal for complete file tree
     });
-  }, [project.path, listFiles]);
+  }, [project.path, rootPath, listFiles]);
 
   useEffect(() => {
     // Build tree structure from flat file list
@@ -354,6 +357,29 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
 
 export function CodeView({ project }: CodeViewProps) {
   const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null);
+  const [viewScope, setViewScope] = useState<'main' | 'workspace'>('main');
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const [creatingWs, setCreatingWs] = useState(false);
+
+  // Discover a workspace worktree under .commander if available
+  useEffect(() => {
+    (async () => {
+      try {
+        const worktrees = await invoke<Array<Record<string, string>>>('get_git_worktrees');
+        const candidate = worktrees.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
+        if (candidate && candidate.path) {
+          setWorkspacePath(candidate.path);
+          setViewScope('workspace');
+        } else {
+          setWorkspacePath(null);
+          setViewScope('main');
+        }
+      } catch {
+        setWorkspacePath(null);
+        setViewScope('main');
+      }
+    })();
+  }, [project.path]);
 
   const handleFileSelect = (file: FileInfo) => {
     setSelectedFile(file);
@@ -363,10 +389,41 @@ export function CodeView({ project }: CodeViewProps) {
     <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
       {/* File Explorer Sidebar */}
       <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
+        <div className="p-2 border-b bg-muted/20 space-y-2">
+          <Label className="text-xs text-muted-foreground">View</Label>
+          <Select value={viewScope} onValueChange={(v: 'main' | 'workspace') => { setViewScope(v); setSelectedFile(null); }}>
+            <SelectTrigger className="h-8 mt-1">
+              <SelectValue placeholder="Select view" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="main">Main Branch</SelectItem>
+              <SelectItem value="workspace" disabled={!workspacePath}>Workspace</SelectItem>
+            </SelectContent>
+          </Select>
+          {!workspacePath && (
+            <Button size="sm" className="w-full" disabled={creatingWs} onClick={async () => {
+              try {
+                setCreatingWs(true);
+                // simple default workspace name
+                const wsName = 'default';
+                const path = await invoke<string>('create_workspace_worktree', { projectPath: project.path, name: wsName });
+                setWorkspacePath(path);
+                setViewScope('workspace');
+              } catch (e) {
+                console.error('Failed to create workspace', e);
+              } finally {
+                setCreatingWs(false);
+              }
+            }}>
+              <Plus className="h-4 w-4 mr-2" /> Create Workspace
+            </Button>
+          )}
+        </div>
         <FileExplorer
           project={project}
           onFileSelect={handleFileSelect}
           selectedFile={selectedFile?.relative_path || null}
+          rootPath={viewScope === 'workspace' && workspacePath ? workspacePath : project.path}
         />
       </div>
 

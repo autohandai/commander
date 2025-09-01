@@ -1,4 +1,4 @@
-import { RefreshCw, Loader2, User, Mail, Link2, Zap, FolderOpen } from "lucide-react"
+import { RefreshCw, Loader2, User, Mail, Link2, Zap, FolderOpen, CheckCircle2, AlertTriangle } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -10,6 +10,7 @@ import type { GitSettingsProps } from "@/types/settings"
 export function GitSettings({
   gitConfig,
   gitWorktreeEnabled,
+  gitWorktreeSupported = false,
   gitConfigLoading,
   gitConfigError,
   onRefreshConfig,
@@ -24,7 +25,18 @@ export function GitSettings({
           <div className="space-y-4 p-4 border rounded-lg">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <Label htmlFor="git-worktree">Enable Workspaces</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="git-worktree">Enable Workspaces</Label>
+                  {gitWorktreeSupported ? (
+                    <span className="inline-flex items-center text-xs text-green-600 dark:text-green-400 gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Supported
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-xs text-yellow-600 dark:text-yellow-400 gap-1">
+                      <AlertTriangle className="h-3 w-3" /> Unavailable
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   Workspaces use Git worktrees to create isolated environments for different features. Work on multiple branches simultaneously without switching contexts.
                 </p>

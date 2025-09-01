@@ -71,7 +71,7 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           </TabsList>
         </div>
         
-        <TabsContent value="chat" className="flex-1 m-0 h-full min-w-0">
+        <TabsContent value="chat" className="flex-1 m-0 h-full min-w-0" forceMount>
           <ChatInterface
             isOpen={true}
             onToggle={() => {}} // Not needed in tab mode
@@ -80,11 +80,11 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           />
         </TabsContent>
         
-        <TabsContent value="code" className="flex-1 m-0 h-full min-w-0">
+        <TabsContent value="code" className="flex-1 m-0 h-full min-w-0" forceMount>
           <CodeView project={project} />
         </TabsContent>
         
-        <TabsContent value="tasks" className="flex-1 m-0 h-full min-w-0">
+        <TabsContent value="tasks" className="flex-1 m-0 h-full min-w-0" forceMount>
           <TasksView project={project} />
         </TabsContent>
       </Tabs>
@@ -441,8 +441,8 @@ function AppContent() {
                     <GitBranch className="h-8 w-8" />
                   </div>
                   <div className="space-y-1">
-                    <p className="font-semibold">Clone Repository</p>
-                    <p className="text-xs text-muted-foreground">Clone from GitHub, GitLab, etc.</p>
+                    <p className="font-semibold">Clone</p>
+                    <p className="text-xs text-muted-foreground">Clone from GitHub, GitLab, Bitbucket, etc.</p>
                   </div>
                 </button>
                 
@@ -455,7 +455,7 @@ function AppContent() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-semibold">New Project</p>
-                    <p className="text-xs text-muted-foreground">Start from scratch</p>
+                    <p className="text-xs text-muted-foreground">Start from scratch a local git repo</p>
                   </div>
                 </button>
 
@@ -467,7 +467,7 @@ function AppContent() {
                     <FolderOpen className="h-8 w-8" />
                   </div>
                   <div className="space-y-1">
-                    <p className="font-semibold">Open Git Project</p>
+                    <p className="font-semibold">Open Project</p>
                     <p className="text-xs text-muted-foreground">Open existing git repository</p>
                   </div>
                 </button>

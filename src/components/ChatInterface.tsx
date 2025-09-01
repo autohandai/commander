@@ -190,7 +190,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AllAgentSettings | null>(null);
   const [enabledAgents, setEnabledAgents] = useState<Record<string, boolean> | null>(null);
-  const [workspaceEnabled, setWorkspaceEnabled] = useState(false);
+  const [workspaceEnabled, setWorkspaceEnabled] = useState(true);
   const [fileMentionsEnabled, setFileMentionsEnabled] = useState(true);
   const [planModeEnabled, setPlanModeEnabled] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
@@ -1281,6 +1281,12 @@ Please focus only on this step.`;
 
   // Load initial session status and set up periodic refresh
   useEffect(() => {
+    // Load workspace preference from backend (defaults to true)
+    invoke<boolean>('get_git_worktree_preference').then((pref) => {
+      setWorkspaceEnabled(!!pref)
+    }).catch(() => {
+      setWorkspaceEnabled(true)
+    })
     loadSessionStatus();
     
     const interval = setInterval(loadSessionStatus, 10000); // Refresh every 10 seconds
