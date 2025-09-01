@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Folder, FolderOpen, File, ChevronRight, ChevronDown, Plus } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { FileTypeIcon } from '@/components/FileTypeIcon';
 import { Button } from '@/components/ui/button';
@@ -13,9 +15,11 @@ import { useSettings } from '@/contexts/settings-context';
 import { resolvePrismTheme } from '@/lib/code-theme';
 import { FileInfo } from '@/types/file-mention';
 import { RecentProject } from '@/hooks/use-recent-projects';
+import { parseWorkspaceWorktrees, WorkspaceEntry } from '@/lib/workspaces';
 
 interface CodeViewProps {
   project: RecentProject;
+  tauriInvoke?: <T = any>(cmd: string, args?: Record<string, any>) => Promise<T>;
 }
 
 interface FileTreeItem extends FileInfo {
@@ -355,20 +359,25 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
   );
 }
 
-export function CodeView({ project }: CodeViewProps) {
+export function CodeView({ project, tauriInvoke }: CodeViewProps) {
   const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null);
   const [viewScope, setViewScope] = useState<'main' | 'workspace'>('main');
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [creatingWs, setCreatingWs] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newWsName, setNewWsName] = useState('');
 
   // Discover a workspace worktree under .commander if available
   useEffect(() => {
     (async () => {
       try {
-        const worktrees = await invoke<Array<Record<string, string>>>('get_git_worktrees');
-        const candidate = worktrees.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
-        if (candidate && candidate.path) {
-          setWorkspacePath(candidate.path);
+        const call = tauriInvoke || invoke;
+        const list = await call<Array<Record<string, string>>>('get_git_worktrees');
+        const ws = parseWorkspaceWorktrees(list as any, project.path);
+        setWorkspaces(ws);
+        if (ws.length > 0) {
+          setWorkspacePath(ws[0].path);
           setViewScope('workspace');
         } else {
           setWorkspacePath(null);
@@ -386,6 +395,7 @@ export function CodeView({ project }: CodeViewProps) {
   };
 
   return (
+    <>
     <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
       {/* File Explorer Sidebar */}
       <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
@@ -400,23 +410,51 @@ export function CodeView({ project }: CodeViewProps) {
               <SelectItem value="workspace" disabled={!workspacePath}>Workspace</SelectItem>
             </SelectContent>
           </Select>
-          {!workspacePath && (
-            <Button size="sm" className="w-full" disabled={creatingWs} onClick={async () => {
-              try {
-                setCreatingWs(true);
-                // simple default workspace name
-                const wsName = 'default';
-                const path = await invoke<string>('create_workspace_worktree', { projectPath: project.path, name: wsName });
-                setWorkspacePath(path);
-                setViewScope('workspace');
-              } catch (e) {
-                console.error('Failed to create workspace', e);
-              } finally {
-                setCreatingWs(false);
-              }
-            }}>
+          {viewScope !== 'workspace' && (
+            <Button size="sm" className="w-full" disabled={creatingWs} onClick={() => setIsCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-2" /> Create Workspace
             </Button>
+          )}
+          {viewScope === 'workspace' && (
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Workspace</Label>
+              <Select value={workspacePath || ''} onValueChange={(p) => { setWorkspacePath(p); setSelectedFile(null); }}>
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="Select workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces.map((ws) => (
+                    <SelectItem key={ws.path} value={ws.path}>{ws.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1" onClick={() => setIsCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" /> New Workspace
+                </Button>
+                <Button size="sm" variant="outline" disabled={!workspacePath} onClick={async () => {
+                  if (!workspacePath) return;
+                  const ws = workspaces.find((w) => w.path === workspacePath);
+                  const ok = confirm(`Delete workspace "${ws?.name || 'current'}"? This will remove its worktree directory.`);
+                  if (!ok) return;
+                  try {
+                    const call = tauriInvoke || invoke;
+                    await call('remove_workspace_worktree', { projectPath: project.path, worktreePath: workspacePath });
+                    const list = await call<Array<Record<string, string>>>('get_git_worktrees');
+                    const next = parseWorkspaceWorktrees(list as any, project.path);
+                    setWorkspaces(next);
+                    if (next.length > 0) {
+                      setWorkspacePath(next[0].path);
+                    } else {
+                      setWorkspacePath(null);
+                      setViewScope('main');
+                    }
+                  } catch (e) {
+                    console.error('Failed to remove workspace', e);
+                  }
+                }}>Remove</Button>
+              </div>
+            </div>
           )}
         </div>
         <FileExplorer
@@ -430,5 +468,40 @@ export function CodeView({ project }: CodeViewProps) {
       {/* Code Editor */}
       <CodeEditor file={selectedFile} />
     </div>
+    <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Create Workspace</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label>Name</Label>
+          <Input value={newWsName} onChange={(e) => setNewWsName(e.target.value)} placeholder="feature-xyz" />
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              const name = (newWsName || '').trim();
+              if (!name) return;
+              try {
+                setCreatingWs(true);
+                const call = tauriInvoke || invoke;
+                const path = await call<string>('create_workspace_worktree', { projectPath: project.path, name });
+                const list = await call<Array<Record<string, string>>>('get_git_worktrees');
+                const next = parseWorkspaceWorktrees(list as any, project.path);
+                setWorkspaces(next);
+                setWorkspacePath(path);
+                setViewScope('workspace');
+                setIsCreateOpen(false);
+                setNewWsName('');
+              } catch (e) {
+                console.error('Failed to create workspace', e);
+              } finally {
+                setCreatingWs(false);
+              }
+            }}>Create</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

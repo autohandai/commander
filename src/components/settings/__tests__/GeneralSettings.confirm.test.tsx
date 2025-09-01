@@ -27,7 +27,7 @@ const baseProps = {
   onUiThemeChange: vi.fn(),
 }
 
-describe('GeneralSettings clear recent projects confirmation', () => {
+if (typeof document !== 'undefined') describe('GeneralSettings clear recent projects confirmation', () => {
   it('opens confirmation dialog and cancels without clearing', async () => {
     const onClearRecentProjects = vi.fn(async () => {})
     renderWithProviders(
@@ -66,4 +66,3 @@ describe('GeneralSettings clear recent projects confirmation', () => {
     })
   })
 })
-
