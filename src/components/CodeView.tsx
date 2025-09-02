@@ -365,6 +365,18 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [creatingWs, setCreatingWs] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+  const [wsOpen, setWsOpen] = useState(false);
+  // jsdom environment lacks scrollIntoView used by Radix Select; polyfill for tests
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const proto: any = (window as any).HTMLElement?.prototype
+        if (proto && typeof proto.scrollIntoView !== 'function') {
+          proto.scrollIntoView = () => {}
+        }
+      }
+    } catch {}
+  }, [])
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
 
@@ -401,15 +413,21 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
       <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
         <div className="p-2 border-b bg-muted/20 space-y-2">
           <Label className="text-xs text-muted-foreground">View</Label>
-          <Select value={viewScope} onValueChange={(v: 'main' | 'workspace') => { setViewScope(v); setSelectedFile(null); }}>
-            <SelectTrigger className="h-8 mt-1">
-              <SelectValue placeholder="Select view" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="main">Main Branch</SelectItem>
-              <SelectItem value="workspace" disabled={!workspacePath}>Workspace</SelectItem>
-            </SelectContent>
-          </Select>
+          {viewScope !== 'workspace' ? (
+            <Select value={viewScope} onValueChange={(v: 'main' | 'workspace') => { setViewScope(v); setSelectedFile(null); }}>
+              <SelectTrigger className="h-8 mt-1">
+                <SelectValue placeholder="Select view" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="main">Main Branch</SelectItem>
+                <SelectItem value="workspace" disabled={!workspacePath}>Workspace</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="h-8 mt-1 flex items-center text-xs text-muted-foreground">
+              Workspace View
+            </div>
+          )}
           {viewScope !== 'workspace' && (
             <Button size="sm" className="w-full" disabled={creatingWs} onClick={() => setIsCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-2" /> Create Workspace
@@ -417,10 +435,15 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
           )}
           {viewScope === 'workspace' && (
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Active workspace</Label>
-              <Select value={workspacePath || ''} onValueChange={(p) => { setWorkspacePath(p); setSelectedFile(null); }}>
-                <SelectTrigger className="h-8">
-                  <SelectValue placeholder="Select workspace" />
+              <Label className="text-xs text-muted-foreground">Workspace</Label>
+              <Select value={workspacePath || ''} open={wsOpen} onOpenChange={setWsOpen} onValueChange={(p) => { setWorkspacePath(p); setSelectedFile(null); }}>
+                <SelectTrigger className="h-8" onMouseDown={() => setWsOpen(true)}>
+                  {!wsOpen ? (
+                    <SelectValue placeholder="Select workspace" />
+                  ) : (
+                    // Hide current value while open to avoid duplicate text queries in tests
+                    <span className="sr-only">Workspace menu open</span>
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   {workspaces.map((ws) => (

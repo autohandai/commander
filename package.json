@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:silent": "vitest run --silent",
     "test:watch": "vitest --watch"
   },
   "dependencies": {

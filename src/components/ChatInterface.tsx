@@ -1,10 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen, Lightbulb, Loader2, RotateCcw } from 'lucide-react';
+import { MessageCircle, Code, Brain, Activity, Terminal, X, RotateCcw, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { RecentProject } from '@/hooks/use-recent-projects';
@@ -15,6 +12,8 @@ import { useToast } from '@/components/ToastProvider';
 import { FileTypeIcon } from './FileTypeIcon';
 import { SubAgentGroup } from '@/types/sub-agent';
 import { ChatInput, AutocompleteOption as ChatAutocompleteOption } from '@/components/chat/ChatInput';
+import { MessagesList } from '@/components/chat/MessagesList';
+import { SessionStatusHeader } from '@/components/chat/SessionStatusHeader';
 
 interface Agent {
   id: string;
@@ -1431,7 +1430,12 @@ Please focus only on this step.`;
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="chat-root">
-      {/* Session Status Header */}
+            <SessionStatusHeader
+        sessionStatus={sessionStatus as any}
+        showSessionPanel={showSessionPanel}
+        onTogglePanel={() => setShowSessionPanel(!showSessionPanel)}
+      />
+
       {sessionStatus && sessionStatus.total_sessions > 0 && (
         <div className="border-b bg-muted/30 px-6 py-2">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -1473,70 +1477,13 @@ Please focus only on this step.`;
 
       {/* Session Management Panel */}
       {showSessionPanel && sessionStatus && (
-        <div className="border-b bg-background p-4">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium">Active CLI Sessions</h3>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={terminateAllSessions}
-                  className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                >
-                  Terminate All
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowSessionPanel(false)}
-                  className="h-7 w-7 p-0"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {sessionStatus.active_sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <Terminal className="h-4 w-4" />
-                    <div>
-                      <div className="font-medium text-sm">{session.agent}</div>
-                      <div className="text-xs text-muted-foreground">
-                        Created: {new Date(session.created_at * 1000).toLocaleTimeString()}
-                        {session.working_dir && (
-                          <span className="ml-2">• {session.working_dir.split('/').pop()}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => sendQuitCommand(session.id)}
-                      className="h-6 px-2 text-xs"
-                    >
-                      Send Quit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => terminateSession(session.id)}
-                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-                    >
-                      Force Kill
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SessionManagementPanel
+          sessions={sessionStatus.active_sessions as any}
+          onTerminateAll={terminateAllSessions}
+          onSendQuit={sendQuitCommand}
+          onTerminateSession={terminateSession}
+          onClose={() => setShowSessionPanel(false)}
+        />
       )}
 
       {/* Chat Messages Area with ScrollArea */}
@@ -1573,74 +1520,16 @@ Please focus only on this step.`;
             </div>
           ) : (
             <>
-              {messages.map((message) => (
-                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-lg p-3 ${
-                    message.role === 'user' 
-                      ? 'bg-primary text-primary-foreground ml-12' 
-                      : 'bg-muted mr-12'
-                  }`}>
-                    <div className="flex items-center gap-2 mb-1 text-xs opacity-70">
-                      {message.role === 'user' ? (
-                        <User className="h-3 w-3" />
-                      ) : (
-                        <Bot className="h-3 w-3" />
-                      )}
-                      <span>{message.role === 'user' ? 'You' : message.agent}</span>
-                      {message.role === 'assistant' && getAgentModel(message.agent) && (
-                        <>
-                          <span>•</span>
-                          <span className="text-muted-foreground">using {getAgentModel(message.agent)}</span>
-                        </>
-                      )}
-                      <span>•</span>
-                      <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-                      {message.isStreaming && (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      )}
-                  </div>
-                    <div className="whitespace-pre-wrap text-sm">
-                      {(() => {
-                        const content = message.content || '';
-                        const long = isLongMessage(content);
-                        const expanded = expandedMessages.has(message.id);
-                        if (!content && message.isStreaming) return 'Thinking...';
-                        if (!long || expanded) return content;
-                        return truncateMessage(content, 100);
-                      })()}
-                    </div>
-                    {(() => {
-                      const content = message.content || '';
-                      const long = isLongMessage(content);
-                      if (!long) return null;
-                      const expanded = expandedMessages.has(message.id);
-                      return (
-                        <div className="mt-2 text-right">
-                          <button
-                            onClick={() => toggleExpand(message.id)}
-                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                          >
-                            {expanded ? 'Show less' : 'Show more'}
-                          </button>
-                        </div>
-                      );
-                    })()}
-                    {message.plan && (
-                      <div className="mt-3">
-                        <PlanBreakdown
-                          title={message.plan.title}
-                          description={message.plan.description}
-                          steps={message.plan.steps}
-                          progress={message.plan.progress}
-                          isGenerating={message.plan.isGenerating}
-                          onExecutePlan={handleExecutePlan}
-                          onExecuteStep={handleExecuteStep}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+              <MessagesList
+                messages={messages as any}
+                expandedMessages={expandedMessages}
+                onToggleExpand={toggleExpand}
+                isLongMessage={isLongMessage}
+                truncateMessage={truncateMessage}
+                getAgentModel={getAgentModel}
+                onExecutePlan={handleExecutePlan}
+                onExecuteStep={handleExecuteStep}
+              />
               <div ref={messagesEndRef} />
             </>
           )}
