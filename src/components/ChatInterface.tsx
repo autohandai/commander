@@ -223,9 +223,9 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   };
 
   // Helper function to resolve working directory for CLI commands
-  const resolveWorkingDir = React.useCallback(async (): Promise<string | undefined> => {
+  const resolveWorkingDir = React.useCallback(async (): Promise<string> => {
     if (!project) {
-      return undefined;
+      return '';
     }
     
     if (!workspaceEnabled) {
@@ -361,7 +361,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   const terminateSession = async (sessionId: string) => {
     try {
-      await invoke('terminate_session', { session_id: sessionId });
+      await invoke('terminate_session', { sessionId });
       await loadSessionStatus(); // Refresh session list
     } catch (error) {
       console.error('Failed to terminate session:', error);
@@ -379,7 +379,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   const sendQuitCommand = async (sessionId: string) => {
     try {
-      await invoke('send_quit_command_to_session', { session_id: sessionId });
+      await invoke('send_quit_command_to_session', { sessionId });
       // Wait a moment then refresh session status
       setTimeout(loadSessionStatus, 1000);
     } catch (error) {
@@ -1008,7 +1008,7 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: messageToSend,
-          working_dir: workingDir,
+          workingDir: workingDir,
         });
         
         // Refresh session status after command execution
@@ -1104,7 +1104,7 @@ Please execute each step systematically.`;
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: planPrompt,
-          working_dir: workingDir,
+          workingDir: workingDir,
         });
       }
     } catch (error) {
@@ -1217,7 +1217,7 @@ Please focus only on this step.`;
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: stepPrompt,
-          working_dir: workingDir,
+          workingDir: workingDir,
         });
         
         // Mark step as completed after successful execution

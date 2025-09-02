@@ -19,6 +19,7 @@ src-tauri/src/
 
 ## Test-Driven Development - NON-NEGOTIABLE
 
+###
 ### Before ANY code changes:
 
 1. **WRITE TESTS FIRST** ⚠️
@@ -31,6 +32,12 @@ src-tauri/src/
    ```bash
    cargo test  # Must show new tests failing
    ```
+   
+   For frontend
+
+   ```bash
+   bun run test //non interactive param here
+   ``` 
 
 3. **IMPLEMENT FEATURE** ⚠️
    - Write minimal code to pass tests
