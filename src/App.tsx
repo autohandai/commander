@@ -9,21 +9,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator 
 } from "@/components/ui/breadcrumb"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
-import { 
-  GitBranch,
-  Plus,
-  Copy,
-  Code,
-  MessageCircle,
-  FolderOpen,
-  CheckSquare
-} from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { GitBranch, Plus, Copy, Code, MessageCircle, FolderOpen, History as HistoryIcon } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import React, { useState, useEffect, useRef } from "react"
@@ -36,7 +23,7 @@ import { SettingsProvider } from "@/contexts/settings-context"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
 import { ChatInterface } from "@/components/ChatInterface"
 import { CodeView } from "@/components/CodeView"
-import { TasksView } from "@/components/TasksView"
+import { HistoryView } from "@/components/HistoryView"
 import { Button } from "@/components/ui/button"
 import { RecentProject } from "@/hooks/use-recent-projects"
 import type { MenuEventPayload } from "@/types/menu"
@@ -64,9 +51,9 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
               <Code className="h-4 w-4" />
               Code
             </TabsTrigger>
-            <TabsTrigger value="tasks" className="flex items-center gap-2">
-              <CheckSquare className="h-4 w-4" />
-              Tasks
+            <TabsTrigger value="history" className="flex items-center gap-2">
+              <HistoryIcon className="h-4 w-4" />
+              History
             </TabsTrigger>
           </TabsList>
         </div>
@@ -84,8 +71,8 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           <CodeView project={project} />
         </TabsContent>
         
-        <TabsContent value="tasks" className="flex-1 m-0 h-full min-w-0" forceMount>
-          <TasksView project={project} />
+        <TabsContent value="history" className="flex-1 m-0 h-full min-w-0" forceMount>
+          <HistoryView project={project} />
         </TabsContent>
       </Tabs>
     </div>

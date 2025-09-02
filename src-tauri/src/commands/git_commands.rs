@@ -348,3 +348,196 @@ pub async fn remove_workspace_worktree(project_path: String, worktree_path: Stri
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn get_git_log(project_path: String, limit: Option<usize>) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    let lim = limit.unwrap_or(50).to_string();
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["log", "--pretty=%H|%an|%ad|%s", "--date=iso", &format!("-n{}", lim)])
+        .output().await.map_err(|e| format!("Failed to run git log: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        let parts: Vec<&str> = line.splitn(4, '|').collect();
+        if parts.len() == 4 {
+            let mut m = std::collections::HashMap::new();
+            m.insert("hash".into(), parts[0].into());
+            m.insert("author".into(), parts[1].into());
+            m.insert("date".into(), parts[2].into());
+            m.insert("subject".into(), parts[3].into());
+            rows.push(m);
+        }
+    }
+    Ok(rows)
+}
+
+async fn get_branch_from_worktree(worktree_path: &str) -> Result<String, String> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(worktree_path)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"]) 
+        .output().await.map_err(|e| format!("Failed to get branch: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[tauri::command]
+pub async fn diff_workspace_vs_main(project_path: String, worktree_path: String) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    let branch = get_branch_from_worktree(&worktree_path).await?;
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["diff", "--name-status", "main...", &branch])
+        .output().await.map_err(|e| format!("Failed to run git diff: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        let mut parts = line.split_whitespace();
+        if let (Some(status), Some(path)) = (parts.next(), parts.next()) {
+            let mut m = std::collections::HashMap::new();
+            m.insert("status".into(), status.into());
+            m.insert("path".into(), path.into());
+            rows.push(m);
+        }
+    }
+    Ok(rows)
+}
+
+#[tauri::command]
+pub async fn merge_workspace_to_main(project_path: String, worktree_path: String, message: Option<String>) -> Result<(), String> {
+    let branch = get_branch_from_worktree(&worktree_path).await?;
+    // checkout main
+    let co = tokio::process::Command::new("git").arg("-C").arg(&project_path).args(["checkout","main"]).output().await.map_err(|e| e.to_string())?;
+    if !co.status.success() { return Err(String::from_utf8_lossy(&co.stderr).to_string()); }
+    // merge
+    let msg = message.unwrap_or_else(|| format!("Merge workspace {} into main", branch));
+    let merge = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["merge","--no-ff","-m", &msg, &branch])
+        .output().await.map_err(|e| e.to_string())?;
+    if !merge.status.success() { return Err(String::from_utf8_lossy(&merge.stderr).to_string()); }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn diff_workspace_file(project_path: String, worktree_path: String, file_path: String) -> Result<String, String> {
+    let branch = get_branch_from_worktree(&worktree_path).await?;
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["diff", "-U200", &format!("main...{}", branch), "--", &file_path])
+        .output().await.map_err(|e| format!("Failed to run git diff file: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+
+#[derive(serde::Serialize)]
+pub struct CommitDagRow {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    pub date: String,
+    pub subject: String,
+    pub refs: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn get_git_commit_dag(project_path: String, limit: Option<usize>) -> Result<Vec<CommitDagRow>, String> {
+    let lim = limit.unwrap_or(50).to_string();
+    let format = "%H|%P|%an|%ad|%s||%D";
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["log", "--date=iso", &format!("-n{}", lim), &format!("--pretty={}", format)])
+        .output().await.map_err(|e| format!("Failed to run git log: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        let parts: Vec<&str> = line.splitn(6, '|').collect();
+        if parts.len() < 6 { continue; }
+        let hash = parts[0].to_string();
+        let parents = if parts[1].trim().is_empty() { vec![] } else { parts[1].split_whitespace().map(|s| s.to_string()).collect() };
+        let author = parts[2].to_string();
+        let date = parts[3].to_string();
+        let subject = parts[4].to_string();
+        let refs_str = parts[5];
+        let refs: Vec<String> = refs_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        rows.push(CommitDagRow { hash, parents, author, date, subject, refs });
+    }
+    Ok(rows)
+}
+
+#[tauri::command]
+pub async fn get_commit_diff_files(project_path: String, commit_hash: String) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["show", "--name-status", "--format=tformat:", &commit_hash])
+        .output().await.map_err(|e| format!("Failed to run git show: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        if let (Some(status), Some(path)) = (parts.next(), parts.next()) {
+            let mut m = std::collections::HashMap::new();
+            m.insert("status".into(), status.into());
+            m.insert("path".into(), path.into());
+            rows.push(m);
+        }
+    }
+    Ok(rows)
+}
+
+#[tauri::command]
+pub async fn get_commit_diff_text(project_path: String, commit_hash: String, file_path: String) -> Result<String, String> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["show", &commit_hash, "-U200", "--", &file_path])
+        .output().await.map_err(|e| format!("Failed to run git show file: {}", e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+
+// ---------------- Project Chat History ----------------
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+    pub timestamp: i64,
+    pub agent: Option<String>,
+}
+
+fn chat_store_key(project_path: &str) -> String { format!("chat::{}", project_path) }
+
+#[tauri::command]
+pub async fn load_project_chat(app: tauri::AppHandle, project_path: String) -> Result<Vec<ChatMessage>, String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("chat-history.json").map_err(|e| e.to_string())?;
+    let key = chat_store_key(&project_path);
+    let val = store.get(&key).map(|v| v.clone()).unwrap_or(serde_json::Value::Null);
+    let msgs: Vec<ChatMessage> = serde_json::from_value(val).unwrap_or_default();
+    Ok(msgs)
+}
+
+#[tauri::command]
+pub async fn save_project_chat(app: tauri::AppHandle, project_path: String, messages: Vec<ChatMessage>) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("chat-history.json").map_err(|e| e.to_string())?;
+    let key = chat_store_key(&project_path);
+    store.set(&key, serde_json::to_value(messages).map_err(|e| e.to_string())?);
+    store.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn append_project_chat_message(app: tauri::AppHandle, project_path: String, message: ChatMessage) -> Result<(), String> {
+    let mut existing = load_project_chat(app.clone(), project_path.clone()).await?;
+    existing.push(message);
+    save_project_chat(app, project_path, existing).await
+}
