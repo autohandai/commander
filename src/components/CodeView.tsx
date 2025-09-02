@@ -417,7 +417,7 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
           )}
           {viewScope === 'workspace' && (
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Workspace</Label>
+              <Label className="text-xs text-muted-foreground">Active workspace</Label>
               <Select value={workspacePath || ''} onValueChange={(p) => { setWorkspacePath(p); setSelectedFile(null); }}>
                 <SelectTrigger className="h-8">
                   <SelectValue placeholder="Select workspace" />

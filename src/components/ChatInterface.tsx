@@ -14,6 +14,7 @@ import { PlanBreakdown } from './PlanBreakdown';
 import { useToast } from '@/components/ToastProvider';
 import { FileTypeIcon } from './FileTypeIcon';
 import { SubAgentGroup } from '@/types/sub-agent';
+import { ChatInput, AutocompleteOption as ChatAutocompleteOption } from '@/components/chat/ChatInput';
 
 interface Agent {
   id: string;
@@ -1429,7 +1430,7 @@ Please focus only on this step.`;
   }, [selectedOptionIndex, showAutocomplete]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0" data-testid="chat-root">
       {/* Session Status Header */}
       {sessionStatus && sessionStatus.total_sessions > 0 && (
         <div className="border-b bg-muted/30 px-6 py-2">
@@ -1539,7 +1540,7 @@ Please focus only on this step.`;
       )}
 
       {/* Chat Messages Area with ScrollArea */}
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 p-6" data-testid="chat-scrollarea">
         <div className="max-w-4xl mx-auto">
           {/* New Session Button */}
           {messages.length > 0 && (
@@ -1650,164 +1651,31 @@ Please focus only on this step.`;
       {/* Chat Input Area - Fixed at bottom (account for status bar overlay) */}
       <div className="border-t bg-background p-8 pb-16 flex-shrink-0">
         <div className="max-w-4xl mx-auto">
-          {/* Autocomplete Dropdown */}
-          {showAutocomplete && autocompleteOptions.length > 0 && (
-            <div 
-              ref={autocompleteRef}
-              className="mb-3 bg-background border border-border rounded-lg shadow-xl max-h-48 overflow-y-auto"
-            >
-              <div className="p-2">
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
-                  {commandType === '/' ? 'Available Agents' : fileMentionsEnabled ? `Files in ${project?.name || 'Project'} & Capabilities` : 'Agent Capabilities'}
-                </div>
-                {autocompleteOptions.map((option, index) => {
-                  const IconComponent = option.icon;
-                  return (
-                    <button
-                      key={option.id}
-                      onClick={() => handleAutocompleteSelect(option)}
-                      className={`w-full text-left p-3 rounded-md transition-colors flex items-start gap-3 ${
-                        index === selectedOptionIndex 
-                          ? 'bg-accent text-accent-foreground' 
-                          : 'hover:bg-accent/50'
-                      }`}
-                    >
-                      {IconComponent && (
-                        typeof IconComponent === 'function' && IconComponent.length === 0 ? (
-                          <IconComponent />
-                        ) : (
-                          <IconComponent className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        )
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm">{option.label}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {option.description}
-                        </div>
-                        {option.category && (
-                          <div className="text-xs text-muted-foreground/70 mt-1">
-                            {option.category}
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          
-          {/* Toggle Controls */}
-          <div className="flex justify-end gap-6 mb-3">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4 text-muted-foreground" />
-                    <label htmlFor="plan-mode-switch" className="text-sm text-muted-foreground cursor-pointer">
-                      Plan Mode
-                    </label>
-                    <Switch
-                      id="plan-mode-switch"
-                      checked={planModeEnabled}
-                      onCheckedChange={setPlanModeEnabled}
-                      aria-label="Enable plan mode"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Generate step-by-step plans before execution using Ollama</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2">
-                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                    <label htmlFor="workspace-switch" className="text-sm text-muted-foreground cursor-pointer">
-                      Enable workspace
-                    </label>
-                    <Switch
-                      id="workspace-switch"
-                      checked={workspaceEnabled}
-                      onCheckedChange={setWorkspaceEnabled}
-                      aria-label="Enable workspace mode"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Enabling this you will start working with git worktree for changes</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <Input
-                ref={inputRef}
-                value={inputValue}
-                onChange={handleInputChange}
-                onSelect={handleInputSelect}
-                onKeyDown={handleKeyDown}
-                onFocus={() => setIsInputFocused(true)}
-                onBlur={() => setIsInputFocused(false)}
-                placeholder={typedPlaceholder || (planModeEnabled ?
-                  "Describe what you want to accomplish - I'll create a step-by-step plan..." :
-                  "Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'...")}
-                className="pr-12 py-2.5 text-base"
-                autoComplete="off"
-                disabled={false}
-              />
-              {inputValue && (
-                <button
-                  onClick={() => {
-                    setInputValue('');
-                    setShowAutocomplete(false);
-                  }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <Button
-              onClick={handleSendMessage}
-              disabled={!inputValue.trim()}
-              size="icon"
-              className="h-10 w-10"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-          
-          <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-            <div className="flex items-center gap-3">
-              <span>Press Enter to send</span>
-              <span>↑↓ to navigate • Tab/Enter to select • Esc to close</span>
-              {project && (
-                <>
-                  <span>•</span>
-                  <span>Working in: {project.name}</span>
-                </>
-              )}
-              {selectedAgent && getAgentModel(selectedAgent) && (
-                <>
-                  <span>•</span>
-                  <span className="text-blue-600 dark:text-blue-400">
-                    {selectedAgent} using {getAgentModel(selectedAgent)}
-                  </span>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <kbd className="px-1.5 py-0.5 text-xs bg-muted rounded">/agent prompt</kbd>
-              <kbd className="px-1.5 py-0.5 text-xs bg-muted rounded">help</kbd>
-              <kbd className="px-1.5 py-0.5 text-xs bg-muted rounded">@</kbd>
-            </div>
-          </div>
+          <ChatInput
+            inputRef={inputRef}
+            autocompleteRef={autocompleteRef}
+            inputValue={inputValue}
+            typedPlaceholder={typedPlaceholder}
+            onInputChange={handleInputChange}
+            onInputSelect={handleInputSelect}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            onClear={() => { setInputValue(''); setShowAutocomplete(false); }}
+            onSend={handleSendMessage}
+            showAutocomplete={showAutocomplete}
+            autocompleteOptions={autocompleteOptions as unknown as ChatAutocompleteOption[]}
+            selectedOptionIndex={selectedOptionIndex}
+            onSelectOption={handleAutocompleteSelect}
+            planModeEnabled={planModeEnabled}
+            onPlanModeChange={setPlanModeEnabled}
+            workspaceEnabled={workspaceEnabled}
+            onWorkspaceEnabledChange={setWorkspaceEnabled}
+            projectName={project?.name}
+            selectedAgent={selectedAgent}
+            getAgentModel={getAgentModel}
+            fileMentionsEnabled={fileMentionsEnabled}
+          />
         </div>
       </div>
       {/* Spacer to avoid overlap with fixed AIAgentStatusBar (h-6) */}
