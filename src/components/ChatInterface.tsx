@@ -527,7 +527,41 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     } catch (e) {
       console.warn('Failed to persist chat history:', e);
     }
+    // Also persist to backend store (debounced and filtered)
+    const timer = setTimeout(() => {
+      if (!project) return;
+      const cleaned = messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        agent: m.agent,
+      }))
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('save_project_chat', { projectPath: project.path, messages: cleaned }).catch(() => {})
+      })
+    }, 300);
+    return () => clearTimeout(timer);
   }, [messages, storageKey]);
+
+  // Load chat from backend store when opening a project
+  useEffect(() => {
+    if (!project) return;
+    import('@tauri-apps/api/core').then(({ invoke }) => {
+      invoke('load_project_chat', { projectPath: project.path }).then((msgs: any) => {
+        if (Array.isArray(msgs) && msgs.length > 0) {
+          // Merge minimal messages into UI message shape
+          const restored: ChatMessage[] = msgs.map((m: any, i: number) => ({
+            id: `restored-${i}-${m.timestamp}`,
+            content: String(m.content ?? ''),
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            timestamp: Number(m.timestamp ?? Date.now()),
+            agent: String(m.agent ?? 'claude'),
+          }))
+          setMessages(restored)
+        }
+      }).catch(() => {})
+    }).catch(() => {})
+  }, [project?.path])
 
   // Animated typing for rotating placeholder
   useEffect(() => {
@@ -921,12 +955,25 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
       const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
+      const resolveWorkingDir = async (): Promise<string> => {
+        if (!project) return '';
+        if (!workspaceEnabled) return project.path;
+        try {
+          const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
+          const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
+          return (ws && ws.path) ? ws.path : project.path;
+        } catch {
+          return project.path;
+        }
+      };
+
       if (commandFunction) {
-        console.log(`Executing ${commandFunction} with message: "${messageToSend}" in directory: "${project.path}"`);
+        const workingDir = await resolveWorkingDir();
+        console.log(`Executing ${commandFunction} with message: "${messageToSend}" in directory: "${workingDir}"`);
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: messageToSend,
-          working_dir: project.path,
+          working_dir: workingDir,
         });
         
         // Refresh session status after command execution
@@ -1018,10 +1065,17 @@ Please execute each step systematically.`;
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
       if (commandFunction) {
+        const workingDir = project ? (workspaceEnabled ? (async () => {
+          try {
+            const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
+            const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
+            return (ws && ws.path) ? ws.path : project.path;
+          } catch { return project.path; }
+        })() : Promise.resolve(project.path)) : Promise.resolve('');
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: planPrompt,
-          working_dir: project.path,
+          working_dir: await workingDir,
         });
       }
     } catch (error) {
@@ -1130,10 +1184,17 @@ Please focus only on this step.`;
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
       if (commandFunction) {
+        const workingDir = project ? (workspaceEnabled ? (async () => {
+          try {
+            const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
+            const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
+            return (ws && ws.path) ? ws.path : project.path;
+          } catch { return project.path; }
+        })() : Promise.resolve(project.path)) : Promise.resolve('');
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: stepPrompt,
-          working_dir: project.path,
+          working_dir: await workingDir,
         });
         
         // Mark step as completed after successful execution

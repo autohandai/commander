@@ -408,19 +408,23 @@ pub async fn execute_persistent_cli_command(
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or(agent_name.clone());
 
-        // First try PTY for real-time unbuffered output. If it errors, fall back to pipes.
-        if let Err(e) = try_spawn_with_pty(app_clone.clone(), session_id_clone.clone(), &resolved_prog, &command_args, working_dir.clone()).await {
-            // Inform about PTY fallback
-            let _ = app_clone.emit(
-                "cli-stream",
-                StreamChunk {
-                    session_id: session_id_clone.clone(),
-                    content: format!("ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n", e),
-                    finished: false,
-                },
-            );
-        } else {
-            return; // PTY path handled end-to-end
+        // Decide spawn strategy:
+        // When a specific working_dir is requested we prefer pipe streaming with explicit current_dir
+        // for maximum reliability across platforms. Otherwise try PTY first for richer streaming.
+        if working_dir.is_none() {
+            if let Err(e) = try_spawn_with_pty(app_clone.clone(), session_id_clone.clone(), &resolved_prog, &command_args, working_dir.clone()).await {
+                // Inform about PTY fallback
+                let _ = app_clone.emit(
+                    "cli-stream",
+                    StreamChunk {
+                        session_id: session_id_clone.clone(),
+                        content: format!("ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n", e),
+                        finished: false,
+                    },
+                );
+            } else {
+                return; // PTY path handled end-to-end
+            }
         }
 
         let mut cmd = Command::new(&resolved_prog);

@@ -502,6 +502,17 @@ pub async fn get_commit_diff_text(project_path: String, commit_hash: String, fil
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+#[tauri::command]
+pub async fn get_file_at_commit(project_path: String, commit_hash: String, file_path: String) -> Result<String, String> {
+    let spec = format!("{}:{}", commit_hash, file_path);
+    let output = tokio::process::Command::new("git")
+        .arg("-C").arg(&project_path)
+        .args(["show", &spec])
+        .output().await.map_err(|e| format!("Failed to git show {}: {}", spec, e))?;
+    if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 
 // ---------------- Project Chat History ----------------
 use serde::{Serialize, Deserialize};

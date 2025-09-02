@@ -181,6 +181,7 @@ pub fn run() {
             get_git_commit_dag,
             get_commit_diff_files,
             get_commit_diff_text,
+            get_file_at_commit,
             load_project_chat,
             save_project_chat,
             append_project_chat_message,
