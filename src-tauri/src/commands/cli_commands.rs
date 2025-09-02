@@ -159,10 +159,14 @@ fn parse_command_structure(agent: &str, message: &str) -> (String, String) {
             return (agent.to_string(), "help".to_string());
         }
         
-        // Check if first part is an agent name
-        let agent_names = ["claude", "codex", "gemini", "test"];
-        if agent_names.contains(&parts[0]) {
-            let actual_agent = parts[0].to_string();
+        // Check if first part is an agent name (with aliases)
+        let agent_or_aliases = ["claude", "codex", "gemini", "test", "code", "copilot"];
+        if agent_or_aliases.contains(&parts[0]) {
+            // Canonicalize aliases to their real agent
+            let actual_agent = match parts[0] {
+                "code" | "copilot" => "codex".to_string(),
+                other => other.to_string(),
+            };
             let remaining_parts = &parts[1..];
             
             if remaining_parts.is_empty() {
@@ -185,6 +189,32 @@ fn parse_command_structure(agent: &str, message: &str) -> (String, String) {
     } else {
         // Regular message without leading slash
         (agent.to_string(), message.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_command_structure;
+
+    #[test]
+    fn parses_code_alias_to_codex_with_help() {
+        let (agent, msg) = parse_command_structure("claude", "/code help");
+        assert_eq!(agent, "codex", "'/code' should route to 'codex' agent");
+        assert_eq!(msg, "help");
+    }
+
+    #[test]
+    fn parses_code_alias_with_free_text_message() {
+        let (agent, msg) = parse_command_structure("claude", "/code are you there?");
+        assert_eq!(agent, "codex");
+        assert_eq!(msg, "are you there?");
+    }
+
+    #[test]
+    fn preserves_codex_agent_when_explicit() {
+        let (agent, msg) = parse_command_structure("claude", "/codex help");
+        assert_eq!(agent, "codex");
+        assert_eq!(msg, "help");
     }
 }
 
@@ -281,7 +311,10 @@ async fn try_spawn_with_pty(
             cmd.arg(a);
         }
         if let Some(dir) = working_dir.clone() {
+            println!("🏠 PTY: Setting working directory to: {}", dir);
             cmd.cwd(dir);
+        } else {
+            println!("⚠️  PTY: No working directory - using system default");
         }
 
         let mut child = pair
@@ -358,6 +391,7 @@ pub async fn execute_persistent_cli_command(
     message: String,
     working_dir: Option<String>,
 ) -> Result<(), String> {
+    println!("🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}", agent, working_dir);
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
     let _current_time = chrono::Utc::now().timestamp();
@@ -411,6 +445,7 @@ pub async fn execute_persistent_cli_command(
         // Decide spawn strategy:
         // When a specific working_dir is requested we prefer pipe streaming with explicit current_dir
         // for maximum reliability across platforms. Otherwise try PTY first for richer streaming.
+        // ALWAYS use pipe method when working_dir is specified to ensure directory is respected
         if working_dir.is_none() {
             if let Err(e) = try_spawn_with_pty(app_clone.clone(), session_id_clone.clone(), &resolved_prog, &command_args, working_dir.clone()).await {
                 // Inform about PTY fallback
@@ -433,7 +468,10 @@ pub async fn execute_persistent_cli_command(
             .stderr(Stdio::piped());
 
         if let Some(dir) = &working_dir {
+            println!("📁 PIPE: Setting working directory to: {}", dir);
             cmd.current_dir(dir);
+        } else {
+            println!("⚠️  PIPE: No working directory - using system default");
         }
 
         match cmd.spawn() {
@@ -537,43 +575,52 @@ pub async fn execute_cli_command(
 #[tauri::command]
 pub async fn execute_claude_command(
     app: tauri::AppHandle,
-    session_id: String,
+    #[allow(non_snake_case)]
+    sessionId: String,
     message: String,
+    #[allow(non_snake_case)]
     working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, session_id, "claude".to_string(), message, working_dir).await
+    execute_persistent_cli_command(app, sessionId, "claude".to_string(), message, working_dir).await
 }
 
 #[tauri::command]
 pub async fn execute_codex_command(
     app: tauri::AppHandle,
-    session_id: String,
+    #[allow(non_snake_case)]
+    sessionId: String,
     message: String,
+    #[allow(non_snake_case)]
     working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, session_id, "codex".to_string(), message, working_dir).await
+    execute_persistent_cli_command(app, sessionId, "codex".to_string(), message, working_dir).await
 }
 
 #[tauri::command]
 pub async fn execute_gemini_command(
     app: tauri::AppHandle,
-    session_id: String,
+    #[allow(non_snake_case)]
+    sessionId: String,
     message: String,
+    #[allow(non_snake_case)]
     working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, session_id, "gemini".to_string(), message, working_dir).await
+    execute_persistent_cli_command(app, sessionId, "gemini".to_string(), message, working_dir).await
 }
 
 // Test command to demonstrate CLI streaming (this will always work)
 #[tauri::command]
 pub async fn execute_test_command(
     app: tauri::AppHandle,
-    session_id: String,
+    #[allow(non_snake_case)]
+    sessionId: String,
     message: String,
-    _working_dir: Option<String>,
+    #[allow(non_snake_case)]
+    working_dir: Option<String>,
 ) -> Result<(), String> {
     let app_clone = app.clone();
-    let session_id_clone = session_id.clone();
+    let session_id_clone = sessionId.clone();
+    let _ = working_dir; // currently unused
     
     tokio::spawn(async move {
         // Simulate streaming response for testing

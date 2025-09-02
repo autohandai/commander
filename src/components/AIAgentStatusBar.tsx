@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useSidebarWidth, COLLAPSED_SIDEBAR_WIDTH } from '@/contexts/sidebar-width-context';
+import { useSidebarWidth } from '@/contexts/sidebar-width-context';
 import { useSidebar } from '@/components/ui/sidebar';
 import { MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -87,12 +87,16 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
   };
 
   // Calculate the actual left offset based on sidebar state
-  const actualSidebarWidth = state === 'collapsed' ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth;
+  // When collapsed, treat as invisible (0px) for status bar to span full width
+  const actualSidebarWidth = state === 'collapsed' ? 0 : sidebarWidth;
 
   return (
     <div 
-      className="fixed bottom-0 right-0 h-6 bg-muted/70 border-t border-border flex items-center justify-end px-4 text-xs z-50 transition-[left] duration-200 ease-linear"
-      style={{ left: `${actualSidebarWidth}px` }}
+      className="fixed bottom-0 h-6 bg-muted/70 border-t border-border flex items-center justify-end px-4 text-xs z-50 transition-[left] duration-200 ease-linear"
+      style={{ 
+        left: `${actualSidebarWidth}px`,
+        width: `calc(100vw - ${actualSidebarWidth}px)`
+      }}
     >
       <div className="flex items-center gap-4">
         {showChatButton && onChatToggle && (

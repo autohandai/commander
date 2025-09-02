@@ -9,6 +9,8 @@ pub mod settings_commands;
 pub mod menu_commands;
 pub mod prompt_commands;
 pub mod sub_agent_commands;
+pub mod chat_history_commands;
+pub mod chat_migration_commands;
 
 // Re-export all command functions for easy access
 pub use cli_commands::*;
@@ -21,3 +23,5 @@ pub use settings_commands::*;
 pub use menu_commands::*;
 pub use prompt_commands::*;
 pub use sub_agent_commands::*;
+pub use chat_history_commands::*;
+pub use chat_migration_commands::*;

@@ -586,6 +586,7 @@ dependencies = [
  "mockall",
  "once_cell",
  "portable-pty",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -602,6 +603,7 @@ dependencies = [
  "test-case",
  "tokio",
  "tokio-test",
+ "uuid",
  "which",
 ]
 

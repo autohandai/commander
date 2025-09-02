@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen, Lightbulb, Loader2 } from 'lucide-react';
+import { Send, MessageCircle, User, Bot, Code, Brain, Activity, Terminal, X, FolderOpen, Lightbulb, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -222,6 +222,26 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     return lower;
   };
 
+  // Helper function to resolve working directory for CLI commands
+  const resolveWorkingDir = React.useCallback(async (): Promise<string | undefined> => {
+    if (!project) {
+      return undefined;
+    }
+    
+    if (!workspaceEnabled) {
+      return project.path;
+    }
+    
+    try {
+      const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
+      const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
+      const resolvedPath = (ws && ws.path) ? ws.path : project.path;
+      return resolvedPath;
+    } catch (error) {
+      return project.path;
+    }
+  }, [project, workspaceEnabled]);
+
   const ensureEnabled = async (agentId: string): Promise<boolean> => {
     if (!enabledAgents) {
       // Lazy refresh if not yet loaded or stale
@@ -256,6 +276,34 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  };
+
+  const handleNewSession = () => {
+    // Clear messages
+    setMessages([]);
+    // Clear current plan if any
+    setCurrentPlan(null);
+    // Clear expanded messages
+    setExpandedMessages(new Set());
+    // Clear input
+    setInputValue('');
+    // Clear autocomplete
+    setShowAutocomplete(false);
+    setCommandType(null);
+    // Clear from session storage
+    if (storageKey) {
+      try {
+        sessionStorage.removeItem(storageKey);
+      } catch (e) {
+        console.warn('Failed to clear chat history from storage:', e);
+      }
+    }
+    // Also clear from backend store
+    if (project) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('save_project_chat', { projectPath: project.path, messages: [] }).catch(() => {})
+      })
+    }
   };
 
   // Rotating placeholder messages
@@ -313,7 +361,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   const terminateSession = async (sessionId: string) => {
     try {
-      await invoke('terminate_session', { sessionId });
+      await invoke('terminate_session', { session_id: sessionId });
       await loadSessionStatus(); // Refresh session list
     } catch (error) {
       console.error('Failed to terminate session:', error);
@@ -331,7 +379,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   const sendQuitCommand = async (sessionId: string) => {
     try {
-      await invoke('send_quit_command_to_session', { sessionId });
+      await invoke('send_quit_command_to_session', { session_id: sessionId });
       // Wait a moment then refresh session status
       setTimeout(loadSessionStatus, 1000);
     } catch (error) {
@@ -955,21 +1003,8 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
       const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
-      const resolveWorkingDir = async (): Promise<string> => {
-        if (!project) return '';
-        if (!workspaceEnabled) return project.path;
-        try {
-          const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
-          const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
-          return (ws && ws.path) ? ws.path : project.path;
-        } catch {
-          return project.path;
-        }
-      };
-
       if (commandFunction) {
         const workingDir = await resolveWorkingDir();
-        console.log(`Executing ${commandFunction} with message: "${messageToSend}" in directory: "${workingDir}"`);
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: messageToSend,
@@ -1065,17 +1100,11 @@ Please execute each step systematically.`;
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
       if (commandFunction) {
-        const workingDir = project ? (workspaceEnabled ? (async () => {
-          try {
-            const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
-            const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
-            return (ws && ws.path) ? ws.path : project.path;
-          } catch { return project.path; }
-        })() : Promise.resolve(project.path)) : Promise.resolve('');
+        const workingDir = await resolveWorkingDir();
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: planPrompt,
-          working_dir: await workingDir,
+          working_dir: workingDir,
         });
       }
     } catch (error) {
@@ -1184,17 +1213,11 @@ Please focus only on this step.`;
       const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
       
       if (commandFunction) {
-        const workingDir = project ? (workspaceEnabled ? (async () => {
-          try {
-            const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
-            const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
-            return (ws && ws.path) ? ws.path : project.path;
-          } catch { return project.path; }
-        })() : Promise.resolve(project.path)) : Promise.resolve('');
+        const workingDir = await resolveWorkingDir();
         await invoke(commandFunction, {
           sessionId: assistantMessageId,
           message: stepPrompt,
-          working_dir: await workingDir,
+          working_dir: workingDir,
         });
         
         // Mark step as completed after successful execution
@@ -1517,7 +1540,23 @@ Please focus only on this step.`;
 
       {/* Chat Messages Area with ScrollArea */}
       <ScrollArea className="flex-1 p-6">
-        <div className="max-w-4xl mx-auto space-y-4">
+        <div className="max-w-4xl mx-auto">
+          {/* New Session Button */}
+          {messages.length > 0 && (
+            <div className="flex justify-end mb-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNewSession}
+                className="h-8 px-3 text-xs flex items-center gap-2"
+              >
+                <RotateCcw className="h-3 w-3" />
+                New Session
+              </Button>
+            </div>
+          )}
+          
+          <div className="space-y-4">
           {messages.length === 0 ? (
             <div className="text-center text-muted-foreground mt-20">
               <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -1604,11 +1643,12 @@ Please focus only on this step.`;
               <div ref={messagesEndRef} />
             </>
           )}
+          </div>
         </div>
       </ScrollArea>
       
-      {/* Chat Input Area - Fixed at bottom */}
-      <div className="border-t bg-background p-8 flex-shrink-0">
+      {/* Chat Input Area - Fixed at bottom (account for status bar overlay) */}
+      <div className="border-t bg-background p-8 pb-16 flex-shrink-0">
         <div className="max-w-4xl mx-auto">
           {/* Autocomplete Dropdown */}
           {showAutocomplete && autocompleteOptions.length > 0 && (
@@ -1770,6 +1810,8 @@ Please focus only on this step.`;
           </div>
         </div>
       </div>
+      {/* Spacer to avoid overlap with fixed AIAgentStatusBar (h-6) */}
+      <div className="h-8" aria-hidden />
     </div>
   );
 }

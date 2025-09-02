@@ -3,6 +3,7 @@ pub mod commands;
 pub mod services;
 pub mod integration;
 pub mod error_handling;
+pub mod chat_history;
 
 // Common test utilities and helpers
 use tempfile::TempDir;
