@@ -33,10 +33,10 @@ src-tauri/src/
    cargo test  # Must show new tests failing
    ```
    
-   For frontend
+   For frontend you usually get stuck here, but put a timelimit
 
    ```bash
-   bun run test //non interactive param here
+   bun run test 
    ``` 
 
 3. **IMPLEMENT FEATURE** ⚠️

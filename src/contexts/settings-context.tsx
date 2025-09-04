@@ -12,6 +12,7 @@ interface AppSettings {
   file_mentions_enabled: boolean;
   ui_theme?: string;
   code_settings: CodeSettings;
+  chat_send_shortcut?: 'enter' | 'mod+enter';
 }
 
 interface SettingsContextType {
@@ -25,6 +26,7 @@ const defaultSettings: AppSettings = {
   show_console_output: true,
   projects_folder: '',
   file_mentions_enabled: true,
+  chat_send_shortcut: 'mod+enter',
   code_settings: {
     theme: 'github',
     font_size: 14

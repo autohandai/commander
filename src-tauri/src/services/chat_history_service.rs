@@ -262,10 +262,16 @@ pub fn extract_file_mentions(content: &str) -> Vec<String> {
     use regex::Regex;
     
     // More comprehensive regex patterns for file detection
+    // Note: The Rust `regex` crate does not support lookarounds, so we
+    // capture the filename/path in group 1 and match trailing punctuation
+    // as part of a non-capturing group to establish a boundary.
     let patterns = [
-        r"(?:^|\s|`)([^\s`]+\.[a-zA-Z0-9]{1,6})(?:\s|`|$)", // Files with extensions
-        r"(?:^|\s|`)(\.?/?[a-zA-Z0-9_\-./]+/[a-zA-Z0-9_\-.]+)(?:\s|`|$)", // Path-like patterns including ./
-        r"`([^`]+)`", // Backtick-enclosed content
+        // Paths or filenames that include an extension; allow leading ./ and internal /
+        r#"(?:^|\s|`|[\[("])([\./A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-.]+)*\.[A-Za-z0-9]{1,6})(?:\s|`|$|[\]\),.;:!\?"'])"#,
+        // Common filenames optionally prefixed by path segments
+        r#"(?:^|\s|`|[\[("])((?:[\./A-Za-z0-9_\-]+/)*?(?:Makefile|Dockerfile|README|LICENSE|CHANGELOG|Cargo\.toml|package\.json|pom\.xml|build\.gradle))(?:\s|`|$|[\]\),.;:!\?"'])"#,
+        // Backtick-enclosed content (we'll post-filter with is_likely_file_path)
+        r#"`([^`]+)`"#,
     ];
 
     let mut mentions = std::collections::HashSet::new();
@@ -293,12 +299,22 @@ fn is_likely_file_path(text: &str) -> bool {
         return false;
     }
 
-    // Must have either an extension or path separator
-    let has_extension = text.contains('.') && text.split('.').last().unwrap_or("").len() <= 6;
-    let has_path_sep = text.contains('/') || text.contains('\\');
-    let is_common_file = is_common_filename(text);
+    // Consider only the basename for extension/common-file checks
+    let basename = text
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(text);
 
-    (has_extension || has_path_sep || is_common_file) && !is_false_positive(text)
+    // Has a plausible extension (e.g., main.rs, config.json, .env)
+    let has_extension = if let Some((_, ext)) = basename.rsplit_once('.') {
+        !ext.is_empty() && ext.len() <= 6
+    } else {
+        false
+    };
+
+    let is_common_file = is_common_filename(basename);
+
+    (has_extension || is_common_file) && !is_false_positive(text)
 }
 
 /// Check for common filename patterns

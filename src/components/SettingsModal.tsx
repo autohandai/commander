@@ -61,6 +61,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [tempShowConsoleOutput, setTempShowConsoleOutput] = useState(true)
   const [fileMentionsEnabled, setFileMentionsEnabled] = useState(true)
   const [tempFileMentionsEnabled, setTempFileMentionsEnabled] = useState(true)
+  const [chatSendShortcut, setChatSendShortcut] = useState<'enter' | 'mod+enter'>('mod+enter')
+  const [tempChatSendShortcut, setTempChatSendShortcut] = useState<'enter' | 'mod+enter'>('mod+enter')
   // UI Theme state
   const [uiTheme, setUiTheme] = useState<string>('auto')
   const [tempUiTheme, setTempUiTheme] = useState<string>('auto')
@@ -111,6 +113,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
             setTempShowConsoleOutput(appSettings.show_console_output)
             setFileMentionsEnabled(appSettings.file_mentions_enabled)
             setTempFileMentionsEnabled(appSettings.file_mentions_enabled)
+            const sendShortcut = (appSettings as any).chat_send_shortcut || 'mod+enter'
+            setChatSendShortcut(sendShortcut)
+            setTempChatSendShortcut(sendShortcut)
             if (appSettings.projects_folder) {
               setDefaultProjectsFolder(appSettings.projects_folder)
               setTempDefaultProjectsFolder(appSettings.projects_folder)
@@ -254,6 +259,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       tempDefaultProjectsFolder !== defaultProjectsFolder ||
       tempShowConsoleOutput !== showConsoleOutput ||
       tempFileMentionsEnabled !== fileMentionsEnabled ||
+      tempChatSendShortcut !== chatSendShortcut ||
       tempUiTheme !== uiTheme ||
       tempCodeTheme !== codeTheme ||
       tempCodeFontSize !== codeFontSize ||
@@ -305,6 +311,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           projects_folder: defaultProjectsFolder,
           file_mentions_enabled: fileMentionsEnabled,
           ui_theme: tempUiTheme,
+          chat_send_shortcut: tempChatSendShortcut,
           code_settings: { theme: codeTheme, font_size: codeFontSize }
         }
         await invoke('save_app_settings', { settings: appSettings })
@@ -317,6 +324,27 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     }
     saveTheme()
   }, [tempUiTheme])
+
+  // Auto-save chat send shortcut when changed
+  useEffect(() => {
+    const saveShortcut = async () => {
+      try {
+        const appSettings = {
+          show_console_output: showConsoleOutput,
+          projects_folder: defaultProjectsFolder,
+          file_mentions_enabled: fileMentionsEnabled,
+          ui_theme: tempUiTheme,
+          chat_send_shortcut: tempChatSendShortcut,
+          code_settings: { theme: codeTheme, font_size: codeFontSize },
+        }
+        await invoke('save_app_settings', { settings: appSettings })
+        setChatSendShortcut(tempChatSendShortcut)
+      } catch (e) {
+        console.error('Failed to auto-save chat_send_shortcut:', e)
+      }
+    }
+    saveShortcut()
+  }, [tempChatSendShortcut])
 
   // Load git config when tab is activated
   useEffect(() => {
@@ -475,6 +503,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         projects_folder: tempDefaultProjectsFolder,
         file_mentions_enabled: tempFileMentionsEnabled,
         ui_theme: tempUiTheme,
+        chat_send_shortcut: tempChatSendShortcut,
         code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize }
       }
       await invoke('save_app_settings', { settings: appSettings })
@@ -492,6 +521,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       // Update state to reflect saved values
       setShowConsoleOutput(tempShowConsoleOutput)
       setFileMentionsEnabled(tempFileMentionsEnabled)
+      setChatSendShortcut(tempChatSendShortcut)
       setDefaultProjectsFolder(tempDefaultProjectsFolder)
       setUiTheme(tempUiTheme)
       setCodeTheme(tempCodeTheme)
@@ -519,7 +549,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     // Reset temp values
     setTempDefaultProjectsFolder(defaultProjectsFolder)
     setTempShowConsoleOutput(showConsoleOutput)
-    setTempFileMentionsEnabled(fileMentionsEnabled)
+      setTempFileMentionsEnabled(fileMentionsEnabled)
+      setTempChatSendShortcut(chatSendShortcut)
     setTempUiTheme(uiTheme)
     setTempCodeTheme(codeTheme)
     setTempCodeFontSize(codeFontSize)
@@ -686,6 +717,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 <ChatSettings
                   tempFileMentionsEnabled={tempFileMentionsEnabled}
                   onFileMentionsChange={setTempFileMentionsEnabled}
+                  tempChatSendShortcut={tempChatSendShortcut}
+                  onChatSendShortcutChange={setTempChatSendShortcut}
                 />
               )}
               {activeTab === 'prompts' && <PromptsUISettings />}

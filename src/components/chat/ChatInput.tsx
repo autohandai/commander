@@ -15,8 +15,8 @@ export interface AutocompleteOption {
 }
 
 interface ChatInputProps {
-  inputRef: React.RefObject<HTMLInputElement>
-  autocompleteRef: React.RefObject<HTMLDivElement>
+  inputRef: React.RefObject<HTMLInputElement | null>
+  autocompleteRef: React.RefObject<HTMLDivElement | null>
 
   inputValue: string
   typedPlaceholder: string
@@ -47,6 +47,7 @@ interface ChatInputProps {
 
   // File mentions toggle affects autocomplete header text
   fileMentionsEnabled: boolean
+  chatSendShortcut?: 'enter' | 'mod+enter'
 }
 
 export function ChatInput(props: ChatInputProps) {
@@ -74,6 +75,7 @@ export function ChatInput(props: ChatInputProps) {
     selectedAgent,
     getAgentModel,
     fileMentionsEnabled,
+    chatSendShortcut = 'mod+enter',
   } = props
 
   return (
@@ -202,8 +204,25 @@ export function ChatInput(props: ChatInputProps) {
 
       <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-3">
-          <span>Press Enter to send</span>
-          <span>↑↓ to navigate • Tab/Enter to select • Esc to close</span>
+          {showAutocomplete ? (
+            <>
+              {chatSendShortcut === 'enter' ? (
+                <span>Enter sends • Tab selects • Esc closes</span>
+              ) : (
+                <span>Enter selects • Ctrl/Cmd+Enter sends</span>
+              )}
+              <span>↑↓ to navigate • Tab selects • Esc closes</span>
+            </>
+          ) : (
+            <>
+              {chatSendShortcut === 'enter' ? (
+                <span>Press Enter to send</span>
+              ) : (
+                <span>Press Ctrl/Cmd+Enter to send</span>
+              )}
+              <span>↑↓ to navigate • Tab/Enter to select • Esc to close</span>
+            </>
+          )}
           {projectName && (
             <>
               <span>•</span>

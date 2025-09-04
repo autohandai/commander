@@ -1,34 +1,31 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageCircle, Code, Brain, Activity, Terminal, X, RotateCcw, Bot } from 'lucide-react';
+import { MessageCircle, Activity, Terminal, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { RecentProject } from '@/hooks/use-recent-projects';
 import { useFileMention } from '@/hooks/use-file-mention';
 import { CODE_EXTENSIONS } from '@/types/file-mention';
-import { PlanBreakdown } from './PlanBreakdown';
 import { useToast } from '@/components/ToastProvider';
-import { FileTypeIcon } from './FileTypeIcon';
 import { SubAgentGroup } from '@/types/sub-agent';
+import { AGENTS, AGENT_CAPABILITIES, getAgentId, DISPLAY_TO_ID } from '@/components/chat/agents';
+import { useWorkingDir } from '@/components/chat/hooks/useWorkingDir';
 import { ChatInput, AutocompleteOption as ChatAutocompleteOption } from '@/components/chat/ChatInput';
 import { MessagesList } from '@/components/chat/MessagesList';
 import { SessionStatusHeader } from '@/components/chat/SessionStatusHeader';
+import { SessionManagementPanel } from '@/components/chat/SessionManagementPanel';
+import { useChatAutocomplete } from '@/components/chat/hooks/useChatAutocomplete';
+import { useCLIEvents } from '@/components/chat/hooks/useCLIEvents';
+import { useRotatingPlaceholder } from '@/components/chat/hooks/useRotatingPlaceholder';
+import { useChatPersistence } from '@/components/chat/hooks/useChatPersistence';
+import { useAgentEnablement } from '@/components/chat/hooks/useAgentEnablement';
+import type { ChatMessage } from '@/components/chat/types';
+import type { SessionStatus } from '@/components/chat/types';
+import { useChatExecution } from '@/components/chat/hooks/useChatExecution';
+import { setStepStatus, updateMessagesPlanStep } from '@/components/chat/planStatus';
+import { buildAutocompleteOptions } from '@/components/chat/autocomplete';
 
-interface Agent {
-  id: string;
-  name: string;
-  displayName: string;
-  icon: React.ComponentType<{ className?: string }>;
-  description: string;
-}
-
-interface AgentCapability {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-}
+// Agent and capability types are defined in chat/agents
 
 // (Removed unused SubAgentOption to satisfy noUnusedLocals)
 
@@ -41,11 +38,6 @@ interface AutocompleteOption {
   filePath?: string; // For file mentions
 }
 
-interface StreamChunk {
-  session_id: string;
-  content: string;
-  finished: boolean;
-}
 
 interface PlanStep {
   id: string;
@@ -66,30 +58,9 @@ interface Plan {
   isGenerating?: boolean;
 }
 
-interface ChatMessage {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: number;
-  agent: string;
-  isStreaming?: boolean;
-  plan?: Plan;
-}
+// ChatMessage type moved to chat/types
 
-interface CLISession {
-  id: string;
-  agent: string;
-  command: string;
-  working_dir?: string;
-  is_active: boolean;
-  created_at: number;
-  last_activity: number;
-}
-
-interface SessionStatus {
-  active_sessions: CLISession[];
-  total_sessions: number;
-}
+// CLISession and SessionStatus moved to chat/types
 
 interface ChatInterfaceProps {
   isOpen: boolean;
@@ -117,66 +88,10 @@ interface AllAgentSettings {
   max_concurrent_sessions: number;
 }
 
-// Available agents with their capabilities
-const AGENTS: Agent[] = [
-  {
-    id: 'claude',
-    name: 'claude',
-    displayName: 'Claude Code CLI',
-    icon: Bot,
-    description: 'Advanced reasoning, coding, and analysis'
-  },
-  {
-    id: 'codex',
-    name: 'codex', 
-    displayName: 'Codex',
-    icon: Code,
-    description: 'Code generation and completion specialist'
-  },
-  {
-    id: 'gemini',
-    name: 'gemini',
-    displayName: 'Gemini',
-    icon: Brain,
-    description: 'Google\'s multimodal AI assistant'
-  },
-  {
-    id: 'test',
-    name: 'test',
-    displayName: 'Test CLI',
-    icon: Bot,
-    description: 'Test CLI streaming functionality'
-  }
-];
-
-// Agent capabilities for @ command
-const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
-  claude: [
-    { id: 'analysis', name: 'Code Analysis', description: 'Deep code analysis and review', category: 'Analysis' },
-    { id: 'refactor', name: 'Refactoring', description: 'Intelligent code refactoring', category: 'Development' },
-    { id: 'debug', name: 'Debugging', description: 'Advanced debugging assistance', category: 'Development' },
-    { id: 'explain', name: 'Code Explanation', description: 'Detailed code explanations', category: 'Learning' },
-    { id: 'optimize', name: 'Optimization', description: 'Performance optimization suggestions', category: 'Performance' }
-  ],
-  codex: [
-    { id: 'generate', name: 'Code Generation', description: 'Generate code from natural language', category: 'Generation' },
-    { id: 'complete', name: 'Auto-completion', description: 'Intelligent code completion', category: 'Generation' },
-    { id: 'translate', name: 'Language Translation', description: 'Convert between programming languages', category: 'Translation' },
-    { id: 'patterns', name: 'Design Patterns', description: 'Implement common design patterns', category: 'Architecture' }
-  ],
-  gemini: [
-    { id: 'multimodal', name: 'Multimodal Understanding', description: 'Process text, images, and code together', category: 'AI' },
-    { id: 'reasoning', name: 'Advanced Reasoning', description: 'Complex logical reasoning tasks', category: 'AI' },
-    { id: 'search', name: 'Web Integration', description: 'Real-time web search and integration', category: 'Integration' },
-    { id: 'creative', name: 'Creative Solutions', description: 'Innovative problem-solving approaches', category: 'Creativity' }
-  ]
-};
 
 export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceProps) {
   const [inputValue, setInputValue] = useState('');
   const [typedPlaceholder, setTypedPlaceholder] = useState('');
-  const placeholderTimerRef = useRef<number | null>(null);
-  const typingIntervalRef = useRef<number | null>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [autocompleteOptions, setAutocompleteOptions] = useState<AutocompleteOption[]>([]);
@@ -189,9 +104,10 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AllAgentSettings | null>(null);
-  const [enabledAgents, setEnabledAgents] = useState<Record<string, boolean> | null>(null);
+  const { enabledAgents, ensureEnabled } = useAgentEnablement();
   const [workspaceEnabled, setWorkspaceEnabled] = useState(true);
   const [fileMentionsEnabled, setFileMentionsEnabled] = useState(true);
+  const [chatSendShortcut, setChatSendShortcut] = useState<'enter' | 'mod+enter'>('mod+enter');
   const [planModeEnabled, setPlanModeEnabled] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
   const [subAgents, setSubAgents] = useState<SubAgentGroup>({});
@@ -203,60 +119,12 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const { showError } = useToast();
 
-  // Utilities to normalize agent id and check enablement
-  const displayNameToId = React.useMemo(() => ({
-    'Claude Code CLI': 'claude',
-    'Codex': 'codex',
-    'Gemini': 'gemini',
-    'Test CLI': 'test',
-  } as const), []);
-
-  const getAgentId = (nameOrDisplay: string | undefined | null): string => {
-    if (!nameOrDisplay) return 'claude';
-    const lower = String(nameOrDisplay).toLowerCase();
-    // match display names
-    const fromDisplay = (displayNameToId as any)[nameOrDisplay];
-    if (fromDisplay) return fromDisplay;
-    // already an id
-    if (['claude','codex','gemini','test'].includes(lower)) return lower;
-    return lower;
-  };
+  // Utilities to normalize agent id and check enablement live in chat/agents
 
   // Helper function to resolve working directory for CLI commands
-  const resolveWorkingDir = React.useCallback(async (): Promise<string> => {
-    if (!project) {
-      return '';
-    }
-    
-    if (!workspaceEnabled) {
-      return project.path;
-    }
-    
-    try {
-      const list = await invoke<Array<Record<string,string>>>('get_git_worktrees');
-      const ws = list.find(w => (w.path || '').startsWith(project.path + '/.commander')) as any;
-      const resolvedPath = (ws && ws.path) ? ws.path : project.path;
-      return resolvedPath;
-    } catch (error) {
-      return project.path;
-    }
-  }, [project, workspaceEnabled]);
+  const resolveWorkingDir = useWorkingDir(project?.path, workspaceEnabled);
 
-  const ensureEnabled = async (agentId: string): Promise<boolean> => {
-    if (!enabledAgents) {
-      // Lazy refresh if not yet loaded or stale
-      try {
-        const map = await invoke<Record<string, boolean>>('load_agent_settings');
-        setEnabledAgents(map);
-        return map[agentId] !== false;
-      } catch (e) {
-        console.error('Failed to refresh enabled agents:', e);
-        // Fail safe: block when unknown to honor security/disable intent
-        return false;
-      }
-    }
-    return enabledAgents[agentId] !== false;
-  };
+  // ensureEnabled provided by hook
 
   const isLongMessage = (text: string | undefined) => {
     if (!text) return false;
@@ -339,15 +207,10 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     }
   }, []);
 
-  const loadEnabledAgents = useCallback(async () => {
-    try {
-      const map = await invoke<Record<string, boolean>>('load_agent_settings');
-      setEnabledAgents(map);
-    } catch (error) {
-      console.error('Failed to load enabled agents:', error);
-      setEnabledAgents(null);
-    }
-  }, []);
+  // Execution helper (depends on resolveWorkingDir and loadSessionStatus)
+  const { execute } = useChatExecution({ resolveWorkingDir, setMessages, setExecutingSessions, loadSessionStatus, invoke })
+
+  // enabled agent loading handled by hook on demand
 
   const loadSubAgents = useCallback(async () => {
     try {
@@ -391,157 +254,41 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const getAgentModel = (agentName: string): string | null => {
     if (!agentSettings) return null;
     
-    const displayNameToKey = {
-      'Claude Code CLI': 'claude',
-      'Codex': 'codex',
-      'Gemini': 'gemini',
-      'Test CLI': 'test',
-    };
-    
-    const agentKey = displayNameToKey[agentName as keyof typeof displayNameToKey] || agentName.toLowerCase();
+    const agentKey = DISPLAY_TO_ID[agentName as keyof typeof DISPLAY_TO_ID] || agentName.toLowerCase();
     const settings = agentSettings[agentKey as keyof typeof agentSettings] as AgentSettings;
     
     return settings?.model || null;
   };
 
   // Handle autocomplete filtering
+  const { updateAutocomplete: updateAutocompleteHook } = useChatAutocomplete({
+    enabledAgents,
+    agents: AGENTS,
+    agentCapabilities: AGENT_CAPABILITIES as any,
+    fileMentionsEnabled,
+    projectPath: project?.path,
+    files: files as any,
+    subAgents,
+    listFiles,
+    searchFiles,
+    codeExtensions: [...CODE_EXTENSIONS],
+    setOptions: (opts) => setAutocompleteOptions(opts as any),
+    setSelectedIndex: setSelectedOptionIndex,
+    setShow: setShowAutocomplete,
+  })
   const updateAutocomplete = useCallback(async (value: string, cursorPos: number) => {
-    const beforeCursor = value.slice(0, cursorPos);
-    const match = beforeCursor.match(/([/@])([^\s]*)$/);
-    
-    if (!match) {
-      setShowAutocomplete(false);
-      setCommandType(null);
-      return;
+    const beforeCursor = value.slice(0, cursorPos)
+    const match = beforeCursor.match(/([/@])([^\s]*)$/)
+    if (match) {
+      const symbol = match[1] as '/' | '@'
+      const symbolIndex = beforeCursor.lastIndexOf(symbol)
+      setCommandType(symbol)
+      setCommandStart(symbolIndex)
+    } else {
+      setCommandType(null)
     }
-
-    const [, command, query] = match;
-    const startPos = beforeCursor.lastIndexOf(command);
-    
-    setCommandType(command as '/' | '@');
-    setCommandStart(startPos);
-    
-    let options: AutocompleteOption[] = [];
-    
-    if (command === '/') {
-      // Filter agents based on query
-      options = AGENTS
-        .filter(agent => {
-          // Hide disabled agents; when map unknown, conservatively hide
-          if (!enabledAgents) return false;
-          return enabledAgents[agent.id] !== false;
-        })
-        .filter(agent => 
-          query === '' || 
-          agent.name.toLowerCase().includes(query.toLowerCase()) ||
-          agent.displayName.toLowerCase().includes(query.toLowerCase())
-        )
-        .map(agent => ({
-          id: agent.id,
-          label: agent.name,
-          description: agent.description,
-          icon: agent.icon,
-          category: 'Agents'
-        }));
-    } else if (command === '@') {
-      // Handle both file mentions and agent capabilities
-      const allOptions: AutocompleteOption[] = [];
-      
-      // Add file mentions if enabled
-      if (fileMentionsEnabled && project) {
-        try {
-          if (query) {
-            await searchFiles(query, { 
-              directory_path: project.path,
-              extensions: [...CODE_EXTENSIONS],
-              max_depth: 3 
-            });
-          } else {
-            await listFiles({ 
-              directory_path: project.path,
-              extensions: [...CODE_EXTENSIONS],
-              max_depth: 2 
-            });
-          }
-          
-          const fileOptions = files
-            .filter(file => !file.is_directory)
-            .slice(0, 10) // Limit to 10 files for performance
-            .map(file => ({
-              id: `file-${file.relative_path}`,
-              label: file.name,
-              description: file.relative_path,
-              icon: () => FileTypeIcon({ filename: file.name }),
-              category: 'Files',
-              filePath: file.relative_path
-            }));
-          
-          allOptions.push(...fileOptions);
-        } catch (error) {
-          console.error('Failed to load files for autocomplete:', error);
-        }
-      }
-      
-      // Add sub-agents from CLI agent files
-      Object.entries(subAgents).forEach(([cliName, agents]) => {
-        agents
-          .filter(agent => 
-            query === '' ||
-            agent.name.toLowerCase().includes(query.toLowerCase()) ||
-            agent.description.toLowerCase().includes(query.toLowerCase())
-          )
-          .forEach(agent => {
-            allOptions.push({
-              id: `subagent-${cliName}-${agent.name}`,
-              label: `@${agent.name}`,
-              description: agent.description.split('\n')[0].substring(0, 100), // First line, truncated
-              category: `${cliName.charAt(0).toUpperCase() + cliName.slice(1)} Sub-Agents`,
-              icon: () => (
-                <div className="flex items-center justify-center h-4 w-4 rounded-full text-xs font-bold" 
-                     style={{ backgroundColor: agent.color || '#6b7280', color: 'white' }}>
-                  {agent.name.charAt(0).toUpperCase()}
-                </div>
-              )
-            } as AutocompleteOption);
-          });
-      });
-      
-      // Add agent capabilities
-      AGENTS.forEach(agent => {
-        // Skip disabled agents; when map unknown, skip conservatively
-        if (!enabledAgents || enabledAgents[agent.id] === false) return;
-        const capabilities = AGENT_CAPABILITIES[agent.id] || [];
-        capabilities
-          .filter(cap => 
-            query === '' ||
-            cap.name.toLowerCase().includes(query.toLowerCase()) ||
-            cap.description.toLowerCase().includes(query.toLowerCase()) ||
-            agent.displayName.toLowerCase().includes(query.toLowerCase())
-          )
-          .forEach(cap => {
-            allOptions.push({
-              id: `capability-${agent.id}-${cap.id}`,
-              label: `${cap.name} (${agent.displayName})`,
-              description: cap.description,
-              category: cap.category
-            });
-          });
-      });
-      
-      // Sort options: Files first, then sub-agents, then capabilities
-      options = allOptions.sort((a, b) => {
-        if (a.category === 'Files' && b.category !== 'Files') return -1;
-        if (a.category !== 'Files' && b.category === 'Files') return 1;
-        if (a.category?.includes('Sub-Agents') && !b.category?.includes('Sub-Agents')) return -1;
-        if (!a.category?.includes('Sub-Agents') && b.category?.includes('Sub-Agents')) return 1;
-        return a.label.localeCompare(b.label);
-      });
-    }
-    
-    setAutocompleteOptions(options);
-    setSelectedOptionIndex(0);
-    setShowAutocomplete(options.length > 0);
-  }, [fileMentionsEnabled, project, files, listFiles, searchFiles, subAgents, agentSettings]);
+    await updateAutocompleteHook(value, cursorPos)
+  }, [updateAutocompleteHook]);
 
   // Focus input when chat opens
   useEffect(() => {
@@ -551,124 +298,30 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     }
   }, [isOpen]);
 
-  // Load persisted messages for current project on mount/change
+  // Persistence (sessionStorage + tauri store)
+  useChatPersistence({
+    projectPath: project?.path,
+    storageKey,
+    messages,
+    onRestore: (restored) => setMessages(restored as any),
+    tauriInvoke: (cmd, args) => invoke(cmd as any, args),
+    debounceMs: 300,
+  })
+
+    const typedFromHook = useRotatingPlaceholder({
+    isOpen,
+    executingCount: executingSessions.size,
+    isInputFocused,
+    inputValue,
+    normal: NORMAL_PLACEHOLDERS,
+    plan: PLAN_PLACEHOLDERS,
+    planModeEnabled,
+  })
   useEffect(() => {
-    if (!storageKey) return;
-    try {
-      const raw = sessionStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { messages: ChatMessage[] };
-        if (Array.isArray(parsed.messages)) {
-          setMessages(parsed.messages);
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load chat history:', e);
-    }
-  }, [storageKey]);
+    setTypedPlaceholder(typedFromHook)
+  }, [typedFromHook])
 
-  // Persist messages whenever they change
-  useEffect(() => {
-    if (!storageKey) return;
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify({ messages }));
-    } catch (e) {
-      console.warn('Failed to persist chat history:', e);
-    }
-    // Also persist to backend store (debounced and filtered)
-    const timer = setTimeout(() => {
-      if (!project) return;
-      const cleaned = messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp,
-        agent: m.agent,
-      }))
-      import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('save_project_chat', { projectPath: project.path, messages: cleaned }).catch(() => {})
-      })
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [messages, storageKey]);
 
-  // Load chat from backend store when opening a project
-  useEffect(() => {
-    if (!project) return;
-    import('@tauri-apps/api/core').then(({ invoke }) => {
-      invoke('load_project_chat', { projectPath: project.path }).then((msgs: any) => {
-        if (Array.isArray(msgs) && msgs.length > 0) {
-          // Merge minimal messages into UI message shape
-          const restored: ChatMessage[] = msgs.map((m: any, i: number) => ({
-            id: `restored-${i}-${m.timestamp}`,
-            content: String(m.content ?? ''),
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            timestamp: Number(m.timestamp ?? Date.now()),
-            agent: String(m.agent ?? 'claude'),
-          }))
-          setMessages(restored)
-        }
-      }).catch(() => {})
-    }).catch(() => {})
-  }, [project?.path])
-
-  // Animated typing for rotating placeholder
-  useEffect(() => {
-    // Run only when input is empty and nothing is executing
-    const shouldAnimate = isOpen && executingSessions.size === 0 && !isInputFocused && inputValue.trim() === '';
-    const messages = planModeEnabled ? PLAN_PLACEHOLDERS : NORMAL_PLACEHOLDERS;
-    let idx = 0;
-
-    const clearTimers = () => {
-      if (typingIntervalRef.current) {
-        window.clearInterval(typingIntervalRef.current);
-        typingIntervalRef.current = null;
-      }
-      if (placeholderTimerRef.current) {
-        window.clearTimeout(placeholderTimerRef.current);
-        placeholderTimerRef.current = null;
-      }
-    };
-
-    const typeMessage = (text: string, done: () => void) => {
-      setTypedPlaceholder('');
-      let i = 0;
-      typingIntervalRef.current = window.setInterval(() => {
-        i += 1;
-        setTypedPlaceholder(text.slice(0, i));
-        if (i >= text.length) {
-          if (typingIntervalRef.current) {
-            window.clearInterval(typingIntervalRef.current);
-            typingIntervalRef.current = null;
-          }
-          done();
-        }
-      }, 35);
-    };
-
-    const cycle = () => {
-      if (!shouldAnimate || messages.length === 0) return;
-      const text = messages[idx % messages.length];
-      typeMessage(text, () => {
-        placeholderTimerRef.current = window.setTimeout(() => {
-          // small pause, then clear and move to next
-          setTypedPlaceholder('');
-          idx += 1;
-          cycle();
-        }, 1400);
-      });
-    };
-
-    clearTimers();
-    if (shouldAnimate) {
-      cycle();
-    } else {
-      setTypedPlaceholder('');
-    }
-
-    return () => {
-      clearTimers();
-    };
-  }, [isOpen, executingSessions, isInputFocused, inputValue, planModeEnabled, NORMAL_PLACEHOLDERS, PLAN_PLACEHOLDERS]);
 
   // Global shortcut: Cmd/Ctrl+Enter focuses the input so you can type immediately
   useEffect(() => {
@@ -959,74 +612,12 @@ Make the plan comprehensive but practical. Focus on implementation steps that ca
 
     setMessages(prev => [...prev, userMessage]);
     
-    // Create assistant message for streaming response
-    const assistantMessageId = `assistant-${Date.now()}`;
-    const assistantMessage: ChatMessage = {
-      id: assistantMessageId,
-      content: '',
-      role: 'assistant',
-      timestamp: Date.now(),
-      agent: agentToUse || selectedAgent || 'claude',
-      isStreaming: true,
-    };
-    
-    setMessages(prev => [...prev, assistantMessage]);
-    setExecutingSessions(prev => {
-      const s = new Set(prev);
-      s.add(assistantMessageId);
-      return s;
-    });
-    
     // Clear input and hide autocomplete
     setInputValue('');
     setShowAutocomplete(false);
     setCommandType(null);
     
-    try {
-      // Determine which CLI command to execute
-      const agentCommandMap = {
-        'claude': 'execute_claude_command',
-        'codex': 'execute_codex_command', 
-        'gemini': 'execute_gemini_command',
-        'test': 'execute_test_command',
-      };
-      
-      // Map display names to command names
-      const displayNameToCommand = {
-        'Claude Code CLI': 'claude',
-        'Codex': 'codex',
-        'Gemini': 'gemini',
-        'Test CLI': 'test',
-      };
-      
-      const finalAgent = agentToUse || selectedAgent || 'claude';
-      const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
-      const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
-      
-      if (commandFunction) {
-        const workingDir = await resolveWorkingDir();
-        await invoke(commandFunction, {
-          sessionId: assistantMessageId,
-          message: messageToSend,
-          workingDir: workingDir,
-        });
-        
-        // Refresh session status after command execution
-        setTimeout(loadSessionStatus, 500);
-      }
-    } catch (error) {
-      console.error('Failed to execute command:', error);
-      setMessages(prev => prev.map(msg => 
-        msg.id === assistantMessageId 
-          ? { ...msg, content: `Error: ${error}`, isStreaming: false }
-          : msg
-      ));
-      setExecutingSessions(prev => {
-        const s = new Set(prev);
-        s.delete(assistantMessageId);
-        return s;
-      });
-    }
+    await execute(agentToUse || selectedAgent || 'claude', messageToSend)
   };
 
   // Handle plan execution
@@ -1055,70 +646,16 @@ Please execute each step systematically.`;
     
     setMessages(prev => [...prev, userMessage]);
     
-    // Create assistant message for execution response
-    const assistantMessageId = `assistant-${Date.now()}`;
-    const assistantMessage: ChatMessage = {
-      id: assistantMessageId,
-      content: '',
-      role: 'assistant',
-      timestamp: Date.now(),
-      agent: selectedAgent || 'claude',
-      isStreaming: true,
-    };
-    
-    setMessages(prev => [...prev, assistantMessage]);
-    setExecutingSessions(prev => {
-      const s = new Set(prev);
-      s.add(assistantMessageId);
-      return s;
-    });
-    
     try {
-      // Execute with the selected agent
-      const agentCommandMap = {
-        'claude': 'execute_claude_command',
-        'codex': 'execute_codex_command', 
-        'gemini': 'execute_gemini_command',
-        'test': 'execute_test_command',
-      };
-      
-      const displayNameToCommand = {
-        'Claude Code CLI': 'claude',
-        'Codex': 'codex',
-        'Gemini': 'gemini',
-        'Test CLI': 'test',
-      };
-      
       const finalAgent = selectedAgent || 'claude';
       const targetId2 = getAgentId(finalAgent);
       if (!(await ensureEnabled(targetId2))) {
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
-        setMessages(prev => prev.map(m => m.id === assistantMessageId ? { ...m, content: 'Agent disabled in Settings', isStreaming: false } : m));
         return;
       }
-      const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
-      const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
-      
-      if (commandFunction) {
-        const workingDir = await resolveWorkingDir();
-        await invoke(commandFunction, {
-          sessionId: assistantMessageId,
-          message: planPrompt,
-          workingDir: workingDir,
-        });
-      }
+      await execute(finalAgent, planPrompt)
     } catch (error) {
       console.error('Failed to execute plan:', error);
-      setMessages(prev => prev.map(msg => 
-        msg.id === assistantMessageId 
-          ? { ...msg, content: `Error executing plan: ${error}`, isStreaming: false }
-          : msg
-      ));
-      setExecutingSessions(prev => {
-        const s = new Set(prev);
-        s.delete(assistantMessageId);
-        return s;
-      });
     }
   };
 
@@ -1138,25 +675,10 @@ ${step.details ? `Details: ${step.details}` : ''}
 Please focus only on this step.`;
     
     // Update step status to in_progress
-    setCurrentPlan(prev => prev ? {
-      ...prev,
-      steps: prev.steps.map(s => 
-        s.id === stepId ? { ...s, status: 'in_progress' as const } : s
-      )
-    } : null);
+    setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'in_progress') : null));
     
     // Update the plan in messages
-    setMessages(prev => prev.map(msg => 
-      msg.plan ? {
-        ...msg,
-        plan: {
-          ...msg.plan,
-          steps: msg.plan.steps.map(s => 
-            s.id === stepId ? { ...s, status: 'in_progress' as const } : s
-          )
-        }
-      } : msg
-    ));
+    setMessages(prev => updateMessagesPlanStep(prev, stepId, 'in_progress'));
     
     // Create execution message
     const userMessage: ChatMessage = {
@@ -1169,111 +691,25 @@ Please focus only on this step.`;
     
     setMessages(prev => [...prev, userMessage]);
     
-    // Create assistant response
-    const assistantMessageId = `assistant-${Date.now()}`;
-    const assistantMessage: ChatMessage = {
-      id: assistantMessageId,
-      content: '',
-      role: 'assistant', 
-      timestamp: Date.now(),
-      agent: selectedAgent || 'claude',
-      isStreaming: true,
-    };
-    
-    setMessages(prev => [...prev, assistantMessage]);
-    setExecutingSessions(prev => {
-      const s = new Set(prev);
-      s.add(assistantMessageId);
-      return s;
-    });
-    
     try {
-      const agentCommandMap = {
-        'claude': 'execute_claude_command',
-        'codex': 'execute_codex_command', 
-        'gemini': 'execute_gemini_command',
-        'test': 'execute_test_command',
-      };
-      
-      const displayNameToCommand = {
-        'Claude Code CLI': 'claude',
-        'Codex': 'codex',
-        'Gemini': 'gemini',
-        'Test CLI': 'test',
-      };
-      
       const finalAgent = selectedAgent || 'claude';
       const targetId3 = getAgentId(finalAgent);
       if (!(await ensureEnabled(targetId3))) {
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
-        setMessages(prev => prev.map(m => m.id === assistantMessageId ? { ...m, content: 'Agent disabled in Settings', isStreaming: false } : m));
         return;
       }
-      const commandName = displayNameToCommand[finalAgent as keyof typeof displayNameToCommand] || finalAgent.toLowerCase();
-      const commandFunction = agentCommandMap[commandName as keyof typeof agentCommandMap];
-      
-      if (commandFunction) {
-        const workingDir = await resolveWorkingDir();
-        await invoke(commandFunction, {
-          sessionId: assistantMessageId,
-          message: stepPrompt,
-          workingDir: workingDir,
-        });
-        
-        // Mark step as completed after successful execution
-        setTimeout(() => {
-          setCurrentPlan(prev => prev ? {
-            ...prev,
-            steps: prev.steps.map(s => 
-              s.id === stepId ? { ...s, status: 'completed' as const } : s
-            )
-          } : null);
-          
-          setMessages(prev => prev.map(msg => 
-            msg.plan ? {
-              ...msg,
-              plan: {
-                ...msg.plan,
-                steps: msg.plan.steps.map(s => 
-                  s.id === stepId ? { ...s, status: 'completed' as const } : s
-                )
-              }
-            } : msg
-          ));
-        }, 2000); // Mark as completed after 2 seconds
-      }
+      await execute(finalAgent, stepPrompt)
+      // Mark step as completed after successful execution
+      setTimeout(() => {
+        setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'completed') : null));
+        setMessages(prev => updateMessagesPlanStep(prev, stepId, 'completed'));
+      }, 2000)
     } catch (error) {
       console.error('Failed to execute step:', error);
       // Mark step as pending again on error
-      setCurrentPlan(prev => prev ? {
-        ...prev,
-        steps: prev.steps.map(s => 
-          s.id === stepId ? { ...s, status: 'pending' as const } : s
-        )
-      } : null);
-      
-      setMessages(prev => prev.map(msg => {
-        if (msg.id === assistantMessageId) {
-          return { ...msg, content: `Error executing step: ${error}`, isStreaming: false };
-        }
-        if (msg.plan) {
-          return {
-            ...msg,
-            plan: {
-              ...msg.plan,
-              steps: msg.plan.steps.map(s => 
-                s.id === stepId ? { ...s, status: 'pending' as const } : s
-              )
-            }
-          };
-        }
-        return msg;
-      }));
-      setExecutingSessions(prev => {
-        const s = new Set(prev);
-        s.delete(assistantMessageId);
-        return s;
-      });
+      setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'pending') : null));
+      // Reflect pending state inside the plan in messages
+      setMessages(prev => updateMessagesPlanStep(prev, stepId, 'pending'));
     }
   };
 
@@ -1281,12 +717,47 @@ Please focus only on this step.`;
     if (!showAutocomplete) {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        handleSendMessage();
+        if (e.metaKey || e.ctrlKey || chatSendShortcut === 'enter') {
+          // Force send regardless of autocomplete state
+          handleSendMessage();
+          return;
+        }
+        // If options exist, prefer selecting the current one to avoid races
+        let opt = autocompleteOptions[selectedOptionIndex] || autocompleteOptions[0]
+        if (!opt && commandType) {
+          // Build options synchronously from current state as a fallback
+          const beforeCursor = inputRef.current ? inputRef.current.value.slice(0, inputRef.current.selectionStart || 0) : inputValue
+          const m = beforeCursor.match(/([/@])([^\s]*)$/)
+          const q = m ? m[2] || '' : ''
+          const opts = buildAutocompleteOptions(commandType, q, {
+            fileMentionsEnabled,
+            projectName: project?.name,
+            files: files as any,
+            subAgents,
+            enabledAgents,
+            agentCapabilities: AGENT_CAPABILITIES as any,
+            agents: AGENTS as any,
+          })
+          opt = opts[0] as any
+        }
+        if (opt) {
+          handleAutocompleteSelect(opt as any)
+        } else {
+          handleSendMessage();
+        }
       }
       return;
     }
-    
+
     // Handle autocomplete navigation
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      // Force send even with autocomplete open
+      e.preventDefault();
+      setShowAutocomplete(false);
+      setCommandType(null);
+      handleSendMessage();
+      return;
+    }
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
@@ -1304,7 +775,11 @@ Please focus only on this step.`;
         
       case 'Enter':
         e.preventDefault();
-        if (autocompleteOptions[selectedOptionIndex]) {
+        if (chatSendShortcut === 'enter') {
+          setShowAutocomplete(false);
+          setCommandType(null);
+          handleSendMessage();
+        } else if (autocompleteOptions[selectedOptionIndex]) {
           handleAutocompleteSelect(autocompleteOptions[selectedOptionIndex]);
         }
         break;
@@ -1323,11 +798,9 @@ Please focus only on this step.`;
     }
   };
 
-  // Listen for streaming CLI responses
-  useEffect(() => {
-    const unlistenStream = listen<StreamChunk>('cli-stream', (event) => {
-      const chunk = event.payload;
-      
+  // Listen for streaming CLI responses via hook
+  useCLIEvents({
+    onStreamChunk: (chunk) => {
       setMessages(prev => prev.map(msg => {
         if (msg.id === chunk.session_id) {
           return {
@@ -1338,7 +811,6 @@ Please focus only on this step.`;
         }
         return msg;
       }));
-      
       if (chunk.finished) {
         setExecutingSessions(prev => {
           const s = new Set(prev);
@@ -1346,17 +818,11 @@ Please focus only on this step.`;
           return s;
         });
       }
-    });
-
-    const unlistenError = listen<string>('cli-error', (event) => {
-      console.error('CLI Error:', event.payload);
-    });
-
-    return () => {
-      unlistenStream.then(fn => fn());
-      unlistenError.then(fn => fn());
-    };
-  }, []);
+    },
+    onError: (message) => {
+      console.error('CLI Error:', message);
+    },
+  });
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -1390,13 +856,15 @@ Please focus only on this step.`;
         try {
           const appSettings = await invoke('load_app_settings') as any;
           setFileMentionsEnabled(appSettings?.file_mentions_enabled ?? true);
+          const shortcut = appSettings?.chat_send_shortcut;
+          setChatSendShortcut(shortcut === 'enter' ? 'enter' : 'mod+enter');
         } catch (error) {
           console.error('Failed to load file mentions setting:', error);
         }
       };
       loadFileMentionsSetting();
     }
-  }, [isOpen, loadSessionStatus, loadAgentSettings, loadEnabledAgents, loadSubAgents]);
+  }, [isOpen, loadSessionStatus, loadAgentSettings, loadSubAgents]);
 
   // Click outside to close autocomplete
   useEffect(() => {
@@ -1429,7 +897,7 @@ Please focus only on this step.`;
   }, [selectedOptionIndex, showAutocomplete]);
 
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid="chat-root">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden" data-testid="chat-root">
             <SessionStatusHeader
         sessionStatus={sessionStatus as any}
         showSessionPanel={showSessionPanel}
@@ -1487,7 +955,7 @@ Please focus only on this step.`;
       )}
 
       {/* Chat Messages Area with ScrollArea */}
-      <ScrollArea className="flex-1 p-6" data-testid="chat-scrollarea">
+      <ScrollArea className="flex-1 min-h-0 p-6" data-testid="chat-scrollarea">
         <div className="max-w-4xl mx-auto">
           {/* New Session Button */}
           {messages.length > 0 && (
@@ -1538,7 +1006,7 @@ Please focus only on this step.`;
       </ScrollArea>
       
       {/* Chat Input Area - Fixed at bottom (account for status bar overlay) */}
-      <div className="border-t bg-background p-8 pb-16 flex-shrink-0">
+      <div className="border-t bg-background p-4 pb-16 flex-shrink-0">
         <div className="max-w-4xl mx-auto">
           <ChatInput
             inputRef={inputRef}
@@ -1564,6 +1032,7 @@ Please focus only on this step.`;
             selectedAgent={selectedAgent}
             getAgentModel={getAgentModel}
             fileMentionsEnabled={fileMentionsEnabled}
+            chatSendShortcut={chatSendShortcut}
           />
         </div>
       </div>

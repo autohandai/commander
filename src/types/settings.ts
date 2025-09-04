@@ -178,6 +178,8 @@ export interface GitSettingsProps {
 export interface ChatSettingsProps {
   tempFileMentionsEnabled: boolean;
   onFileMentionsChange: (enabled: boolean) => void;
+  tempChatSendShortcut?: 'enter' | 'mod+enter';
+  onChatSendShortcutChange?: (shortcut: 'enter' | 'mod+enter') => void;
 }
 
 export interface AgentSettingsProps {

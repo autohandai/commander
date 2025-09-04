@@ -1,6 +1,6 @@
-import React from 'react'
 import { User, Bot, Loader2 } from 'lucide-react'
 import { PlanBreakdown } from '@/components/PlanBreakdown'
+import { AgentResponse } from './AgentResponse'
 
 export interface ChatMessageLike {
   id: string
@@ -35,7 +35,6 @@ export function MessagesList(props: MessagesListProps) {
     expandedMessages,
     onToggleExpand,
     isLongMessage,
-    truncateMessage,
     getAgentModel,
     onExecutePlan,
     onExecuteStep,
@@ -72,11 +71,9 @@ export function MessagesList(props: MessagesListProps) {
             <div className="whitespace-pre-wrap text-sm">
               {(() => {
                 const content = message.content || ''
-                const long = isLongMessage(content)
-                const expanded = expandedMessages.has(message.id)
                 if (!content && message.isStreaming) return 'Thinking...'
-                if (!long || expanded) return content
-                return truncateMessage(content, 100)
+                // Try rich agent rendering; fallback to plain content if not recognized
+                return <AgentResponse raw={content} />
               })()}
             </div>
             {(() => {
@@ -114,4 +111,3 @@ export function MessagesList(props: MessagesListProps) {
     </>
   )
 }
-

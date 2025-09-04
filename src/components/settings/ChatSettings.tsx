@@ -1,11 +1,12 @@
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
 import type { ChatSettingsProps } from "@/types/settings"
 
 export function ChatSettings({
   tempFileMentionsEnabled,
-  onFileMentionsChange
+  onFileMentionsChange,
+  tempChatSendShortcut = 'mod+enter',
+  onChatSendShortcutChange,
 }: ChatSettingsProps) {
   return (
     <div className="space-y-6">
@@ -40,45 +41,37 @@ export function ChatSettings({
           </div>
           
           <div className="space-y-4">
-            <h4 className="text-sm font-medium">Chat Interface</h4>
-            <div className="p-4 border rounded-lg bg-muted/10">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="auto-scroll">Auto-scroll to Messages</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Automatically scroll to new messages in chat.
-                    </p>
-                  </div>
-                  <Switch
-                    id="auto-scroll"
-                    checked={true}
-                    disabled={true}
-                    aria-label="Coming soon"
+            <h4 className="text-sm font-medium">Send Shortcut</h4>
+            <div className="p-4 border rounded-lg bg-muted/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Keybinding for sending messages</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Choose whether Enter sends or selects autocomplete (Ctrl/Cmd+Enter always sends).
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="chat-send-shortcut"
+                    value="mod+enter"
+                    checked={tempChatSendShortcut === 'mod+enter'}
+                    onChange={() => onChatSendShortcutChange?.('mod+enter')}
                   />
-                </div>
-                
-                <div className="flex items-center justify-between opacity-50">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="message-history">Message History</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Number of previous messages to keep in memory.
-                    </p>
-                  </div>
-                  <div className="w-20">
-                    <Input
-                      id="message-history"
-                      type="number"
-                      value="50"
-                      disabled={true}
-                      className="text-center"
-                    />
-                  </div>
-                </div>
-                
-                <div className="text-xs text-muted-foreground italic">
-                  Additional chat settings coming soon...
-                </div>
+                  <span className="text-sm">Ctrl/Cmd+Enter sends (Enter selects)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="chat-send-shortcut"
+                    value="enter"
+                    checked={tempChatSendShortcut === 'enter'}
+                    onChange={() => onChatSendShortcutChange?.('enter')}
+                  />
+                  <span className="text-sm">Enter sends (Tab selects)</span>
+                </label>
               </div>
             </div>
           </div>

@@ -39,8 +39,8 @@ interface ProjectViewProps {
 
 function ProjectView({ project, selectedAgent, activeTab, onTabChange }: ProjectViewProps) {
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0">
-      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col h-full min-w-0">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col min-h-0 min-w-0">
         <div className="px-4 pt-4">
           <TabsList className="grid w-full max-w-[600px] grid-cols-3">
             <TabsTrigger value="chat" className="flex items-center gap-2">
@@ -58,7 +58,7 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           </TabsList>
         </div>
         
-        <TabsContent value="chat" className="flex-1 m-0 h-full min-w-0" forceMount>
+        <TabsContent value="chat" className="flex-1 m-0 min-h-0 min-w-0" forceMount>
           <ChatInterface
             isOpen={true}
             onToggle={() => {}} // Not needed in tab mode
@@ -67,11 +67,11 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           />
         </TabsContent>
         
-        <TabsContent value="code" className="flex-1 m-0 h-full min-w-0" forceMount>
+        <TabsContent value="code" className="flex-1 m-0 min-h-0 min-w-0" forceMount>
           <CodeView project={project} />
         </TabsContent>
         
-        <TabsContent value="history" className="flex-1 m-0 h-full min-w-0" forceMount>
+        <TabsContent value="history" className="flex-1 m-0 min-h-0 min-w-0" forceMount>
           <HistoryView project={project} />
         </TabsContent>
       </Tabs>
@@ -420,19 +420,7 @@ function AppContent() {
               </div>
               
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <button 
-                  onClick={() => setIsCloneModalOpen(true)}
-                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
-                >
-                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
-                    <GitBranch className="h-8 w-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold">Clone</p>
-                    <p className="text-xs text-muted-foreground">Clone from GitHub, GitLab, Bitbucket, etc.</p>
-                  </div>
-                </button>
-                
+
                 <button 
                   onClick={() => setIsNewProjectModalOpen(true)}
                   className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
@@ -446,6 +434,8 @@ function AppContent() {
                   </div>
                 </button>
 
+                
+
                 <button 
                   onClick={handleOpenProject}
                   className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
@@ -456,6 +446,19 @@ function AppContent() {
                   <div className="space-y-1">
                     <p className="font-semibold">Open Project</p>
                     <p className="text-xs text-muted-foreground">Open existing git repository</p>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => setIsCloneModalOpen(true)}
+                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
+                >
+                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
+                    <GitBranch className="h-8 w-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold">Clone</p>
+                    <p className="text-xs text-muted-foreground">Clone from GitHub, GitLab, Bitbucket, etc.</p>
                   </div>
                 </button>
               </div>

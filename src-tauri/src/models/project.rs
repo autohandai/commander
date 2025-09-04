@@ -26,6 +26,9 @@ pub struct AppSettings {
     #[serde(default = "default_ui_theme")]
     /// UI theme preference: "auto" | "light" | "dark"
     pub ui_theme: String,
+    #[serde(default = "default_chat_send_shortcut")]
+    /// Chat send shortcut: "mod+enter" | "enter"
+    pub chat_send_shortcut: String,
     #[serde(default)]
     pub code_settings: CodeSettings,
 }
@@ -39,6 +42,7 @@ fn default_file_mentions_enabled() -> bool {
 }
 
 fn default_ui_theme() -> String { "auto".to_string() }
+fn default_chat_send_shortcut() -> String { "mod+enter".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSettings {
@@ -64,6 +68,7 @@ impl Default for AppSettings {
             projects_folder: None,
             file_mentions_enabled: default_file_mentions_enabled(),
             ui_theme: default_ui_theme(),
+            chat_send_shortcut: default_chat_send_shortcut(),
             code_settings: CodeSettings::default(),
         }
     }
