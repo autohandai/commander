@@ -18,6 +18,8 @@ export function HistoryView({ project }: Props) {
   const [selectedBranch, setSelectedBranch] = useState<string>('main')
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(project.path)
   const [loading, setLoading] = useState(true)
+  const [diffOpen, setDiffOpen] = useState(false)
+  const [diffMode, setDiffMode] = useState<'commit' | 'workspace'>('commit')
 
   // Enhanced commits with graph data
   const enhancedCommits = useMemo(() => {
@@ -52,7 +54,14 @@ export function HistoryView({ project }: Props) {
   }
 
   const handleCommitSelect = (commitHash: string) => {
-    setSelectedCommit(selectedCommit === commitHash ? null : commitHash)
+    if (selectedCommit === commitHash) {
+      setSelectedCommit(null)
+      setDiffOpen(false)
+      return
+    }
+    setSelectedCommit(commitHash)
+    setDiffMode('commit')
+    setDiffOpen(true)
   }
 
   const handleRefresh = () => {
@@ -61,12 +70,12 @@ export function HistoryView({ project }: Props) {
 
   const handleBranchChange = (branch: string) => {
     setSelectedBranch(branch)
-    setSelectedCommit(null) // Clear selection when changing branch
+    // Do not clear selectedCommit; keep current diff visible if open
   }
 
   const handleWorkspaceChange = (workspacePath: string) => {
     setSelectedWorkspace(workspacePath)
-    setSelectedCommit(null) // Clear selection when changing workspace
+    // Do not clear selectedCommit; keep current diff visible if open
   }
 
   if (loading && commits.length === 0) {
@@ -84,14 +93,17 @@ export function HistoryView({ project }: Props) {
     <div className="relative flex h-full min-w-0">
     
 
-      {/* Left: Git Graph */}
-      <div className="flex-1 bg-muted/10 border-r overflow-hidden">
+      {/* Left: Git Graph (65%) */}
+      <div className="basis-[65%] min-w-0 bg-muted/10 border-r overflow-hidden h-full">
         <div className="h-full flex flex-col">
-          <div className="p-3 border-b bg-background">
-            <div className="font-medium text-sm">Git History</div>
-            <div className="text-xs text-muted-foreground">
-              {enhancedCommits.length} commits • {maxLanes} {maxLanes === 1 ? 'branch' : 'branches'}
+          <div className="p-3 border-b bg-background flex items-center justify-between gap-2">
+            <div>
+              <div className="font-medium text-sm">Git History</div>
+              <div className="text-xs text-muted-foreground">
+                {enhancedCommits.length} commits • {maxLanes} {maxLanes === 1 ? 'branch' : 'branches'}
+              </div>
             </div>
+            <div className="flex items-center gap-2" />
           </div>
           
           <div className="flex-1 overflow-auto">
@@ -115,31 +127,47 @@ export function HistoryView({ project }: Props) {
       </div>
 
       {/* Diff Viewer Modal */}
-      <Dialog open={!!selectedCommit} onOpenChange={(open) => { if (!open) setSelectedCommit(null) }}>
-        <DialogContent className="max-w-5xl w-[90vw] sm:w-[80vw] h-[80vh] overflow-hidden">
+      <Dialog open={diffOpen} onOpenChange={(open) => { if (!open) { setSelectedCommit(null); setDiffOpen(false) } }}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Commit Diff</DialogTitle>
+            <DialogTitle>{diffMode === 'commit' ? 'Commit Diff' : 'Workspace vs Main'}</DialogTitle>
           </DialogHeader>
-            {/* Floating Controls */}
-      <HistoryControls
-        project={project}
-        onRefresh={handleRefresh}
-        selectedBranch={selectedBranch}
-        selectedWorkspace={selectedWorkspace}
-        onBranchChange={handleBranchChange}
-        onWorkspaceChange={handleWorkspaceChange}
-      />
+          {/* Floating Controls (inside dialog to tweak target) */}
+          <HistoryControls
+            project={project}
+            onRefresh={handleRefresh}
+            selectedBranch={selectedBranch}
+            selectedWorkspace={selectedWorkspace}
+            onBranchChange={handleBranchChange}
+            onWorkspaceChange={handleWorkspaceChange}
+          />
           <div className="h-[calc(100%-3rem)] overflow-auto">
-            <DiffViewer
-              projectPath={selectedWorkspace || project.path}
-              commitHash={selectedCommit}
-            />
+            {diffMode === 'commit' ? (
+              <DiffViewer
+                projectPath={selectedWorkspace || project.path}
+                commitHash={selectedCommit}
+                compareMode="commit"
+              />
+            ) : selectedWorkspace && selectedWorkspace !== project.path ? (
+              <DiffViewer
+                projectPath={project.path}
+                commitHash={null}
+                compareMode="workspace"
+                workspacePath={selectedWorkspace}
+              />
+            ) : (
+              <div className="p-4 text-sm text-muted-foreground">
+                Select a workspace in the controls to compare with main.
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Right: Chat History */}
-      <ChatHistoryPanel project={project} />
+      {/* Right: Chat History (35%) */}
+      <div className="basis-[35%] min-w-0 h-full">
+        <ChatHistoryPanel project={project} />
+      </div>
     </div>
   )
 }

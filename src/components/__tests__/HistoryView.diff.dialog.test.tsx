@@ -111,6 +111,13 @@ if (typeof document !== 'undefined') describe('HistoryView diff dialog', () => {
       expect(screen.getByText(/Changed Files/i)).toBeInTheDocument()
     })
 
+    // Dialog should be large (nearly fullscreen dimensions)
+    const hasLargeDialog = Array.from(document.querySelectorAll('div')).some(el => {
+      const cls = (el as HTMLElement).className || ''
+      return cls.includes('h-[90vh]') && cls.includes('w-[95vw]')
+    })
+    expect(hasLargeDialog).toBe(true)
+
     // Initially shows placeholder on the right (no file selected yet)
     expect(screen.getByText(/Select a file to view its diff/i)).toBeInTheDocument()
 

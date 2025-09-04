@@ -445,13 +445,42 @@ pub struct CommitDagRow {
 }
 
 #[tauri::command]
-pub async fn get_git_commit_dag(project_path: String, limit: Option<usize>) -> Result<Vec<CommitDagRow>, String> {
-    let lim = limit.unwrap_or(50).to_string();
-    let format = "%H|%P|%an|%ad|%s||%D";
+pub async fn get_git_branches(project_path: String) -> Result<Vec<String>, String> {
+    // List local branches (short names)
     let output = tokio::process::Command::new("git")
         .arg("-C").arg(&project_path)
-        .args(["log", "--date=iso", &format!("-n{}", lim), &format!("--pretty={}", format)])
-        .output().await.map_err(|e| format!("Failed to run git log: {}", e))?;
+        .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        .output().await.map_err(|e| format!("Failed to list branches: {}", e))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut branches: Vec<String> = stdout.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    // Ensure unique and stable order (main first if present)
+    branches.sort();
+    if let Some(pos) = branches.iter().position(|b| b == "main") {
+        let main = branches.remove(pos);
+        branches.insert(0, main);
+    }
+    Ok(branches)
+}
+
+#[tauri::command]
+pub async fn get_git_commit_dag(project_path: String, limit: Option<usize>, branch: Option<String>) -> Result<Vec<CommitDagRow>, String> {
+    let lim = limit.unwrap_or(50).to_string();
+    let format = "%H|%P|%an|%ad|%s||%D";
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("-C").arg(&project_path)
+        .arg("log")
+        .arg("--date=iso")
+        .arg(&format!("-n{}", lim))
+        .arg(&format!("--pretty={}", format));
+    if let Some(b) = branch {
+        if !b.trim().is_empty() {
+            cmd.arg(b);
+        }
+    }
+    let output = cmd.output().await.map_err(|e| format!("Failed to run git log: {}", e))?;
     if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).to_string()); }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut rows = Vec::new();

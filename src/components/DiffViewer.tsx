@@ -10,6 +10,10 @@ import { Highlight, themes } from 'prism-react-renderer'
 interface DiffViewerProps {
   projectPath: string
   commitHash: string | null
+  compareMode?: 'commit' | 'workspace' | 'refs'
+  workspacePath?: string
+  baseRef?: string
+  compareRef?: string
 }
 
 interface CommitFile {
@@ -17,27 +21,36 @@ interface CommitFile {
   path: string
 }
 
-export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
+export function DiffViewer({ projectPath, commitHash, compareMode = 'commit', workspacePath, baseRef, compareRef }: DiffViewerProps) {
   const [files, setFiles] = useState<CommitFile[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [leftCode, setLeftCode] = useState<string>('')
   const [rightCode, setRightCode] = useState<string>('')
   const [unifiedDiff, setUnifiedDiff] = useState<string>('')
   const [loading, setLoading] = useState(false)
+  const [workspaceBranch, setWorkspaceBranch] = useState<string | null>(null)
 
   useEffect(() => {
-    if (commitHash) {
-      loadCommitFiles()
-    } else {
-      setFiles([])
-      setSelectedFile(null)
-      setLeftCode('')
-      setRightCode('')
-      setUnifiedDiff('')
-    }
-  }, [commitHash, projectPath])
+    // Reset on target change
+    setFiles([])
+    setSelectedFile(null)
+    setLeftCode('')
+    setRightCode('')
+    setUnifiedDiff('')
 
-  const loadCommitFiles = async () => {
+    if (compareMode === 'commit' && commitHash) {
+      loadFilesForCommit()
+    } else if (compareMode === 'workspace' && workspacePath) {
+      // load branch name for the workspace to support side-by-side
+      loadWorkspaceBranch()
+      loadFilesForWorkspace()
+    } else if (compareMode === 'refs' && baseRef && compareRef) {
+      // placeholder: refs compare not implemented yet
+      // leave empty list for now
+    }
+  }, [compareMode, commitHash, projectPath, workspacePath, baseRef, compareRef])
+
+  const loadFilesForCommit = async () => {
     if (!commitHash) return
     
     setLoading(true)
@@ -59,39 +72,78 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
     }
   }
 
+  const loadFilesForWorkspace = async () => {
+    if (!workspacePath) return
+    setLoading(true)
+    try {
+      const commitFiles = await invoke<Array<Record<string, string>>>('diff_workspace_vs_main', {
+        projectPath,
+        worktreePath: workspacePath
+      }).catch(() => [])
+      const mapped: CommitFile[] = commitFiles.map((r) => ({
+        status: (r.status || '') as string,
+        path: (r.path || '') as string,
+      }))
+      setFiles(mapped)
+      setSelectedFile(null)
+      setLeftCode('')
+      setRightCode('')
+      setUnifiedDiff('')
+    } catch (error) {
+      console.error('Failed to load workspace diff files:', error)
+      setFiles([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadWorkspaceBranch = async () => {
+    if (!workspacePath) return
+    try {
+      const worktrees = await invoke<Array<Record<string, string>>>('get_git_worktrees')
+      const entry = worktrees.find((wt) => wt.path === workspacePath)
+      setWorkspaceBranch(entry?.branch || null)
+    } catch {
+      setWorkspaceBranch(null)
+    }
+  }
+
   const handleFileSelect = async (filePath: string) => {
-    if (!commitHash) return
-    
     setSelectedFile(filePath)
     setLoading(true)
-    
     try {
-      // Get unified diff
-      const diff = await invoke<string>('get_commit_diff_text', {
-        projectPath,
-        commitHash,
-        filePath
-      })
-      setUnifiedDiff(diff)
-
-      // Get file content for side-by-side view
-      const [leftContent, rightContent] = await Promise.all([
-        // Parent commit content (if exists)
-        invoke<string>('get_file_at_commit', {
+      if (compareMode === 'commit') {
+        if (!commitHash) return
+        const diff = await invoke<string>('get_commit_diff_text', { projectPath, commitHash, filePath })
+        setUnifiedDiff(diff)
+        const [leftContent, rightContent] = await Promise.all([
+          invoke<string>('get_file_at_commit', { projectPath, commitHash: 'HEAD~1', filePath }).catch(() => ''),
+          invoke<string>('get_file_at_commit', { projectPath, commitHash, filePath }).catch(() => ''),
+        ])
+        setLeftCode(leftContent)
+        setRightCode(rightContent)
+      } else if (compareMode === 'workspace') {
+        if (!workspacePath) return
+        const diff = await invoke<string>('diff_workspace_file', {
           projectPath,
-          commitHash: 'HEAD~1', // Simplified - should use actual parent
+          worktreePath: workspacePath,
           filePath
-        }).catch(() => ''),
-        // Current commit content
-        invoke<string>('get_file_at_commit', {
-          projectPath,
-          commitHash,
-          filePath
-        }).catch(() => '')
-      ])
-
-      setLeftCode(leftContent)
-      setRightCode(rightContent)
+        })
+        setUnifiedDiff(diff)
+        const base = 'main'
+        const head = workspaceBranch || 'HEAD'
+        const [leftContent, rightContent] = await Promise.all([
+          invoke<string>('get_file_at_commit', { projectPath, commitHash: base, filePath }).catch(() => ''),
+          invoke<string>('get_file_at_commit', { projectPath, commitHash: head, filePath }).catch(() => ''),
+        ])
+        setLeftCode(leftContent)
+        setRightCode(rightContent)
+      } else {
+        // refs compare not implemented
+        setUnifiedDiff('Ref-to-ref comparison not implemented')
+        setLeftCode('')
+        setRightCode('')
+      }
     } catch (error) {
       console.error('Failed to load file diff:', error)
       setUnifiedDiff('Failed to load diff')
@@ -132,7 +184,7 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
     }
   }
 
-  if (!commitHash) {
+  if (compareMode === 'commit' && !commitHash) {
     return (
       <Card className="p-8 text-center">
         <Diff className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
@@ -161,7 +213,7 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
         ) : files.length === 0 ? (
           <div className="text-sm text-muted-foreground">No files changed</div>
         ) : (
-          <ScrollArea className="h-[60vh]">
+          <ScrollArea className="h-[78vh]">
             <div data-testid="diff-file-list" className="flex flex-col gap-1">
               {files.map((file, idx) => (
                 <button
@@ -192,7 +244,7 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
       {/* Right: Diff Viewer Panel */}
       <Card className="p-4">
         {!selectedFile ? (
-          <div className="h-[60vh] flex items-center justify-center text-sm text-muted-foreground">
+          <div className="h-[78vh] flex items-center justify-center text-sm text-muted-foreground">
             Select a file to view its diff
           </div>
         ) : (
@@ -213,7 +265,7 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
 
               <TabsContent value="unified" className="mt-4">
                 <div className="border rounded-md bg-muted/10 overflow-hidden">
-                  <ScrollArea className="h-[56vh]">
+                  <ScrollArea className="h-[74vh]">
                     <pre className="text-xs p-4 whitespace-pre-wrap">
                       {unifiedDiff.split('\n').map((line, i) => {
                         let className = ''
@@ -237,7 +289,7 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
               </TabsContent>
 
               <TabsContent value="split" className="mt-4">
-                <div className="grid grid-cols-2 gap-4 h-[56vh]">
+                <div className="grid grid-cols-2 gap-4 h-[74vh]">
                   {/* Left side - Before */}
                   <div className="border rounded-md bg-muted/10 overflow-hidden">
                     <div className="bg-muted px-3 py-2 text-xs font-medium border-b">

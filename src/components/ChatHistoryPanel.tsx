@@ -4,6 +4,8 @@ import { MessageSquare, User, Bot } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { RecentProject } from '@/hooks/use-recent-projects'
 
 interface ChatMessage {
@@ -28,6 +30,8 @@ export function ChatHistoryPanel({ project }: ChatHistoryPanelProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null)
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('')
+  const [sortAsc, setSortAsc] = useState(false)
 
   useEffect(() => {
     loadChatHistory()
@@ -103,24 +107,55 @@ export function ChatHistoryPanel({ project }: ChatHistoryPanelProps) {
       : firstUserMessage
   }
 
+  // Filter + sort sessions for display
+  const displaySessions = sessions
+    .filter(s => {
+      if (!filter.trim()) return true
+      const q = filter.toLowerCase()
+      return (
+        (s.summary || '').toLowerCase().includes(q) ||
+        (s.agent || '').toLowerCase().includes(q)
+      )
+    })
+    .sort((a, b) => (sortAsc ? a.start - b.start : b.start - a.start))
+
   if (loading) {
     return (
-      <div className="w-80 border-l bg-muted/20 flex items-center justify-center">
+      <div className="w-full h-full border-l bg-muted/20 flex items-center justify-center">
         <div className="text-sm text-muted-foreground">Loading chat history...</div>
       </div>
     )
   }
 
   return (
-    <div className="w-80 border-l bg-muted/20 flex flex-col h-full">
-      {/* Header */}
+    <div className="w-full border-l bg-muted/20 flex flex-col h-full">
+      {/* Header + Controls */}
       <div className="p-3 border-b">
-        <div className="flex items-center gap-2 font-medium text-sm">
-          <MessageSquare className="h-4 w-4" />
-          Chat History
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-medium text-sm">
+            <MessageSquare className="h-4 w-4" />
+            Chat History
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Filter sessions"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="h-8 w-44"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={sortAsc ? 'Newest first' : 'Oldest first'}
+              onClick={() => setSortAsc(s => !s)}
+            >
+              {sortAsc ? 'Newest first' : 'Oldest first'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={loadChatHistory}>Refresh</Button>
+          </div>
         </div>
         <div className="text-xs text-muted-foreground mt-1">
-          {sessions.length} session{sessions.length !== 1 ? 's' : ''}
+          {displaySessions.length} session{displaySessions.length !== 1 ? 's' : ''}
         </div>
       </div>
 
@@ -171,7 +206,7 @@ export function ChatHistoryPanel({ project }: ChatHistoryPanelProps) {
         ) : (
           // Show sessions list
           <ScrollArea className="h-full p-2">
-            {sessions.length === 0 ? (
+            {displaySessions.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <div className="text-sm">No chat history yet</div>
@@ -179,7 +214,7 @@ export function ChatHistoryPanel({ project }: ChatHistoryPanelProps) {
               </div>
             ) : (
               <div className="space-y-2">
-                {sessions.map((session, idx) => (
+                {displaySessions.map((session, idx) => (
                   <Card key={idx} className="p-3 cursor-pointer hover:shadow-sm transition-shadow">
                     <button
                       onClick={() => setSelectedSession(session)}

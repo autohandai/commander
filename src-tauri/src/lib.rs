@@ -169,6 +169,7 @@ pub fn run() {
             get_git_global_config,
             get_git_local_config,
             get_git_aliases,
+            get_git_branches,
             get_git_worktree_enabled,
             get_git_worktree_preference,
             set_git_worktree_enabled,

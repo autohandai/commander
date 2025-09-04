@@ -79,6 +79,18 @@ export function HistoryControls({
     onRefresh()
   }
 
+  const handleBranchSelect = (value: string) => {
+    onBranchChange && onBranchChange(value)
+    // Auto-refresh history when branch changes
+    onRefresh()
+  }
+
+  const handleWorkspaceSelect = (value: string) => {
+    onWorkspaceChange && onWorkspaceChange(value)
+    // Auto-refresh history/diff when workspace changes
+    onRefresh()
+  }
+
   return (
     <Card className="absolute top-4 left-1/2 -translate-x-1/2 z-10 shadow-lg border bg-background/95 backdrop-blur-sm">
       <div className="p-4">
@@ -88,7 +100,7 @@ export function HistoryControls({
             <GitBranch className="h-4 w-4 text-muted-foreground" />
             <Select
               value={selectedBranch || ''}
-              onValueChange={onBranchChange}
+              onValueChange={handleBranchSelect}
               disabled={loading}
             >
               <SelectTrigger className="w-32">
@@ -116,7 +128,7 @@ export function HistoryControls({
             <FolderTree className="h-4 w-4 text-muted-foreground" />
             <Select
               value={selectedWorkspace || ''}
-              onValueChange={onWorkspaceChange}
+              onValueChange={handleWorkspaceSelect}
               disabled={loading}
             >
               <SelectTrigger className="w-40">
