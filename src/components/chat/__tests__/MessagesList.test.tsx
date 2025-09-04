@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { ToastProvider } from '@/components/ToastProvider'
 import { useState } from 'react'
 import { MessagesList } from '@/components/chat/MessagesList'
 
@@ -26,18 +27,23 @@ function Harness() {
 }
 
 describe('MessagesList', () => {
-  it('renders user and assistant messages, streaming thinking state, and model label', () => {
-    render(<Harness />)
+  it('renders user and assistant messages and streaming thinking state', () => {
+    render(
+      <ToastProvider>
+        <Harness />
+      </ToastProvider>
+    )
     expect(screen.getByText('You')).toBeInTheDocument()
-    expect(screen.getAllByText(/using\s*test-model/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Thinking.../i)).toBeInTheDocument()
   })
 
-  it('supports show more toggle for long messages', () => {
-    render(<Harness />)
-    const btn = screen.getByRole('button', { name: /show more/i })
-    expect(btn).toBeInTheDocument()
-    fireEvent.click(btn)
-    expect(screen.getByRole('button', { name: /show less/i })).toBeInTheDocument()
+  it('uses compact mode (no Show more button)', () => {
+    render(
+      <ToastProvider>
+        <Harness />
+      </ToastProvider>
+    )
+    expect(screen.queryByRole('button', { name: /show more/i })).toBeNull()
+    expect(screen.getAllByTestId('message-compact').length).toBeGreaterThan(0)
   })
 })

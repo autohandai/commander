@@ -10,28 +10,11 @@ export function AgentResponse({ raw }: Props) {
   if (!parsed) return <>{raw}</>
 
   const [showThinking, setShowThinking] = useState(false)
-  const [showRaw, setShowRaw] = useState(false)
+  // Details panel removed for compact footer
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-end text-xs">
-        <button
-          className="text-muted-foreground hover:underline"
-          onClick={() => setShowRaw((v) => !v)}
-          aria-label={showRaw ? 'Hide raw output' : 'Show raw output'}
-        >
-          {showRaw ? 'Hide raw' : 'Show raw'}
-        </button>
-      </div>
-
-      {showRaw && (
-        <pre className="whitespace-pre-wrap text-xs bg-muted/10 p-2 rounded border">
-          {raw}
-        </pre>
-      )}
-
-      {!showRaw && (
-        <>
+      <>
       {parsed.working && parsed.working.length > 0 && (
         <div>
           <div className="text-xs font-medium mb-1">Working</div>
@@ -58,26 +41,7 @@ export function AgentResponse({ raw }: Props) {
           </div>
         </div>
       )}
-      {parsed.header && (
-        <div className="text-xs text-muted-foreground">
-          <span className="font-medium">Command:</span> {parsed.header.command}
-        </div>
-      )}
-
-      {parsed.providerLine && (
-        <div className="text-[10px] text-muted-foreground">{parsed.providerLine}</div>
-      )}
-
-      {parsed.meta && (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-muted-foreground bg-muted/20 rounded p-2">
-          {Object.entries(parsed.meta).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <span className="font-medium capitalize">{k}</span>
-              <span className="truncate">{v}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Meta is shown in the footer below */}
 
       {parsed.userInstructions && (
         <div className="text-xs bg-muted/10 p-2 rounded">
@@ -101,16 +65,18 @@ export function AgentResponse({ raw }: Props) {
         <div className="whitespace-pre-wrap text-sm">{parsed.answer}</div>
       )}
 
-      {(parsed.tokensUsed || parsed.meta) && (
-        <div className="text-[11px] text-muted-foreground border-t pt-2">
-          {typeof parsed.tokensUsed === 'number' && <span className="mr-3">tokens: {parsed.tokensUsed}</span>}
+      {/* Footer with command and compact summary */}
+      <div className="text-xs text-muted-foreground bg-muted/20 rounded p-2 border">
+        {parsed.header?.command && (
+          <div className="mb-2"><span className="font-medium">Command:</span> {parsed.header.command}</div>
+        )}
+        <div className="mt-1">
           {parsed.meta?.model && <span className="mr-3">model: {parsed.meta.model}</span>}
-          {parsed.meta?.provider && <span className="mr-3">provider: {parsed.meta.provider}</span>}
+          {typeof parsed.tokensUsed === 'number' && <span className="mr-3">tokens: {parsed.tokensUsed}</span>}
           {parsed.success && <span className="text-green-600">✓ success</span>}
         </div>
-      )}
-        </>
-      )}
+      </div>
+      </>
     </div>
   )}
 

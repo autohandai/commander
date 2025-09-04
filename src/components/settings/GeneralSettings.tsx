@@ -25,6 +25,7 @@ export function GeneralSettings({
   systemPrompt,
   saving,
   tempUiTheme = 'auto',
+  tempShowWelcomeRecentProjects = true,
   gitConfig: _gitConfig,
   gitWorktreeEnabled: _gitWorktreeEnabled,
   gitConfigLoading: _gitConfigLoading,
@@ -37,10 +38,13 @@ export function GeneralSettings({
   onUiThemeChange,
   onRefreshGitConfig: _onRefreshGitConfig,
   onToggleGitWorktree: _onToggleGitWorktree,
+  onShowWelcomeRecentProjectsChange,
 }: GeneralSettingsProps) {
   const { showSuccess, showError } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [confirmWelcomeToggleOpen, setConfirmWelcomeToggleOpen] = useState(false)
+  const [pendingWelcomeToggle, setPendingWelcomeToggle] = useState<boolean | null>(null)
 
   const handleConfirmClear = async () => {
     try {
@@ -52,6 +56,27 @@ export function GeneralSettings({
       showError('Failed to clear recent projects', 'Error')
     } finally {
       setClearing(false)
+    }
+  }
+
+  const requestToggleWelcome = (enabled: boolean) => {
+    setPendingWelcomeToggle(enabled)
+    setConfirmWelcomeToggleOpen(true)
+  }
+
+  const handleConfirmWelcomeToggle = async () => {
+    if (pendingWelcomeToggle == null) return
+    try {
+      onShowWelcomeRecentProjectsChange?.(pendingWelcomeToggle)
+      showSuccess(
+        pendingWelcomeToggle ? 'Recent projects will be shown on Welcome' : 'Recent projects will be hidden on Welcome',
+        'Preference Updated'
+      )
+    } catch (e) {
+      showError('Failed to update preference', 'Error')
+    } finally {
+      setConfirmWelcomeToggleOpen(false)
+      setPendingWelcomeToggle(null)
     }
   }
   return (
@@ -92,6 +117,22 @@ export function GeneralSettings({
                 <SelectItem value="dark">Dark</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium">Welcome Screen</h4>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="welcome-recent-toggle">Show Recent Projects</Label>
+                <p className="text-xs text-muted-foreground">
+                  Display up to 5 projects opened in the last 30 days on the Welcome screen.
+                </p>
+              </div>
+              <Switch
+                id="welcome-recent-toggle"
+                checked={!!tempShowWelcomeRecentProjects}
+                onCheckedChange={(val) => requestToggleWelcome(val)}
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="system-prompt">Global System Prompt</Label>
@@ -163,6 +204,26 @@ export function GeneralSettings({
             <AlertDialogAction onClick={handleConfirmClear} disabled={clearing}>
               {clearing ? 'Clearing…' : 'Yes, clear them'}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmation dialog for welcome recent projects toggle */}
+      <AlertDialog open={confirmWelcomeToggleOpen} onOpenChange={setConfirmWelcomeToggleOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingWelcomeToggle ? 'Show recent projects on Welcome?' : 'Hide recent projects on Welcome?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingWelcomeToggle
+                ? 'This will display a list of up to 5 projects opened in the last 30 days on the Welcome screen.'
+                : 'This will hide the recent projects list from the Welcome screen. You can re-enable it anytime.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingWelcomeToggle(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmWelcomeToggle}>Confirm</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

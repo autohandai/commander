@@ -91,18 +91,21 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
     
     match agent {
         "claude" => {
-            args.push("--print".to_string());
-            
+            // Use prompt mode with stream-json for structured output
+            args.push("-p".to_string());
+            if !message.is_empty() {
+                args.push(message.to_string());
+            }
+            args.push("--output-format".to_string());
+            args.push("stream-json".to_string());
+            args.push("--verbose".to_string());
+
             // Add model flag if set in preferences
             if let Some(ref model) = current_agent_settings.model {
                 if !model.is_empty() {
                     args.push("--model".to_string());
                     args.push(model.clone());
                 }
-            }
-            
-            if !message.is_empty() {
-                args.push(message.to_string());
             }
         }
         "codex" => {

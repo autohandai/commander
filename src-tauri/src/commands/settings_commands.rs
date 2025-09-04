@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use tauri_plugin_store::StoreExt;
 
 use crate::models::*;
@@ -16,6 +18,9 @@ pub async fn save_app_settings(app: tauri::AppHandle, settings: AppSettings) -> 
     store.save()
         .map_err(|e| format!("Failed to persist settings: {}", e))?;
     
+    // Also persist user-facing option into ~/.commander/settings.json
+    let _ = set_show_recent_projects_welcome_screen(settings.show_welcome_recent_projects);
+
     Ok(())
 }
 
@@ -42,13 +47,30 @@ pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, Str
         Some(value) => {
             let settings: AppSettings = serde_json::from_value(value)
                 .map_err(|e| format!("Failed to deserialize settings: {}", e))?;
-            Ok(settings)
+            // Overlay with user settings file value for welcome recent projects
+            let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
+            let mut merged = settings.clone();
+            merged.show_welcome_recent_projects = show;
+            Ok(merged)
         },
         None => {
             // Return default settings
-            Ok(AppSettings::default())
+            let mut d = AppSettings::default();
+            let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
+            d.show_welcome_recent_projects = show;
+            Ok(d)
         },
     }
+}
+
+#[tauri::command]
+pub async fn get_show_recent_projects_setting() -> Result<bool, String> {
+    get_show_recent_projects_welcome_screen()
+}
+
+#[tauri::command]
+pub async fn set_show_recent_projects_setting(enabled: bool) -> Result<(), String> {
+    set_show_recent_projects_welcome_screen(enabled)
 }
 
 #[tauri::command]
@@ -104,6 +126,57 @@ pub async fn load_all_agent_settings(app: tauri::AppHandle) -> Result<AllAgentSe
             })
         },
     }
+}
+
+#[tauri::command]
+fn user_settings_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not determine user home directory".to_string())?;
+    let dir = home.join(".commander");
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create settings directory: {}", e))?;
+    }
+    Ok(dir.join("settings.json"))
+}
+
+fn load_user_settings_json() -> Result<serde_json::Value, String> {
+    let path = user_settings_path()?;
+    if !path.exists() {
+        return Ok(serde_json::json!({
+            "general": {
+                "show_recent_projects_welcome_screen": true
+            }
+        }));
+    }
+    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+    Ok(v)
+}
+
+fn save_user_settings_json(mut root: serde_json::Value) -> Result<(), String> {
+    let path = user_settings_path()?;
+    // Ensure object root
+    if !root.is_object() { root = serde_json::json!({}); }
+    let content = serde_json::to_string_pretty(&root).map_err(|e| format!("Failed to serialize settings.json: {}", e))?;
+    fs::write(&path, content).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+    Ok(())
+}
+
+fn get_show_recent_projects_welcome_screen() -> Result<bool, String> {
+    let v = load_user_settings_json()?;
+    Ok(v.get("general")
+        .and_then(|g| g.get("show_recent_projects_welcome_screen"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(true))
+}
+
+fn set_show_recent_projects_welcome_screen(enabled: bool) -> Result<(), String> {
+    let mut root = load_user_settings_json()?;
+    let general = root.get_mut("general");
+    if general.is_none() || !general.unwrap().is_object() {
+        root["general"] = serde_json::json!({});
+    }
+    root["general"]["show_recent_projects_welcome_screen"] = serde_json::json!(enabled);
+    save_user_settings_json(root)
 }
 
 #[tauri::command]

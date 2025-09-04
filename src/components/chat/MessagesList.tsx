@@ -1,6 +1,8 @@
-import { User, Bot, Loader2 } from 'lucide-react'
+import { User, Bot, Loader2, Copy, Expand, Shrink } from 'lucide-react'
+import { getAgentId } from '@/components/chat/agents'
 import { PlanBreakdown } from '@/components/PlanBreakdown'
 import { AgentResponse } from './AgentResponse'
+import { useToast } from '@/components/ToastProvider'
 
 export interface ChatMessageLike {
   id: string
@@ -39,6 +41,25 @@ export function MessagesList(props: MessagesListProps) {
     onExecutePlan,
     onExecuteStep,
   } = props
+  const { showSuccess, showError } = useToast()
+
+  const copyMessage = async (text: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      showSuccess('Message copied to clipboard', 'Copied')
+    } catch (e) {
+      showError('Failed to copy message', 'Error')
+    }
+  }
 
   return (
     <>
@@ -55,40 +76,71 @@ export function MessagesList(props: MessagesListProps) {
               ) : (
                 <Bot className="h-3 w-3" />
               )}
-              <span>{message.role === 'user' ? 'You' : message.agent}</span>
-              {message.role === 'assistant' && getAgentModel(message.agent) && (
-                <>
-                  <span>•</span>
-                  <span className="text-muted-foreground">using {getAgentModel(message.agent)}</span>
-                </>
+              {message.role === 'user' ? (
+                <span>You</span>
+              ) : (
+                (() => {
+                  const id = getAgentId(message.agent)
+                  const label = id === 'claude' ? 'Claude'
+                    : id === 'codex' ? 'Codex'
+                    : id === 'gemini' ? 'Gemini'
+                    : id === 'test' ? 'Test'
+                    : (message.agent || 'Agent')
+                  const colorClass = id === 'claude'
+                    ? 'text-orange-500'
+                    : (id === 'gemini'
+                      ? 'text-purple-500'
+                      : (id === 'codex' || id === 'openai')
+                        ? 'text-blue-500'
+                        : '')
+                  return <span className={colorClass}>{label}</span>
+                })()
               )}
+              {/* No model in header; footer contains model info */}
               <span>•</span>
               <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
               {message.isStreaming && (
                 <Loader2 className="h-3 w-3 animate-spin" />
               )}
             </div>
-            <div className="whitespace-pre-wrap text-sm">
-              {(() => {
-                const content = message.content || ''
-                if (!content && message.isStreaming) return 'Thinking...'
-                // Try rich agent rendering; fallback to plain content if not recognized
-                return <AgentResponse raw={content} />
-              })()}
-            </div>
             {(() => {
               const content = message.content || ''
               const long = isLongMessage(content)
-              if (!long) return null
+              const expanded = expandedMessages.has(message.id)
+              const compact = long && !expanded
+              const containerClass = `whitespace-pre-wrap text-sm ${compact ? 'max-h-[200px] overflow-hidden' : ''}`
+              return (
+                <div className={containerClass} data-testid={compact ? 'message-compact' : undefined}>
+                  {(() => {
+                    if (!content && message.isStreaming) return 'Thinking...'
+                    return <AgentResponse raw={content} />
+                  })()}
+                </div>
+              )
+            })()}
+            {/* Controls: copy and compact/expand */}
+            {(() => {
+              const content = message.content || ''
+              const long = isLongMessage(content)
               const expanded = expandedMessages.has(message.id)
               return (
-                <div className="mt-2 text-right">
+                <div className="mt-1 flex items-center justify-end gap-1 opacity-70">
                   <button
-                    onClick={() => onToggleExpand(message.id)}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    title="Copy message"
+                    className="p-1 rounded hover:bg-muted/60"
+                    onClick={() => copyMessage(content)}
                   >
-                    {expanded ? 'Show less' : 'Show more'}
+                    <Copy className="h-3 w-3" />
                   </button>
+                  {long && (
+                    <button
+                      title={expanded ? 'Compact message' : 'Expand message'}
+                      className="p-1 rounded hover:bg-muted/60"
+                      onClick={() => onToggleExpand(message.id)}
+                    >
+                      {expanded ? <Shrink className="h-3 w-3" /> : <Expand className="h-3 w-3" />}
+                    </button>
+                  )}
                 </div>
               )
             })()}

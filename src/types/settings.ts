@@ -25,6 +25,8 @@ export interface AppSettings {
   file_mentions_enabled: boolean;
   // UI theme for the app: 'auto' | 'light' | 'dark'
   ui_theme?: string;
+  // Show/Hide recent projects on the Welcome screen
+  show_welcome_recent_projects?: boolean;
   code_settings?: { theme: string; font_size: number };
 }
 
@@ -150,6 +152,8 @@ export interface GeneralSettingsProps {
   saving: boolean;
   // UI theme state (temporary for unsaved changes)
   tempUiTheme?: string;
+  // Welcome screen recent projects toggle (temporary for unsaved changes)
+  tempShowWelcomeRecentProjects?: boolean;
   gitConfig: GitConfig;
   gitWorktreeEnabled: boolean;
   gitConfigLoading: boolean;
@@ -163,6 +167,8 @@ export interface GeneralSettingsProps {
   onToggleGitWorktree: (enabled: boolean) => Promise<void>;
   // Theme change handler
   onUiThemeChange?: (theme: string) => void;
+  // Welcome screen toggle change handler
+  onShowWelcomeRecentProjectsChange?: (enabled: boolean) => void;
 }
 
 export interface GitSettingsProps {

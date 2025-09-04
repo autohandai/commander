@@ -22,6 +22,7 @@ import { useAgentEnablement } from '@/components/chat/hooks/useAgentEnablement';
 import type { ChatMessage } from '@/components/chat/types';
 import type { SessionStatus } from '@/components/chat/types';
 import { useChatExecution } from '@/components/chat/hooks/useChatExecution';
+import { ClaudeStreamParser } from '@/components/chat/stream/claudeStreamParser'
 import { setStepStatus, updateMessagesPlanStep } from '@/components/chat/planStatus';
 import { buildAutocompleteOptions } from '@/components/chat/autocomplete';
 import type { Plan } from '@/components/chat/plan';
@@ -669,22 +670,37 @@ Please focus only on this step.`;
   // Listen for streaming CLI responses via hook
   useCLIEvents({
     onStreamChunk: (chunk) => {
+      // Per-session parser cache (Ref on component instance)
+      if (!(window as any).__claudeParsers) (window as any).__claudeParsers = new Map<string, ClaudeStreamParser>()
+      const parsers: Map<string, ClaudeStreamParser> = (window as any).__claudeParsers
+
       setMessages(prev => prev.map(msg => {
-        if (msg.id === chunk.session_id) {
-          return {
-            ...msg,
-            content: msg.content + chunk.content,
-            isStreaming: !chunk.finished,
-          };
+        if (msg.id !== chunk.session_id) return msg
+        // Detect if this is a Claude session and chunk looks like JSON stream
+        const agentId = (msg.agent || '').toLowerCase()
+        const isClaude = agentId.includes('claude')
+        const looksJson = chunk.content.trim().startsWith('{') || chunk.content.includes('"type"')
+        if (isClaude && looksJson) {
+          let parser = parsers.get(chunk.session_id)
+          if (!parser) {
+            parser = new ClaudeStreamParser('claude')
+            parsers.set(chunk.session_id, parser)
+          }
+          const delta = parser.feed(chunk.content)
+          return { ...msg, content: msg.content + delta, isStreaming: !chunk.finished }
         }
-        return msg;
-      }));
+        return { ...msg, content: msg.content + chunk.content, isStreaming: !chunk.finished }
+      }))
       if (chunk.finished) {
         setExecutingSessions(prev => {
           const s = new Set(prev);
           s.delete(chunk.session_id);
           return s;
         });
+        try {
+          const parsers: Map<string, ClaudeStreamParser> = (window as any).__claudeParsers
+          parsers?.delete(chunk.session_id)
+        } catch {}
       }
     },
     onError: (message) => {

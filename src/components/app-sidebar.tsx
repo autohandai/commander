@@ -101,7 +101,7 @@ export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProject
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
-            <SidebarGroupLabel>Recent Projects</SidebarGroupLabel>
+            <SidebarGroupLabel>Projects</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {loading ? (

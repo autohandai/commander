@@ -127,6 +127,8 @@ pub fn run() {
             load_projects_folder,
             save_app_settings,
             load_app_settings,
+            get_show_recent_projects_setting,
+            set_show_recent_projects_setting,
             set_window_theme,
             fetch_openrouter_models,
             fetch_openai_models,

@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { useLLMSettings } from "@/hooks/use-llm-settings"
+import { useSettings as useAppSettingsContext } from "@/contexts/settings-context"
 import type { SettingsModalProps, SettingsTab } from "@/types/settings"
 
 export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
@@ -66,6 +67,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   // UI Theme state
   const [uiTheme, setUiTheme] = useState<string>('auto')
   const [tempUiTheme, setTempUiTheme] = useState<string>('auto')
+  // Welcome screen recent projects toggle
+  const [showWelcomeRecentProjects, setShowWelcomeRecentProjects] = useState<boolean>(true)
+  const [tempShowWelcomeRecentProjects, setTempShowWelcomeRecentProjects] = useState<boolean>(true)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false)
   const [agentSettings, setAgentSettings] = useState<Record<string, boolean>>({})
@@ -76,6 +80,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [fetchingAgentModels, setFetchingAgentModels] = useState<Record<string, boolean>>({})
   const [agentSettingsLoading, setAgentSettingsLoading] = useState(true)
   const [agentSettingsError, setAgentSettingsError] = useState<string | null>(null)
+  const { updateSettings: updateAppSettings } = useAppSettingsContext()
 
   // Code settings
   const [codeTheme, setCodeTheme] = useState<string>('github')
@@ -106,7 +111,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         
         // Load app settings with error handling
         try {
-          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number } }>('load_app_settings')
+          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number }, chat_send_shortcut?: 'enter' | 'mod+enter', show_welcome_recent_projects?: boolean }>('load_app_settings')
           console.log('✅ App settings loaded:', appSettings)
           if (appSettings) {
             setShowConsoleOutput(appSettings.show_console_output)
@@ -116,6 +121,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
             const sendShortcut = (appSettings as any).chat_send_shortcut || 'mod+enter'
             setChatSendShortcut(sendShortcut)
             setTempChatSendShortcut(sendShortcut)
+            const showWelcome = (appSettings as any).show_welcome_recent_projects ?? true
+            setShowWelcomeRecentProjects(showWelcome)
+            setTempShowWelcomeRecentProjects(showWelcome)
             if (appSettings.projects_folder) {
               setDefaultProjectsFolder(appSettings.projects_folder)
               setTempDefaultProjectsFolder(appSettings.projects_folder)
@@ -261,6 +269,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       tempFileMentionsEnabled !== fileMentionsEnabled ||
       tempChatSendShortcut !== chatSendShortcut ||
       tempUiTheme !== uiTheme ||
+      tempShowWelcomeRecentProjects !== showWelcomeRecentProjects ||
       tempCodeTheme !== codeTheme ||
       tempCodeFontSize !== codeFontSize ||
       JSON.stringify(tempAgentSettings) !== JSON.stringify(agentSettings) ||
@@ -276,6 +285,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     fileMentionsEnabled,
     tempUiTheme,
     uiTheme,
+    tempShowWelcomeRecentProjects,
+    showWelcomeRecentProjects,
     tempCodeTheme,
     codeTheme,
     tempCodeFontSize,
@@ -312,9 +323,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           file_mentions_enabled: fileMentionsEnabled,
           ui_theme: tempUiTheme,
           chat_send_shortcut: tempChatSendShortcut,
+          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
           code_settings: { theme: codeTheme, font_size: codeFontSize }
         }
-        await invoke('save_app_settings', { settings: appSettings })
+        await updateAppSettings(appSettings)
         // Also update native window theme
         await invoke('set_window_theme', { theme: tempUiTheme })
         setUiTheme(tempUiTheme)
@@ -335,9 +347,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           file_mentions_enabled: fileMentionsEnabled,
           ui_theme: tempUiTheme,
           chat_send_shortcut: tempChatSendShortcut,
+          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
           code_settings: { theme: codeTheme, font_size: codeFontSize },
         }
-        await invoke('save_app_settings', { settings: appSettings })
+        await updateAppSettings(appSettings)
         setChatSendShortcut(tempChatSendShortcut)
       } catch (e) {
         console.error('Failed to auto-save chat_send_shortcut:', e)
@@ -346,9 +359,31 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     saveShortcut()
   }, [tempChatSendShortcut])
 
+  // Auto-save Welcome Screen recents toggle for immediate reflection on Welcome screen
+  useEffect(() => {
+    const saveWelcomeToggle = async () => {
+      try {
+        const appSettings = {
+          show_console_output: showConsoleOutput,
+          projects_folder: defaultProjectsFolder,
+          file_mentions_enabled: fileMentionsEnabled,
+          ui_theme: tempUiTheme,
+          chat_send_shortcut: tempChatSendShortcut,
+          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
+          code_settings: { theme: codeTheme, font_size: codeFontSize },
+        }
+        await updateAppSettings(appSettings)
+        setShowWelcomeRecentProjects(tempShowWelcomeRecentProjects)
+      } catch (e) {
+        console.error('Failed to auto-save show_welcome_recent_projects:', e)
+      }
+    }
+    saveWelcomeToggle()
+  }, [tempShowWelcomeRecentProjects])
+
   // Load git config when tab is activated
   useEffect(() => {
-    if (isOpen && (activeTab === 'general' || activeTab === 'git') && Object.keys(gitConfig.global).length === 0 && !gitConfigLoading) {
+    if (isOpen && (activeTab === 'general' || activeTab === 'git') && Object.keys(gitConfig.global || {}).length === 0 && !gitConfigLoading) {
       loadGitConfig()
     }
   }, [isOpen, activeTab, gitConfig.global, gitConfigLoading, loadGitConfig])
@@ -504,9 +539,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         file_mentions_enabled: tempFileMentionsEnabled,
         ui_theme: tempUiTheme,
         chat_send_shortcut: tempChatSendShortcut,
+        show_welcome_recent_projects: tempShowWelcomeRecentProjects,
         code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize }
       }
-      await invoke('save_app_settings', { settings: appSettings })
+      await updateAppSettings(appSettings)
       
       // Save agent settings if they changed
       if (JSON.stringify(tempAgentSettings) !== JSON.stringify(agentSettings)) {
@@ -524,6 +560,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setChatSendShortcut(tempChatSendShortcut)
       setDefaultProjectsFolder(tempDefaultProjectsFolder)
       setUiTheme(tempUiTheme)
+      setShowWelcomeRecentProjects(tempShowWelcomeRecentProjects)
       setCodeTheme(tempCodeTheme)
       setCodeFontSize(tempCodeFontSize)
       setAgentSettings(tempAgentSettings)
@@ -552,6 +589,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setTempFileMentionsEnabled(fileMentionsEnabled)
       setTempChatSendShortcut(chatSendShortcut)
     setTempUiTheme(uiTheme)
+    setTempShowWelcomeRecentProjects(showWelcomeRecentProjects)
     setTempCodeTheme(codeTheme)
     setTempCodeFontSize(codeFontSize)
     setTempAgentSettings({ ...agentSettings })
@@ -682,6 +720,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   systemPrompt={settings?.system_prompt}
                   saving={saving}
                   tempUiTheme={tempUiTheme}
+                  tempShowWelcomeRecentProjects={tempShowWelcomeRecentProjects}
                   gitConfig={gitConfig}
                   gitWorktreeEnabled={gitWorktreeEnabled}
                   gitConfigLoading={gitConfigLoading}
@@ -694,6 +733,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   onRefreshGitConfig={loadGitConfig}
                   onToggleGitWorktree={handleGitWorktreeToggle}
                   onUiThemeChange={setTempUiTheme}
+                  onShowWelcomeRecentProjectsChange={setTempShowWelcomeRecentProjects}
                 />
               )}
               {activeTab === 'git' && (

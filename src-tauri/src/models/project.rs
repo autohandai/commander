@@ -29,6 +29,9 @@ pub struct AppSettings {
     #[serde(default = "default_chat_send_shortcut")]
     /// Chat send shortcut: "mod+enter" | "enter"
     pub chat_send_shortcut: String,
+    #[serde(default = "default_show_welcome_recent_projects")]
+    /// Whether to show recent projects on the Welcome screen
+    pub show_welcome_recent_projects: bool,
     #[serde(default)]
     pub code_settings: CodeSettings,
 }
@@ -43,6 +46,7 @@ fn default_file_mentions_enabled() -> bool {
 
 fn default_ui_theme() -> String { "auto".to_string() }
 fn default_chat_send_shortcut() -> String { "mod+enter".to_string() }
+fn default_show_welcome_recent_projects() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSettings {
@@ -69,6 +73,7 @@ impl Default for AppSettings {
             file_mentions_enabled: default_file_mentions_enabled(),
             ui_theme: default_ui_theme(),
             chat_send_shortcut: default_chat_send_shortcut(),
+            show_welcome_recent_projects: default_show_welcome_recent_projects(),
             code_settings: CodeSettings::default(),
         }
     }

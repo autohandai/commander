@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SettingsModal } from '@/components/SettingsModal'
+import { SettingsProvider } from '@/contexts/settings-context'
 
 const invokes: Array<{ cmd: string; args: any }> = []
 
@@ -32,7 +33,11 @@ if (typeof document !== 'undefined') describe('ChatSettings send shortcut save',
   })
 
   it('saves chat_send_shortcut when changed', async () => {
-    render(<SettingsModal isOpen={true} onClose={() => {}} initialTab={'chat'} />)
+    render(
+      <SettingsProvider>
+        <SettingsModal isOpen={true} onClose={() => {}} initialTab={'chat'} />
+      </SettingsProvider>
+    )
 
     // Wait for modal
     await screen.findByText(/Chat Settings/i)

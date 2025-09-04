@@ -10,7 +10,7 @@ import {
   BreadcrumbSeparator 
 } from "@/components/ui/breadcrumb"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GitBranch, Plus, Copy, Code, MessageCircle, FolderOpen, History as HistoryIcon } from "lucide-react"
+import { GitBranch, Plus, Copy, Code, MessageCircle, FolderOpen, Folder, History as HistoryIcon } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import React, { useState, useEffect, useRef } from "react"
@@ -25,7 +25,8 @@ import { ChatInterface } from "@/components/ChatInterface"
 import { CodeView } from "@/components/CodeView"
 import { HistoryView } from "@/components/HistoryView"
 import { Button } from "@/components/ui/button"
-import { RecentProject } from "@/hooks/use-recent-projects"
+import { useRecentProjects, RecentProject } from "@/hooks/use-recent-projects"
+import { useSettings } from "@/contexts/settings-context"
 import type { MenuEventPayload } from "@/types/menu"
 
 
@@ -80,6 +81,7 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
 }
 
 function AppContent() {
+  const { settings } = useSettings()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<import('@/types/settings').SettingsTab | undefined>(undefined)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
@@ -91,6 +93,8 @@ function AppContent() {
   const [welcomePhrase, setWelcomePhrase] = useState<string>("")
   const { showSuccess, showError } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
+  const { projects: allRecentProjects } = useRecentProjects()
+  const [homeDir, setHomeDir] = useState<string>("")
 
   const WELCOME_PHRASES = [
     'Command any AI coding CLI agent from one screen',
@@ -237,6 +241,31 @@ function AppContent() {
       name: segment,
       path: '/' + segments.slice(0, index + 1).join('/')
     }))
+  }
+
+  // Compute recent projects limited to 5 and within last 30 days
+  const recentProjectsForWelcome = React.useMemo(() => {
+    const show = settings?.show_welcome_recent_projects ?? true
+    if (!show) return [] as RecentProject[]
+    const nowSec = Math.floor(Date.now() / 1000)
+    const thirtyDaysSec = 30 * 24 * 60 * 60
+    const cutoff = nowSec - thirtyDaysSec
+    return (allRecentProjects || [])
+      .filter(p => (p.last_accessed ?? 0) >= cutoff)
+      .sort((a,b) => (b.last_accessed ?? 0) - (a.last_accessed ?? 0))
+      .slice(0, 5)
+  }, [allRecentProjects, settings?.show_welcome_recent_projects])
+
+  // Resolve user home directory for path shortening
+  useEffect(() => {
+    import('@tauri-apps/api/core').then(({ invoke }) => {
+      invoke<string>('get_user_home_directory').then(setHomeDir).catch(() => {})
+    }).catch(() => {})
+  }, [])
+
+  const shortPath = (p: string) => {
+    if (!homeDir) return p
+    return p.startsWith(homeDir) ? `~${p.slice(homeDir.length)}` : p
   }
 
   // Listen for global shortcut and menu events
@@ -462,6 +491,33 @@ function AppContent() {
                   </div>
                 </button>
               </div>
+
+              {(settings?.show_welcome_recent_projects ?? true) && (
+                <div className="pt-2" data-testid="welcome-recents">
+                  <h3 className="text-xs font-medium text-muted-foreground mb-2" data-testid="welcome-recents-title">Recent</h3>
+                  {recentProjectsForWelcome.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No projects opened in the last 30 days</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {recentProjectsForWelcome.map((proj) => (
+                        <li key={proj.path}>
+                          <button
+                            className="w-full flex items-center justify-between gap-4 px-2 py-1.5 rounded-md hover:bg-neutral-900/60 transition-colors"
+                            onClick={() => handleProjectSelect(proj)}
+                            title={proj.path}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Folder className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm font-medium truncate">{proj.name}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground truncate max-w-[50%] text-right">{shortPath(proj.path)}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
             </div>
           )}
