@@ -10,9 +10,28 @@ export function AgentResponse({ raw }: Props) {
   if (!parsed) return <>{raw}</>
 
   const [showThinking, setShowThinking] = useState(false)
+  const [showRaw, setShowRaw] = useState(false)
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-end text-xs">
+        <button
+          className="text-muted-foreground hover:underline"
+          onClick={() => setShowRaw((v) => !v)}
+          aria-label={showRaw ? 'Hide raw output' : 'Show raw output'}
+        >
+          {showRaw ? 'Hide raw' : 'Show raw'}
+        </button>
+      </div>
+
+      {showRaw && (
+        <pre className="whitespace-pre-wrap text-xs bg-muted/10 p-2 rounded border">
+          {raw}
+        </pre>
+      )}
+
+      {!showRaw && (
+        <>
       {parsed.working && parsed.working.length > 0 && (
         <div>
           <div className="text-xs font-medium mb-1">Working</div>
@@ -89,6 +108,8 @@ export function AgentResponse({ raw }: Props) {
           {parsed.meta?.provider && <span className="mr-3">provider: {parsed.meta.provider}</span>}
           {parsed.success && <span className="text-green-600">✓ success</span>}
         </div>
+      )}
+        </>
       )}
     </div>
   )}

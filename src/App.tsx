@@ -42,16 +42,16 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col min-h-0 min-w-0">
         <div className="px-4 pt-4">
-          <TabsList className="grid w-full max-w-[600px] grid-cols-3">
-            <TabsTrigger value="chat" className="flex items-center gap-2">
+          <TabsList className="grid max-w-[600px] mx-auto grid-cols-3">
+            <TabsTrigger value="chat" className="flex items-center justify-center gap-2">
               <MessageCircle className="h-4 w-4" />
               Chat
             </TabsTrigger>
-            <TabsTrigger value="code" className="flex items-center gap-2">
+            <TabsTrigger value="code" className="flex items-center justify-center gap-2">
               <Code className="h-4 w-4" />
               Code
             </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center gap-2">
+            <TabsTrigger value="history" className="flex items-center justify-center gap-2">
               <HistoryIcon className="h-4 w-4" />
               History
             </TabsTrigger>
@@ -71,7 +71,7 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           <CodeView project={project} />
         </TabsContent>
         
-        <TabsContent value="history" className="flex-1 m-0 min-h-0 min-w-0" forceMount>
+        <TabsContent value="history" className="flex-1 m-0 h-full min-w-0" forceMount>
           <HistoryView project={project} />
         </TabsContent>
       </Tabs>

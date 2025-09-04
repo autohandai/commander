@@ -6,6 +6,7 @@ import { GitGraph } from '@/components/GitGraph'
 import { DiffViewer } from '@/components/DiffViewer'
 import { ChatHistoryPanel } from '@/components/ChatHistoryPanel'
 import { HistoryControls } from '@/components/HistoryControls'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 interface Props { 
   project: RecentProject 
@@ -81,15 +82,7 @@ export function HistoryView({ project }: Props) {
 
   return (
     <div className="relative flex h-full min-w-0">
-      {/* Floating Controls */}
-      <HistoryControls
-        project={project}
-        onRefresh={handleRefresh}
-        selectedBranch={selectedBranch}
-        selectedWorkspace={selectedWorkspace}
-        onBranchChange={handleBranchChange}
-        onWorkspaceChange={handleWorkspaceChange}
-      />
+    
 
       {/* Left: Git Graph */}
       <div className="flex-1 bg-muted/10 border-r overflow-hidden">
@@ -121,13 +114,29 @@ export function HistoryView({ project }: Props) {
         </div>
       </div>
 
-      {/* Center: Diff Viewer */}
-      <div className="flex-1 min-w-0 p-4 overflow-auto">
-        <DiffViewer
-          projectPath={selectedWorkspace || project.path}
-          commitHash={selectedCommit}
-        />
-      </div>
+      {/* Diff Viewer Modal */}
+      <Dialog open={!!selectedCommit} onOpenChange={(open) => { if (!open) setSelectedCommit(null) }}>
+        <DialogContent className="max-w-5xl w-[90vw] sm:w-[80vw] h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Commit Diff</DialogTitle>
+          </DialogHeader>
+            {/* Floating Controls */}
+      <HistoryControls
+        project={project}
+        onRefresh={handleRefresh}
+        selectedBranch={selectedBranch}
+        selectedWorkspace={selectedWorkspace}
+        onBranchChange={handleBranchChange}
+        onWorkspaceChange={handleWorkspaceChange}
+      />
+          <div className="h-[calc(100%-3rem)] overflow-auto">
+            <DiffViewer
+              projectPath={selectedWorkspace || project.path}
+              commitHash={selectedCommit}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Right: Chat History */}
       <ChatHistoryPanel project={project} />

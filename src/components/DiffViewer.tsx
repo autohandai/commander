@@ -145,9 +145,9 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Files List */}
-      <Card className="p-4">
+    <div className="grid grid-cols-[260px_1fr] gap-4">
+      {/* Left: Files List */}
+      <Card className="p-4 h-full">
         <div className="flex items-center gap-2 mb-3">
           <FileText className="h-4 w-4" />
           <span className="font-medium">Changed Files</span>
@@ -155,144 +155,152 @@ export function DiffViewer({ projectPath, commitHash }: DiffViewerProps) {
             {files.length}
           </Badge>
         </div>
-        
+
         {loading && files.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading files...</div>
         ) : files.length === 0 ? (
           <div className="text-sm text-muted-foreground">No files changed</div>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {files.map((file, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleFileSelect(file.path)}
-                className={`flex items-center gap-2 p-2 text-left rounded text-sm transition-colors ${
-                  selectedFile === file.path
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-accent/60'
-                }`}
-              >
-                <Badge 
-                  variant="outline" 
-                  className={`text-[10px] px-1 py-0 ${getStatusColor(file.status)}`}
+          <ScrollArea className="h-[60vh]">
+            <div data-testid="diff-file-list" className="flex flex-col gap-1">
+              {files.map((file, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleFileSelect(file.path)}
+                  className={`flex items-center gap-2 p-2 text-left rounded text-sm transition-colors ${
+                    selectedFile === file.path
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-accent/60'
+                  }`}
                 >
-                  {file.status}
-                </Badge>
-                <span className="font-mono text-xs truncate flex-1">
-                  {file.path}
-                </span>
-              </button>
-            ))}
-          </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1 py-0 ${getStatusColor(file.status)}`}
+                  >
+                    {file.status}
+                  </Badge>
+                  <span className="font-mono text-xs truncate flex-1">
+                    {file.path}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
         )}
       </Card>
 
-      {/* Diff Viewer */}
-      {selectedFile && (
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Eye className="h-4 w-4" />
-            <span className="font-medium">Diff: </span>
-            <code className="text-sm bg-muted px-2 py-1 rounded">
-              {selectedFile}
-            </code>
+      {/* Right: Diff Viewer Panel */}
+      <Card className="p-4">
+        {!selectedFile ? (
+          <div className="h-[60vh] flex items-center justify-center text-sm text-muted-foreground">
+            Select a file to view its diff
           </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-3">
+              <Eye className="h-4 w-4" />
+              <span className="font-medium">Diff: </span>
+              <code className="text-sm bg-muted px-2 py-1 rounded">
+                {selectedFile}
+              </code>
+            </div>
 
-          <Tabs defaultValue="unified" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="unified">Unified Diff</TabsTrigger>
-              <TabsTrigger value="split">Side by Side</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="unified" className="mt-4">
-              <div className="border rounded-md bg-muted/10 overflow-hidden">
-                <ScrollArea className="h-96">
-                  <pre className="text-xs p-4 whitespace-pre-wrap">
-                    {unifiedDiff.split('\n').map((line, i) => {
-                      let className = ''
-                      if (line.startsWith('+') && !line.startsWith('+++')) {
-                        className = 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
-                      } else if (line.startsWith('-') && !line.startsWith('---')) {
-                        className = 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
-                      } else if (line.startsWith('@@')) {
-                        className = 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 font-medium'
-                      }
-                      
-                      return (
-                        <div key={i} className={className}>
-                          {line}
-                        </div>
-                      )
-                    })}
-                  </pre>
-                </ScrollArea>
-              </div>
-            </TabsContent>
-            
-            <TabsContent value="split" className="mt-4">
-              <div className="grid grid-cols-2 gap-4 h-96">
-                {/* Left side - Before */}
+            <Tabs defaultValue="unified" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="unified">Unified Diff</TabsTrigger>
+                <TabsTrigger value="split">Side by Side</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="unified" className="mt-4">
                 <div className="border rounded-md bg-muted/10 overflow-hidden">
-                  <div className="bg-muted px-3 py-2 text-xs font-medium border-b">
-                    Before (Parent)
-                  </div>
-                  <ScrollArea className="h-full">
-                    <Highlight
-                      theme={themes.github}
-                      code={leftCode || '(empty)'}
-                      language={getLanguageFromFilename(selectedFile) as any}
-                    >
-                      {({ className, style, tokens, getLineProps, getTokenProps }) => (
-                        <pre className={`${className} text-xs p-3`} style={style}>
-                          {tokens.map((line, i) => (
-                            <div key={i} {...getLineProps({ line })}>
-                              <span className="inline-block w-8 text-muted-foreground text-right mr-3">
-                                {i + 1}
-                              </span>
-                              {line.map((token, key) => (
-                                <span key={key} {...getTokenProps({ token })} />
-                              ))}
-                            </div>
-                          ))}
-                        </pre>
-                      )}
-                    </Highlight>
+                  <ScrollArea className="h-[56vh]">
+                    <pre className="text-xs p-4 whitespace-pre-wrap">
+                      {unifiedDiff.split('\n').map((line, i) => {
+                        let className = ''
+                        if (line.startsWith('+') && !line.startsWith('+++')) {
+                          className = 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+                        } else if (line.startsWith('-') && !line.startsWith('---')) {
+                          className = 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+                        } else if (line.startsWith('@@')) {
+                          className = 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 font-medium'
+                        }
+
+                        return (
+                          <div key={i} className={className}>
+                            {line}
+                          </div>
+                        )
+                      })}
+                    </pre>
                   </ScrollArea>
                 </div>
-                
-                {/* Right side - After */}
-                <div className="border rounded-md bg-muted/10 overflow-hidden">
-                  <div className="bg-muted px-3 py-2 text-xs font-medium border-b">
-                    After (Commit)
+              </TabsContent>
+
+              <TabsContent value="split" className="mt-4">
+                <div className="grid grid-cols-2 gap-4 h-[56vh]">
+                  {/* Left side - Before */}
+                  <div className="border rounded-md bg-muted/10 overflow-hidden">
+                    <div className="bg-muted px-3 py-2 text-xs font-medium border-b">
+                      Before (Parent)
+                    </div>
+                    <ScrollArea className="h-full">
+                      <Highlight
+                        theme={themes.github}
+                        code={leftCode || '(empty)'}
+                        language={getLanguageFromFilename(selectedFile) as any}
+                      >
+                        {({ className, style, tokens, getLineProps, getTokenProps }) => (
+                          <pre className={`${className} text-xs p-3`} style={style}>
+                            {tokens.map((line, i) => (
+                              <div key={i} {...getLineProps({ line })}>
+                                <span className="inline-block w-8 text-muted-foreground text-right mr-3">
+                                  {i + 1}
+                                </span>
+                                {line.map((token, key) => (
+                                  <span key={key} {...getTokenProps({ token })} />
+                                ))}
+                              </div>
+                            ))}
+                          </pre>
+                        )}
+                      </Highlight>
+                    </ScrollArea>
                   </div>
-                  <ScrollArea className="h-full">
-                    <Highlight
-                      theme={themes.github}
-                      code={rightCode || '(empty)'}
-                      language={getLanguageFromFilename(selectedFile) as any}
-                    >
-                      {({ className, style, tokens, getLineProps, getTokenProps }) => (
-                        <pre className={`${className} text-xs p-3`} style={style}>
-                          {tokens.map((line, i) => (
-                            <div key={i} {...getLineProps({ line })}>
-                              <span className="inline-block w-8 text-muted-foreground text-right mr-3">
-                                {i + 1}
-                              </span>
-                              {line.map((token, key) => (
-                                <span key={key} {...getTokenProps({ token })} />
-                              ))}
-                            </div>
-                          ))}
-                        </pre>
-                      )}
-                    </Highlight>
-                  </ScrollArea>
+
+                  {/* Right side - After */}
+                  <div className="border rounded-md bg-muted/10 overflow-hidden">
+                    <div className="bg-muted px-3 py-2 text-xs font-medium border-b">
+                      After (Commit)
+                    </div>
+                    <ScrollArea className="h-full">
+                      <Highlight
+                        theme={themes.github}
+                        code={rightCode || '(empty)'}
+                        language={getLanguageFromFilename(selectedFile) as any}
+                      >
+                        {({ className, style, tokens, getLineProps, getTokenProps }) => (
+                          <pre className={`${className} text-xs p-3`} style={style}>
+                            {tokens.map((line, i) => (
+                              <div key={i} {...getLineProps({ line })}>
+                                <span className="inline-block w-8 text-muted-foreground text-right mr-3">
+                                  {i + 1}
+                                </span>
+                                {line.map((token, key) => (
+                                  <span key={key} {...getTokenProps({ token })} />
+                                ))}
+                              </div>
+                            ))}
+                          </pre>
+                        )}
+                      </Highlight>
+                    </ScrollArea>
+                  </div>
                 </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </Card>
-      )}
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
+      </Card>
     </div>
   )
 }

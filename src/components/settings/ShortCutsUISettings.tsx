@@ -35,6 +35,14 @@ const shortcuts: ShortcutItem[] = [
     category: 'global',
     platform: 'mac'
   },
+  {
+    id: 'new-chat',
+    name: 'New Chat',
+    description: 'Start a new chat session (when chat is open)',
+    shortcut: 'Cmd+Shift+N',
+    category: 'global',
+    platform: 'mac'
+  },
   
   // Menu Shortcuts
   {

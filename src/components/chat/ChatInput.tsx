@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Lightbulb, FolderOpen, Send } from 'lucide-react'
+import { Lightbulb, FolderOpen, Send, PenLine } from 'lucide-react'
 
 export interface AutocompleteOption {
   id: string
@@ -48,6 +48,10 @@ interface ChatInputProps {
   // File mentions toggle affects autocomplete header text
   fileMentionsEnabled: boolean
   chatSendShortcut?: 'enter' | 'mod+enter'
+
+  // Session controls
+  onNewSession?: () => void
+  showNewSession?: boolean
 }
 
 export function ChatInput(props: ChatInputProps) {
@@ -76,10 +80,27 @@ export function ChatInput(props: ChatInputProps) {
     getAgentModel,
     fileMentionsEnabled,
     chatSendShortcut = 'mod+enter',
+    onNewSession,
+    showNewSession,
   } = props
 
+  // Global shortcut for starting a new chat session
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey
+      if (isMod && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
+        if (onNewSession) {
+          e.preventDefault()
+          onNewSession()
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onNewSession])
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto group">
       {showAutocomplete && autocompleteOptions.length > 0 && (
         <div
           ref={autocompleteRef}
@@ -169,6 +190,29 @@ export function ChatInput(props: ChatInputProps) {
       </div>
 
       <div className="flex items-center gap-3">
+        {showNewSession && onNewSession && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 opacity-60 hover:opacity-100 group-hover:opacity-100 transition-opacity"
+                  aria-label="New chat"
+                  title="New chat"
+                  onClick={onNewSession}
+                >
+                  <PenLine className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span>New chat</span>
+                <div className="mt-1 text-[10px] text-muted-foreground">Cmd/Ctrl+Shift+N</div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <div className="relative flex-1">
           <Input
             ref={inputRef}
@@ -218,8 +262,9 @@ export function ChatInput(props: ChatInputProps) {
               {chatSendShortcut === 'enter' ? (
                 <span>Press Enter to send</span>
               ) : (
-                <span>Press Ctrl/Cmd+Enter to send</span>
+                <span>Cmd+Enter to send</span>
               )}
+             
               <span>↑↓ to navigate • Tab/Enter to select • Esc to close</span>
             </>
           )}

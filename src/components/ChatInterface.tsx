@@ -24,39 +24,14 @@ import type { SessionStatus } from '@/components/chat/types';
 import { useChatExecution } from '@/components/chat/hooks/useChatExecution';
 import { setStepStatus, updateMessagesPlanStep } from '@/components/chat/planStatus';
 import { buildAutocompleteOptions } from '@/components/chat/autocomplete';
+import type { Plan } from '@/components/chat/plan';
+import { generatePlan as generatePlanShared } from '@/components/chat/plan';
 
 // Agent and capability types are defined in chat/agents
 
 // (Removed unused SubAgentOption to satisfy noUnusedLocals)
 
-interface AutocompleteOption {
-  id: string;
-  label: string;
-  description: string;
-  icon?: React.ComponentType<{ className?: string }> | (() => React.ReactElement);
-  category?: string;
-  filePath?: string; // For file mentions
-}
-
-
-interface PlanStep {
-  id: string;
-  title: string;
-  description: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  estimatedTime?: string;
-  dependencies?: string[];
-  details?: string;
-}
-
-interface Plan {
-  id: string;
-  title: string;
-  description: string;
-  steps: PlanStep[];
-  progress: number;
-  isGenerating?: boolean;
-}
+// AutocompleteOption and Plan types are now imported from shared chat modules
 
 // ChatMessage type moved to chat/types
 
@@ -94,7 +69,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [typedPlaceholder, setTypedPlaceholder] = useState('');
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
-  const [autocompleteOptions, setAutocompleteOptions] = useState<AutocompleteOption[]>([]);
+  const [autocompleteOptions, setAutocompleteOptions] = useState<ChatAutocompleteOption[]>([]);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(0);
   const [commandType, setCommandType] = useState<'/' | '@' | null>(null);
   const [commandStart, setCommandStart] = useState(0);
@@ -272,7 +247,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     listFiles,
     searchFiles,
     codeExtensions: [...CODE_EXTENSIONS],
-    setOptions: (opts) => setAutocompleteOptions(opts as any),
+    setOptions: (opts) => setAutocompleteOptions(opts as unknown as ChatAutocompleteOption[]),
     setSelectedIndex: setSelectedOptionIndex,
     setShow: setShowAutocomplete,
   })
@@ -351,7 +326,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   };
 
   // Handle autocomplete selection
-  const handleAutocompleteSelect = (option: AutocompleteOption) => {
+  const handleAutocompleteSelect = (option: ChatAutocompleteOption) => {
     if (!commandType) return;
     
     const beforeCommand = inputValue.slice(0, commandStart);
@@ -398,115 +373,8 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   // Generate plan using Ollama
   const generatePlan = async (userInput: string): Promise<Plan> => {
-    let systemPrompt = `You are an expert project planner. Break down the user's request into clear, actionable steps. 
-
-For each step, provide:
-1. A clear title (what needs to be done)
-2. A brief description (how to do it)
-3. Estimated time (be realistic)
-4. Dependencies (if any)
-5. Detailed implementation notes
-
-Format your response as JSON:
-{
-  "title": "Plan title",
-  "description": "Brief description of what this plan accomplishes", 
-  "steps": [
-    {
-      "id": "step-1",
-      "title": "Step title",
-      "description": "Brief description",
-      "estimatedTime": "5 minutes",
-      "dependencies": ["step-0"],
-      "details": "Detailed implementation notes and considerations"
-    }
-  ]
-}
-
-Make the plan comprehensive but practical. Focus on implementation steps that can be executed by AI coding assistants.`;
-
-    try {
-      // Try to load the system prompt from prompts config
-      const promptsConfig = await invoke<any>('load_prompts');
-      const planSystemPrompt = promptsConfig?.prompts?.plan_mode?.system?.content;
-      if (planSystemPrompt) {
-        systemPrompt = planSystemPrompt;
-      }
-    } catch (error) {
-      console.warn('Could not load plan system prompt, using default:', error);
-    }
-
-    try {
-      // Call Ollama API through Tauri backend
-      const response = await invoke<string>('generate_plan', {
-        prompt: userInput,
-        systemPrompt
-      });
-      
-      const planData = JSON.parse(response);
-      
-      return {
-        id: `plan-${Date.now()}`,
-        title: planData.title,
-        description: planData.description,
-        steps: planData.steps.map((step: any) => ({
-          ...step,
-          status: 'pending' as const
-        })),
-        progress: 0,
-        isGenerating: false
-      };
-    } catch (error) {
-      console.error('Failed to generate plan:', error);
-      
-      // Fallback plan generation
-      const steps = userInput.split(' ').length > 10 ? [
-        {
-          id: 'step-1',
-          title: 'Analyze Requirements',
-          description: 'Break down the user request and identify key components',
-          status: 'pending' as const,
-          estimatedTime: '2 minutes',
-          details: 'Review the user input and identify what needs to be implemented'
-        },
-        {
-          id: 'step-2', 
-          title: 'Design Solution',
-          description: 'Plan the implementation approach',
-          status: 'pending' as const,
-          estimatedTime: '5 minutes',
-          dependencies: ['step-1'],
-          details: 'Define the architecture and approach for implementation'
-        },
-        {
-          id: 'step-3',
-          title: 'Implement Changes',
-          description: 'Execute the planned solution',
-          status: 'pending' as const,
-          estimatedTime: '10 minutes',
-          dependencies: ['step-2'],
-          details: 'Write code and make necessary changes'
-        }
-      ] : [
-        {
-          id: 'step-1',
-          title: 'Execute Request',
-          description: userInput,
-          status: 'pending' as const,
-          estimatedTime: '3 minutes',
-          details: 'Simple request that can be executed directly'
-        }
-      ];
-      
-      return {
-        id: `plan-${Date.now()}`,
-        title: 'Generated Plan',
-        description: `Plan for: ${userInput}`,
-        steps,
-        progress: 0,
-        isGenerating: false
-      };
-    }
+    // Delegate to shared plan generator to keep logic centralized
+    return generatePlanShared(userInput, { invoke });
   };
 
   const handleSendMessage = async () => {
@@ -897,7 +765,7 @@ Please focus only on this step.`;
   }, [selectedOptionIndex, showAutocomplete]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden" data-testid="chat-root">
+    <div className="relative flex flex-col flex-1 h-full min-h-0 overflow-hidden" data-testid="chat-root">
             <SessionStatusHeader
         sessionStatus={sessionStatus as any}
         showSessionPanel={showSessionPanel}
@@ -954,59 +822,47 @@ Please focus only on this step.`;
         />
       )}
 
-      {/* Chat Messages Area with ScrollArea */}
-      <ScrollArea className="flex-1 min-h-0 p-6" data-testid="chat-scrollarea">
-        <div className="max-w-4xl mx-auto">
-          {/* New Session Button */}
-          {messages.length > 0 && (
-            <div className="flex justify-end mb-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleNewSession}
-                className="h-8 px-3 text-xs flex items-center gap-2"
-              >
-                <RotateCcw className="h-3 w-3" />
-                New Session
-              </Button>
-            </div>
-          )}
-          
-          <div className="space-y-4">
-          {messages.length === 0 ? (
-            <div className="text-center text-muted-foreground mt-20">
-              <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
-              <p className="text-sm mb-2">
-                Ask questions about your code, request changes, or get help with your project.
-              </p>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/claude</kbd> - Direct command execution</p>
-                <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/claude help</kbd> - Get help and available commands</p>
-                <p>Non-interactive mode for fast, direct responses</p>
+      {/* Messages area (ScrollArea fills root; content padded for input) */}
+      <ScrollArea data-state="visible" data-testid="chat-scrollarea" className="absolute inset-0 p-6 flex-1 min-h-0">
+        <div className="max-w-4xl mx-auto pb-32">
+            {/* New Session control moved into ChatInput */}
+            
+            <div className="space-y-4">
+            {messages.length === 0 ? (
+              <div className="text-center text-muted-foreground mt-20">
+                <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
+                <p className="text-sm mb-2">
+                  Ask questions about your code, request changes, or get help with your project.
+                </p>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/codex</kbd> - Direct command execution</p>
+                  <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/gemini help</kbd> - Introduce me to this repo</p>
+                  <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/claude help</kbd> - Get help and available commands</p>
+                  <p>Non-interactive mode for fast, direct responses</p>
+                </div>
               </div>
+            ) : (
+              <>
+                <MessagesList
+                  messages={messages as any}
+                  expandedMessages={expandedMessages}
+                  onToggleExpand={toggleExpand}
+                  isLongMessage={isLongMessage}
+                  truncateMessage={truncateMessage}
+                  getAgentModel={getAgentModel}
+                  onExecutePlan={handleExecutePlan}
+                  onExecuteStep={handleExecuteStep}
+                />
+                <div ref={messagesEndRef} />
+              </>
+            )}
             </div>
-          ) : (
-            <>
-              <MessagesList
-                messages={messages as any}
-                expandedMessages={expandedMessages}
-                onToggleExpand={toggleExpand}
-                isLongMessage={isLongMessage}
-                truncateMessage={truncateMessage}
-                getAgentModel={getAgentModel}
-                onExecutePlan={handleExecutePlan}
-                onExecuteStep={handleExecuteStep}
-              />
-              <div ref={messagesEndRef} />
-            </>
-          )}
-          </div>
         </div>
       </ScrollArea>
-      
-      {/* Chat Input Area - Fixed at bottom (account for status bar overlay) */}
-      <div className="border-t bg-background p-4 pb-16 flex-shrink-0">
+
+      {/* Chat Input Area - Absolutely positioned at bottom */}
+      <div className="absolute bottom-0 left-0 right-0 border-t bg-background p-4 pb-8">
         <div className="max-w-4xl mx-auto">
           <ChatInput
             inputRef={inputRef}
@@ -1033,11 +889,11 @@ Please focus only on this step.`;
             getAgentModel={getAgentModel}
             fileMentionsEnabled={fileMentionsEnabled}
             chatSendShortcut={chatSendShortcut}
+            onNewSession={handleNewSession}
+            showNewSession={messages.length > 0}
           />
         </div>
       </div>
-      {/* Spacer to avoid overlap with fixed AIAgentStatusBar (h-6) */}
-      <div className="h-8" aria-hidden />
     </div>
   );
 }
