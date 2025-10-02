@@ -1,5 +1,7 @@
 # Commander
 
+![Commander Demo](./Commander.gif)
+
 Commander is a native Tauri v2 desktop app that orchestrates multiple CLI coding agents against any Git project. It keeps every workflow local, manages agent workspaces with Git worktrees, and wraps advanced Git + filesystem automation inside a React/Vite interface.
 
 ## What Works Today
