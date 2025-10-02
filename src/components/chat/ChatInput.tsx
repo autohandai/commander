@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Lightbulb, FolderOpen, Send, PenLine } from 'lucide-react'
 
 export interface AutocompleteOption {
@@ -52,6 +53,12 @@ interface ChatInputProps {
   // Session controls
   onNewSession?: () => void
   showNewSession?: boolean
+
+  // Execution mode selector
+  executionMode?: 'chat' | 'collab' | 'full'
+  onExecutionModeChange?: (m: 'chat' | 'collab' | 'full') => void
+  unsafeFull?: boolean
+  onUnsafeFullChange?: (v: boolean) => void
 }
 
 export function ChatInput(props: ChatInputProps) {
@@ -82,6 +89,10 @@ export function ChatInput(props: ChatInputProps) {
     chatSendShortcut = 'mod+enter',
     onNewSession,
     showNewSession,
+    executionMode = 'collab',
+    onExecutionModeChange,
+    unsafeFull = false,
+    onUnsafeFullChange,
   } = props
 
   // Global shortcut for starting a new chat session
@@ -143,7 +154,30 @@ export function ChatInput(props: ChatInputProps) {
         </div>
       )}
 
-      <div className="flex justify-end gap-6 mb-3">
+      <div className="flex justify-end gap-6 mb-3 items-center">
+        {/* Execution Mode (shadcn select) */}
+        <div className="flex items-center gap-2">
+          <Select value={executionMode} onValueChange={(v: any) => onExecutionModeChange?.(v)}>
+            <SelectTrigger className="h-8 min-w-[220px]" aria-label="Execution Mode">
+              <SelectValue placeholder="Execution Mode" />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="chat">Chat (read-only)</SelectItem>
+              <SelectItem value="collab">Agent (ask to execute)</SelectItem>
+              <SelectItem value="full">Agent (full access)</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className={`text-xs inline-flex items-center gap-2 ${executionMode !== 'full' ? 'opacity-50' : ''}`}>
+            <input
+              type="checkbox"
+              checked={unsafeFull}
+              onChange={(e) => onUnsafeFullChange?.(e.target.checked)}
+              disabled={executionMode !== 'full'}
+            />
+            Advanced
+          </label>
+        </div>
+
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>

@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Commander CLI - Opens Commander app with git project detection
+# Usage: commander [path]
+#   commander .     - Opens current directory (if it's a git repo)
+#   commander path  - Opens specified path (if it's a git repo)
+
+set -e
+
+# Default to current directory if no argument provided
+TARGET_PATH="${1:-.}"
+
+# Get absolute path
+if [[ "$TARGET_PATH" == "." ]]; then
+    TARGET_PATH="$(pwd)"
+elif [[ ! "$TARGET_PATH" =~ ^/ ]]; then
+    # Relative path - make it absolute
+    TARGET_PATH="$(pwd)/$TARGET_PATH"
+fi
+
+# Check if target path exists
+if [[ ! -d "$TARGET_PATH" ]]; then
+    echo "Error: Directory '$TARGET_PATH' does not exist"
+    exit 1
+fi
+
+# Function to find Commander app
+find_commander_app() {
+    # Check common locations for Commander app
+    local app_paths=(
+        "/Applications/commander.app"
+        "/Applications/Commander.app"
+        "$HOME/Applications/commander.app"
+        "$HOME/Applications/Commander.app"
+    )
+    
+    for app_path in "${app_paths[@]}"; do
+        if [[ -d "$app_path" ]]; then
+            echo "$app_path"
+            return 0
+        fi
+    done
+    
+    echo ""
+    return 1
+}
+
+# Find Commander app
+COMMANDER_APP=$(find_commander_app)
+
+if [[ -z "$COMMANDER_APP" ]]; then
+    echo "Error: Commander app not found in Applications folder"
+    echo "Please ensure Commander is installed via 'brew install --cask commander'"
+    exit 1
+fi
+
+# Check if Commander is already running
+COMMANDER_PID=$(pgrep -f "commander.app" || true)
+
+if [[ -n "$COMMANDER_PID" ]]; then
+    # Commander is running - use osascript to bring it to front and send path
+    osascript -e "
+        tell application \"System Events\"
+            tell process \"commander\"
+                set frontmost to true
+            end tell
+        end tell
+    " 2>/dev/null || true
+    
+    # Use the Tauri command to open the project
+    # This uses the new open_project_from_path command we created
+    curl -s -X POST "http://localhost:1420/__tauri_cli__" \
+        -H "Content-Type: application/json" \
+        -d "{\"cmd\":\"open_project_from_path\",\"currentPath\":\"$TARGET_PATH\"}" >/dev/null 2>&1 || {
+        echo "Warning: Could not communicate with running Commander instance"
+        echo "Opening new Commander window..."
+        open -a "$COMMANDER_APP" --args "$TARGET_PATH"
+    }
+else
+    # Commander is not running - launch it with the path argument
+    echo "Opening Commander with project: $TARGET_PATH"
+    open -a "$COMMANDER_APP" --args "$TARGET_PATH"
+fi
+
+echo "✓ Commander launched with project: $TARGET_PATH"

@@ -111,7 +111,34 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
     listFiles({
       directory_path: rootPath || project.path,
       max_depth: 10, // Deep traversal for complete file tree
+      extensions: [], // show all files in CodeView (no filter)
     });
+  }, [project.path, rootPath, listFiles]);
+
+  // Auto-refresh when CLI sessions stream finishes, and periodic polling as fallback
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let interval: any = null;
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen<{ session_id: string; content: string; finished: boolean }>('cli-stream', (e) => {
+          if (e.payload?.finished) {
+            listFiles({ directory_path: rootPath || project.path, max_depth: 10, extensions: [] });
+          }
+        });
+      } catch {
+        // ignore if tauri events are unavailable in tests
+      }
+      // Periodic refresh as a safety net
+      interval = setInterval(() => {
+        listFiles({ directory_path: rootPath || project.path, max_depth: 10, extensions: [] });
+      }, 5000);
+    })();
+    return () => {
+      try { unlisten?.() } catch {}
+      if (interval) clearInterval(interval);
+    };
   }, [project.path, rootPath, listFiles]);
 
   useEffect(() => {
@@ -200,6 +227,7 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const { settings } = useSettings();
+  const [reloadToken, setReloadToken] = useState(0);
 
   const language = useMemo<Language | undefined>(() => {
     if (!file || file.is_directory) return undefined;
@@ -258,7 +286,31 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
         setLoading(false);
       }
     })();
-  }, [file]);
+  }, [file, reloadToken]);
+
+  // Refresh the open file after CLI command finishes; debounce via reloadToken
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let timer: any = null;
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen<{ finished: boolean }>('cli-stream', (e) => {
+          if (e.payload?.finished) {
+            // Debounce rapid sequences
+            clearTimeout(timer);
+            timer = setTimeout(() => setReloadToken((n) => n + 1), 200);
+          }
+        });
+      } catch {
+        // ignore in tests
+      }
+    })();
+    return () => {
+      try { unlisten?.() } catch {}
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   // Get theme and font size from settings context
   const themeName = resolvePrismTheme(settings.code_settings.theme, settings.ui_theme);

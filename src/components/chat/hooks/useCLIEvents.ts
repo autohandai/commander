@@ -36,8 +36,14 @@ export function useCLIEvents({ onStreamChunk, onError, subscribe }: Params) {
           subscribe || (await import('@tauri-apps/api/event')).listen
         if (cancelled) return
         try {
+          const ansiRE = /\u001b\[[0-9;]*m|\u001b\][^\u0007]*\u0007|\u001b\[[0-9;]*[A-Za-z]/g
+          const stripAnsi = (s: string) => s.replace(ansiRE, '').replace(/\r+/g, '\n')
           unlistenStream = await sub<StreamChunk>('cli-stream', (event) => {
-            onStreamRef.current(event.payload)
+            const payload = event.payload
+            // Keep Claude JSON stream intact; otherwise strip ANSI for readability
+            const looksJson = payload.content.trim().startsWith('{') || payload.content.includes('"type"')
+            const sanitized = looksJson ? payload.content : stripAnsi(payload.content)
+            onStreamRef.current({ ...payload, content: sanitized })
           })
         } catch {}
         try {

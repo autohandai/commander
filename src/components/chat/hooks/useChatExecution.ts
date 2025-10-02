@@ -13,7 +13,7 @@ interface Params {
 
 export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingSessions, loadSessionStatus, invoke = tauriInvoke }: Params) {
   const execute = useCallback(
-    async (agentDisplayNameOrId: string, message: string): Promise<string | null> => {
+    async (agentDisplayNameOrId: string, message: string, executionMode?: 'chat'|'collab'|'full', unsafeFull?: boolean, permissionMode?: 'plan'|'acceptEdits'|'ask', approvalMode?: 'default'|'auto_edit'|'yolo'): Promise<string | null> => {
       const agentCommandMap = {
         claude: 'execute_claude_command',
         codex: 'execute_codex_command',
@@ -43,11 +43,14 @@ export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingS
         const commandFunction = (agentCommandMap as any)[name]
         if (!commandFunction) return assistantMessageId
         const workingDir = await resolveWorkingDir()
-        await invoke(commandFunction, {
-          sessionId: assistantMessageId,
-          message,
-          workingDir,
-        })
+        const baseArgs: any = { sessionId: assistantMessageId, message, workingDir }
+        if (name === 'codex' && executionMode) {
+          baseArgs.executionMode = executionMode
+          if (unsafeFull) baseArgs.dangerousBypass = true
+        }
+        if (name === 'claude' && permissionMode) baseArgs.permissionMode = permissionMode
+        if (name === 'gemini' && approvalMode) baseArgs.approvalMode = approvalMode
+        await invoke(commandFunction, baseArgs)
         setTimeout(() => {
           try {
             loadSessionStatus()
@@ -71,4 +74,3 @@ export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingS
 
   return { execute }
 }
-
