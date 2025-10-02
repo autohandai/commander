@@ -10,6 +10,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 use crate::models::*;
 use crate::commands::settings_commands::load_all_agent_settings;
+use crate::services::execution_mode_service::{ExecutionMode, codex_flags_for_mode};
 
 // Constants for session management
 const SESSION_TIMEOUT_SECONDS: i64 = 1800; // 30 minutes
@@ -69,7 +70,7 @@ fn get_agent_quit_command(agent: &str) -> &str {
     }
 }
 
-async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri::AppHandle) -> Vec<String> {
+async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri::AppHandle, execution_mode: Option<String>, dangerous_bypass: bool, permission_mode: Option<String>) -> Vec<String> {
     let mut args = Vec::new();
     
     // Try to get agent settings to include model preference
@@ -100,6 +101,14 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
             args.push("stream-json".to_string());
             args.push("--verbose".to_string());
 
+            // Permission mode for Claude (plan | acceptEdits | ask)
+            if let Some(pm) = permission_mode.as_ref() {
+                if !pm.is_empty() {
+                    args.push("--permission-mode".to_string());
+                    args.push(pm.clone());
+                }
+            }
+
             // Add model flag if set in preferences
             if let Some(ref model) = current_agent_settings.model {
                 if !model.is_empty() {
@@ -118,6 +127,14 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
                     args.push(model.clone());
                 }
             }
+
+            // Add flags based on execution mode (if provided)
+            if let Some(mode_str) = execution_mode {
+                if let Some(mode) = ExecutionMode::from_str(&mode_str) {
+                    let extra = codex_flags_for_mode(mode, dangerous_bypass && matches!(mode, ExecutionMode::Full));
+                    args.extend(extra);
+                }
+            }
             
             if !message.is_empty() {
                 args.push(message.to_string());
@@ -125,6 +142,13 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
         }
         "gemini" => {
             args.push("--prompt".to_string());
+            // Permission-mode pass-through if provided (adjust flag here if CLI differs)
+            if let Some(pm) = permission_mode.as_ref() {
+                if !pm.is_empty() {
+                    args.push("--permission-mode".to_string());
+                    args.push(pm.clone());
+                }
+            }
             
             // Add model flag if set in preferences
             if let Some(ref model) = current_agent_settings.model {
@@ -393,6 +417,9 @@ pub async fn execute_persistent_cli_command(
     agent: String,
     message: String,
     working_dir: Option<String>,
+    execution_mode: Option<String>,
+    dangerousBypass: Option<bool>,
+    permissionMode: Option<String>,
 ) -> Result<(), String> {
     println!("🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}", agent, working_dir);
     let app_clone = app.clone();
@@ -438,7 +465,7 @@ pub async fn execute_persistent_cli_command(
         }
         
         // Build args once
-        let command_args = build_agent_command_args(&agent_name, &actual_message, &app_clone).await;
+        let command_args = build_agent_command_args(&agent_name, &actual_message, &app_clone, execution_mode.clone(), dangerousBypass.unwrap_or(false), permissionMode.clone()).await;
 
         // Resolve absolute path of the executable to avoid PATH issues in GUI contexts
         let resolved_prog = which::which(&agent_name)
@@ -569,10 +596,13 @@ pub async fn execute_cli_command(
     command: String,
     args: Vec<String>,
     working_dir: Option<String>,
+    execution_mode: Option<String>,
+    dangerousBypass: Option<bool>,
+    permissionMode: Option<String>,
 ) -> Result<(), String> {
     // Legacy function - redirect to persistent session handler
     let message = args.join(" ");
-    execute_persistent_cli_command(app, session_id, command, message, working_dir).await
+    execute_persistent_cli_command(app, session_id, command, message, working_dir, execution_mode, dangerousBypass, permissionMode).await
 }
 
 #[tauri::command]
@@ -584,7 +614,7 @@ pub async fn execute_claude_command(
     #[allow(non_snake_case)]
     working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, sessionId, "claude".to_string(), message, working_dir).await
+    execute_persistent_cli_command(app, sessionId, "claude".to_string(), message, working_dir, None, None, None).await
 }
 
 #[tauri::command]
@@ -595,8 +625,11 @@ pub async fn execute_codex_command(
     message: String,
     #[allow(non_snake_case)]
     working_dir: Option<String>,
+    executionMode: Option<String>,
+    dangerousBypass: Option<bool>,
+    permissionMode: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, sessionId, "codex".to_string(), message, working_dir).await
+    execute_persistent_cli_command(app, sessionId, "codex".to_string(), message, working_dir, executionMode, dangerousBypass, permissionMode).await
 }
 
 #[tauri::command]
@@ -608,7 +641,7 @@ pub async fn execute_gemini_command(
     #[allow(non_snake_case)]
     working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, sessionId, "gemini".to_string(), message, working_dir).await
+    execute_persistent_cli_command(app, sessionId, "gemini".to_string(), message, working_dir, None, None, None).await
 }
 
 // Test command to demonstrate CLI streaming (this will always work)

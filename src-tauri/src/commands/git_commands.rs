@@ -581,3 +581,56 @@ pub async fn append_project_chat_message(app: tauri::AppHandle, project_path: St
     existing.push(message);
     save_project_chat(app, project_path, existing).await
 }
+
+static CLI_PROJECT_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[tauri::command]
+pub async fn get_cli_project_path() -> Result<Option<String>, String> {
+    let path = CLI_PROJECT_PATH.lock().map_err(|e| e.to_string())?.clone();
+    Ok(path)
+}
+
+#[tauri::command]
+pub async fn clear_cli_project_path() -> Result<(), String> {
+    let mut path = CLI_PROJECT_PATH.lock().map_err(|e| e.to_string())?;
+    *path = None;
+    Ok(())
+}
+
+pub fn set_cli_project_path(path: String) {
+    if let Ok(mut cli_path) = CLI_PROJECT_PATH.lock() {
+        *cli_path = Some(path);
+    }
+}
+
+#[tauri::command]
+pub async fn open_project_from_path(app: tauri::AppHandle, current_path: String) -> Result<String, String> {
+    use std::env;
+    
+    // Get the absolute path
+    let path = Path::new(&current_path);
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|e| format!("Failed to get current directory: {}", e))?
+            .join(path)
+    };
+    
+    let path_str = absolute_path.to_string_lossy().to_string();
+    
+    // Try to resolve git project path (handles worktrees, submodules, regular repos)
+    if let Some(git_root) = git_service::resolve_git_project_path(&path_str) {
+        println!("🔍 Git root found: {}", git_root);
+        
+        // Found git repository, emit event to frontend to load this project
+        println!("📡 Emitting open-project event with path: {}", git_root);
+        app.emit("open-project", git_root.clone())
+            .map_err(|e| format!("Failed to emit open-project event: {}", e))?;
+        
+        println!("✅ open-project event emitted successfully");
+        Ok(git_root)
+    } else {
+        Err(format!("Directory '{}' is not a git repository or contains no git project", current_path))
+    }
+}

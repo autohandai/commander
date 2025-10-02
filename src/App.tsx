@@ -270,6 +270,7 @@ function AppContent() {
 
   // Listen for global shortcut and menu events
   useEffect(() => {
+    console.log('🚀 Frontend initializing event listeners...')
     const unlistenSettings = listen('shortcut://open-settings', () => {
       setIsSettingsOpen(true)
     })
@@ -339,6 +340,45 @@ function AppContent() {
       setIsAboutOpen(true)
     })
 
+    // Check for CLI project path on startup
+    const checkCliProject = async () => {
+      try {
+        const cliPath = await invoke<string | null>('get_cli_project_path')
+        if (cliPath) {
+          console.log('📂 CLI project found:', cliPath)
+          
+          // Open the project via backend to get full project info
+          const opened = await invoke<RecentProject>('open_existing_project', { 
+            project_path: cliPath, 
+            projectPath: cliPath 
+          })
+          
+          setCurrentProject(opened)
+          setActiveTab('code') // Start with code tab
+          
+          // Refresh projects list
+          if (projectsRefreshRef.current?.refresh) {
+            projectsRefreshRef.current.refresh()
+          }
+          
+          // Clear the CLI path so it doesn't reload on refresh
+          await invoke('clear_cli_project_path')
+          
+          showSuccess('Project opened from CLI!', 'Commander CLI')
+        }
+      } catch (error) {
+        console.error('❌ Failed to process CLI project:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Failed to open project from CLI'
+        showError(errorMessage, 'CLI Error')
+      }
+    }
+
+    // Dummy event listener for cleanup (not used anymore)  
+    const unlistenOpenProject = Promise.resolve(() => {})
+    
+    // Check for CLI project on startup
+    checkCliProject()
+
     return () => {
       unlistenSettings.then(fn => fn())
       unlistenChat.then(fn => fn())
@@ -350,6 +390,7 @@ function AppContent() {
       unlistenMenuCloseProject.then(fn => fn())
       unlistenMenuDeleteProject.then(fn => fn())
       unlistenMenuAbout.then(fn => fn())
+      unlistenOpenProject.then(fn => fn())
     }
   }, [activeTab, currentProject, toggleChat])
 

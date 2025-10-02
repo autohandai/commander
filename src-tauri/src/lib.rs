@@ -218,9 +218,44 @@ pub fn run() {
             menu_close_project,
             menu_delete_project,
             validate_git_repository,
-            select_git_project_folder
+            select_git_project_folder,
+            open_project_from_path,
+            get_cli_project_path,
+            clear_cli_project_path
         ])
         .setup(|app| {
+            // Handle command line arguments for opening projects
+            let args: Vec<String> = std::env::args().collect();
+            println!("🔍 Command line args received: {:?}", args);
+            if args.len() > 1 {
+                let path_arg = args[1].clone(); // Clone the string to avoid borrowing issues
+                let app_handle = app.handle().clone();
+                
+                // Spawn async task to handle project opening
+                tauri::async_runtime::spawn(async move {
+                    // Wait longer for frontend to fully initialize and set up event listeners
+                    println!("⏳ Waiting for frontend to initialize...");
+                    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+                    
+                    println!("🚀 Processing CLI project path: {}", path_arg);
+                    
+                    // Resolve and store the project path for frontend to pick up
+                    let absolute_path = if std::path::Path::new(&path_arg).is_absolute() {
+                        std::path::PathBuf::from(&path_arg)
+                    } else {
+                        std::env::current_dir().unwrap_or_default().join(&path_arg)
+                    };
+                    
+                    let path_str = absolute_path.to_string_lossy().to_string();
+                    
+                    if let Some(git_root) = crate::services::git_service::resolve_git_project_path(&path_str) {
+                        println!("✅ CLI git root found: {}", git_root);
+                        commands::git_commands::set_cli_project_path(git_root);
+                    } else {
+                        println!("❌ CLI path '{}' is not a git repository", path_arg);
+                    }
+                });
+            }
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
             
             // Create and set the native menu

@@ -87,7 +87,10 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [planModeEnabled, setPlanModeEnabled] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
   const [subAgents, setSubAgents] = useState<SubAgentGroup>({});
+  const [executionMode, setExecutionMode] = useState<'chat'|'collab'|'full'>('collab');
+  const [unsafeFull, setUnsafeFull] = useState(false);
   const { files, listFiles, searchFiles } = useFileMention();
+  const [mentionBasePath, setMentionBasePath] = useState<string | undefined>(project?.path);
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -242,7 +245,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     agents: AGENTS,
     agentCapabilities: AGENT_CAPABILITIES as any,
     fileMentionsEnabled,
-    projectPath: project?.path,
+    projectPath: mentionBasePath,
     files: files as any,
     subAgents,
     listFiles,
@@ -265,6 +268,20 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     }
     await updateAutocompleteHook(value, cursorPos)
   }, [updateAutocompleteHook]);
+
+  // Track the effective base path for file mentions (workspace if enabled)
+  useEffect(() => {
+    (async () => {
+      try {
+        const wd = await resolveWorkingDir();
+        setMentionBasePath(wd || project?.path);
+      } catch {
+        setMentionBasePath(project?.path);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.path, workspaceEnabled]);
+
 
   // Focus input when chat opens
   useEffect(() => {
@@ -381,8 +398,11 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !project) return;
     
-    // If plan mode is enabled, generate a plan instead of executing directly
-    if (planModeEnabled) {
+    // If plan mode is enabled, use CLAUDE/GEMINI permission-mode=plan instead of local planner
+    const defaultDisplay = selectedAgent || 'claude'
+    const defaultId = getAgentId(defaultDisplay)
+    const isAgentPlanCapable = defaultId === 'claude' || defaultId === 'gemini'
+    if (planModeEnabled && !isAgentPlanCapable) {
       const userMessage: ChatMessage = {
         id: `user-${Date.now()}`,
         content: inputValue,
@@ -486,7 +506,8 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     setShowAutocomplete(false);
     setCommandType(null);
     
-    await execute(agentToUse || selectedAgent || 'claude', messageToSend)
+    const permissionMode = planModeEnabled ? 'plan' : 'acceptEdits'
+    await execute(agentToUse || selectedAgent || 'claude', messageToSend, executionMode, unsafeFull, permissionMode as any)
   };
 
   // Handle plan execution
@@ -522,7 +543,7 @@ Please execute each step systematically.`;
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
         return;
       }
-      await execute(finalAgent, planPrompt)
+      await execute(finalAgent, planPrompt, executionMode, unsafeFull, planModeEnabled ? 'plan' : 'acceptEdits')
     } catch (error) {
       console.error('Failed to execute plan:', error);
     }
@@ -567,7 +588,7 @@ Please focus only on this step.`;
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
         return;
       }
-      await execute(finalAgent, stepPrompt)
+      await execute(finalAgent, stepPrompt, executionMode, unsafeFull, planModeEnabled ? 'plan' : 'acceptEdits')
       // Mark step as completed after successful execution
       setTimeout(() => {
         setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'completed') : null));
@@ -697,6 +718,17 @@ Please focus only on this step.`;
           s.delete(chunk.session_id);
           return s;
         });
+        // Refresh file mention list when agents finish writing files
+        if (mentionBasePath && fileMentionsEnabled) {
+          listFiles({ directory_path: mentionBasePath, extensions: [...CODE_EXTENSIONS], max_depth: 3 })
+            .then(() => {
+              if (showAutocomplete && commandType === '@') {
+                const pos = inputRef.current?.selectionStart ?? (inputValue?.length ?? 0)
+                updateAutocomplete(inputValue, pos)
+              }
+            })
+            .catch(() => {})
+        }
         try {
           const parsers: Map<string, ClaudeStreamParser> = (window as any).__claudeParsers
           parsers?.delete(chunk.session_id)
@@ -907,6 +939,10 @@ Please focus only on this step.`;
             chatSendShortcut={chatSendShortcut}
             onNewSession={handleNewSession}
             showNewSession={messages.length > 0}
+            executionMode={executionMode}
+            onExecutionModeChange={setExecutionMode}
+            unsafeFull={unsafeFull}
+            onUnsafeFullChange={setUnsafeFull}
           />
         </div>
       </div>
