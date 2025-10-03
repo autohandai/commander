@@ -40,7 +40,10 @@ vi.mock('@tauri-apps/api/core', () => ({
 const project = { name: 'demo', path: '/tmp/demo', last_accessed: 0, is_git_repo: true, git_branch: 'main', git_status: 'clean' }
 
 if (typeof document !== 'undefined') describe('Agent-specific modes in dropdown', () => {
-  beforeEach(() => { lastArgs = null })
+  beforeEach(() => {
+    lastArgs = null
+    Element.prototype.scrollIntoView = vi.fn()
+  })
 
   it('Claude: selecting Plan mode sends permissionMode=plan', async () => {
     render(
@@ -79,4 +82,3 @@ if (typeof document !== 'undefined') describe('Agent-specific modes in dropdown'
     expect(lastArgs).toHaveProperty('approvalMode')
   })
 })
-

@@ -151,7 +151,8 @@ function AppContent() {
         // Open via backend (validates, sets cwd, updates recents w/ dedup) and use returned data
         const opened = await invoke<RecentProject>('open_existing_project', { project_path: selectedPath, projectPath: selectedPath })
         setCurrentProject(opened)
-        
+        setActiveTab('chat')
+
         // Refresh projects list
         if (projectsRefreshRef.current?.refresh) {
           projectsRefreshRef.current.refresh()
@@ -190,10 +191,11 @@ function AppContent() {
       git_status: 'clean'
     }
     setCurrentProject(newProject)
+    setActiveTab('chat')
   }
 
   const handleProjectSelect = (project: RecentProject) => {
-    setActiveTab('code') // Start with code tab when project is selected
+    setActiveTab('chat') // Default to chat tab when project is selected
     // Ensure backend marks it active and updates recents and use returned project info
     invoke<RecentProject>('open_existing_project', { project_path: project.path, projectPath: project.path })
       .then(setCurrentProject)
@@ -202,7 +204,7 @@ function AppContent() {
 
   const handleBackToWelcome = () => {
     setCurrentProject(null)
-    setActiveTab('code') // Reset to code tab when going back to welcome
+    setActiveTab('chat') // Reset to chat tab when going back to welcome
   }
 
   const toggleChat = () => {
@@ -308,7 +310,7 @@ function AppContent() {
           const recents = await invoke<RecentProject[]>('list_recent_projects')
           if (recents && recents.length > 0) {
             setCurrentProject(recents[0])
-            setActiveTab('code') // Start with code tab
+            setActiveTab('chat') // Start with chat tab
             if (projectsRefreshRef.current?.refresh) {
               projectsRefreshRef.current.refresh()
             }
@@ -354,7 +356,7 @@ function AppContent() {
           })
           
           setCurrentProject(opened)
-          setActiveTab('code') // Start with code tab
+          setActiveTab('chat') // Start with chat tab
           
           // Refresh projects list
           if (projectsRefreshRef.current?.refresh) {

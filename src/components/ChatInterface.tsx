@@ -507,7 +507,34 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     setCommandType(null);
     
     const permissionMode = planModeEnabled ? 'plan' : 'acceptEdits'
-    await execute(agentToUse || selectedAgent || 'claude', messageToSend, executionMode, unsafeFull, permissionMode as any)
+    let approvalMode: 'default' | 'auto_edit' | 'yolo' | undefined
+
+    if (targetId === 'gemini') {
+      try {
+        const cliSettings = await invoke<any>('load_agent_cli_settings', { agent: 'gemini', projectPath: project.path })
+        const directDefault = cliSettings?.approvalDefault || cliSettings?.approval_default
+        if (typeof directDefault === 'string') {
+          const normalized = directDefault.replace('-', '_') as 'default' | 'auto_edit' | 'yolo'
+          approvalMode = normalized
+        } else if (agentSettings?.gemini?.auto_approval) {
+          approvalMode = 'auto_edit'
+        }
+      } catch (error) {
+        console.error('Failed to load Gemini CLI settings:', error)
+        if (agentSettings?.gemini?.auto_approval) {
+          approvalMode = 'auto_edit'
+        }
+      }
+    }
+
+    await execute(
+      agentToUse || selectedAgent || 'claude',
+      messageToSend,
+      executionMode,
+      unsafeFull,
+      permissionMode as any,
+      approvalMode
+    )
   };
 
   // Handle plan execution

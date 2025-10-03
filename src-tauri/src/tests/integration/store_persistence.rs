@@ -1,7 +1,7 @@
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {
-    use crate::commands::project_commands::{open_existing_project, list_recent_projects};
-    use crate::tests::{create_test_git_project};
+    use crate::commands::project_commands::{list_recent_projects, open_existing_project};
+    use crate::tests::create_test_git_project;
     use serial_test::serial;
     use tempfile::TempDir;
 
@@ -29,8 +29,9 @@ mod tests {
         let handle = app.handle();
 
         // First open
-        let rp1 = tauri::async_runtime::block_on(open_existing_project(handle.clone(), path_str.clone()))
-            .expect("open should succeed");
+        let rp1 =
+            tauri::async_runtime::block_on(open_existing_project(handle.clone(), path_str.clone()))
+                .expect("open should succeed");
         assert_eq!(rp1.path, path_str);
         assert!(rp1.is_git_repo);
 
@@ -41,8 +42,9 @@ mod tests {
         assert_eq!(recents1[0].path, path_str);
 
         // Reopen same path should dedup and keep len=1
-        let rp2 = tauri::async_runtime::block_on(open_existing_project(handle.clone(), path_str.clone()))
-            .expect("reopen should succeed");
+        let rp2 =
+            tauri::async_runtime::block_on(open_existing_project(handle.clone(), path_str.clone()))
+                .expect("reopen should succeed");
         assert_eq!(rp2.path, path_str);
 
         let recents2 = tauri::async_runtime::block_on(list_recent_projects(handle.clone()))

@@ -1,6 +1,6 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::Utc;
 
 /// Enhanced chat message with full metadata support
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -9,7 +9,7 @@ pub struct EnhancedChatMessage {
     pub role: String, // "user" | "assistant"
     pub content: String,
     pub timestamp: i64, // Unix timestamp
-    pub agent: String, // "claude" | "codex" | "gemini" etc.
+    pub agent: String,  // "claude" | "codex" | "gemini" etc.
     pub metadata: ChatMessageMetadata,
 }
 
@@ -54,10 +54,10 @@ pub struct LegacyChatMessage {
 /// Configuration for chat history management
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatHistoryConfig {
-    pub session_timeout_minutes: i64, // Default: 5 minutes
+    pub session_timeout_minutes: i64,          // Default: 5 minutes
     pub max_sessions_per_agent: Option<usize>, // None = unlimited
-    pub retention_days: Option<u32>, // None = keep forever
-    pub compression_threshold_kb: usize, // Default: 100KB
+    pub retention_days: Option<u32>,           // None = keep forever
+    pub compression_threshold_kb: usize,       // Default: 100KB
     pub auto_summary_enabled: bool,
 }
 
@@ -117,18 +117,13 @@ pub struct ChatHistoryStats {
     pub total_messages: usize,
     pub agents_used: HashMap<String, usize>, // agent -> session count
     pub branches_used: HashMap<String, usize>, // branch -> session count
-    pub date_range: Option<(i64, i64)>, // (oldest, newest) timestamps
+    pub date_range: Option<(i64, i64)>,      // (oldest, newest) timestamps
     pub disk_usage_bytes: u64,
 }
 
 impl EnhancedChatMessage {
     /// Create a new enhanced chat message
-    pub fn new(
-        role: &str,
-        content: &str,
-        agent: &str,
-        session_id: &str,
-    ) -> Self {
+    pub fn new(role: &str, content: &str, agent: &str, session_id: &str) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             role: role.to_string(),
@@ -169,11 +164,7 @@ impl EnhancedChatMessage {
 
 impl ChatSession {
     /// Create a new chat session
-    pub fn new(
-        agent: &str,
-        start_time: i64,
-        first_message: &str,
-    ) -> Self {
+    pub fn new(agent: &str, start_time: i64, first_message: &str) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             start_time,
@@ -189,7 +180,7 @@ impl ChatSession {
     pub fn update_with_message(&mut self, message: &EnhancedChatMessage) {
         self.end_time = message.timestamp;
         self.message_count += 1;
-        
+
         // Update branch if not set and message has branch info
         if self.branch.is_none() {
             self.branch = message.metadata.branch.clone();
@@ -197,7 +188,11 @@ impl ChatSession {
     }
 
     /// Check if this session should contain a new message based on timing and agent
-    pub fn should_include_message(&self, message: &EnhancedChatMessage, timeout_minutes: i64) -> bool {
+    pub fn should_include_message(
+        &self,
+        message: &EnhancedChatMessage,
+        timeout_minutes: i64,
+    ) -> bool {
         let time_gap_minutes = (message.timestamp - self.end_time) / 60;
         message.agent == self.agent && time_gap_minutes <= timeout_minutes
     }
@@ -211,17 +206,17 @@ impl ChatSession {
 /// Extract file mentions from message content
 pub fn extract_file_mentions(content: &str) -> Vec<String> {
     use regex::Regex;
-    
+
     // Pattern to match common file paths
     // Matches patterns like: src/main.rs, ./config.json, /usr/local/bin/app, etc.
     let file_pattern = Regex::new(r"(?:^|\s|`)([^\s`]+\.[a-zA-Z0-9]{1,6})(?:\s|`|$)")
         .unwrap_or_else(|_| panic!("Invalid regex pattern"));
-    
+
     let path_pattern = Regex::new(r"(?:^|\s|`)([a-zA-Z0-9_\-./]+/[a-zA-Z0-9_\-./]+)(?:\s|`|$)")
         .unwrap_or_else(|_| panic!("Invalid regex pattern"));
-    
+
     let mut mentions = std::collections::HashSet::new();
-    
+
     // Extract file extensions
     for cap in file_pattern.captures_iter(content) {
         if let Some(file) = cap.get(1) {
@@ -232,7 +227,7 @@ pub fn extract_file_mentions(content: &str) -> Vec<String> {
             }
         }
     }
-    
+
     // Extract path-like patterns
     for cap in path_pattern.captures_iter(content) {
         if let Some(path) = cap.get(1) {
@@ -242,7 +237,7 @@ pub fn extract_file_mentions(content: &str) -> Vec<String> {
             }
         }
     }
-    
+
     mentions.into_iter().collect()
 }
 
@@ -250,10 +245,16 @@ pub fn extract_file_mentions(content: &str) -> Vec<String> {
 fn is_false_positive(text: &str) -> bool {
     // Common false positives
     let false_positives = [
-        "http://", "https://", "localhost", "127.0.0.1", "0.0.0.0",
-        "package.json", "package-lock.json", "node_modules",
+        "http://",
+        "https://",
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "package.json",
+        "package-lock.json",
+        "node_modules",
     ];
-    
+
     false_positives.iter().any(|&fp| text.contains(fp)) ||
     text.len() > 100 || // Very long strings are likely not file paths
     text.starts_with("http") ||
@@ -266,7 +267,7 @@ fn generate_summary(content: &str) -> String {
     if content.len() <= 100 {
         return content.to_string();
     }
-    
+
     let truncated = &content[..100];
     if let Some(last_space) = truncated.rfind(' ') {
         format!("{}...", &truncated[..last_space])
@@ -283,7 +284,7 @@ mod tests {
     fn test_extract_file_mentions() {
         let content = "Check the src/main.rs and tests/mod.rs files. Also look at ./config.json";
         let mentions = extract_file_mentions(content);
-        
+
         assert!(mentions.contains(&"src/main.rs".to_string()));
         assert!(mentions.contains(&"tests/mod.rs".to_string()));
         assert!(mentions.contains(&"./config.json".to_string()));
@@ -293,7 +294,7 @@ mod tests {
     fn test_false_positive_filtering() {
         let content = "Visit https://example.com/api and http://localhost:3000/test";
         let mentions = extract_file_mentions(content);
-        
+
         // Should not extract URLs as file mentions
         assert!(!mentions.iter().any(|m| m.contains("http")));
     }
@@ -301,7 +302,7 @@ mod tests {
     #[test]
     fn test_session_grouping_logic() {
         let session = ChatSession::new("claude", 1000, "Test message");
-        
+
         let msg1 = EnhancedChatMessage {
             id: "1".to_string(),
             role: "user".to_string(),
@@ -356,12 +357,15 @@ mod tests {
         };
 
         let enhanced = EnhancedChatMessage::from_legacy(legacy, "session-123");
-        
+
         assert_eq!(enhanced.role, "user");
         assert_eq!(enhanced.content, "Check src/main.rs please");
         assert_eq!(enhanced.timestamp, 1234567890);
         assert_eq!(enhanced.agent, "claude");
         assert_eq!(enhanced.metadata.session_id, "session-123");
-        assert!(enhanced.metadata.file_mentions.contains(&"src/main.rs".to_string()));
+        assert!(enhanced
+            .metadata
+            .file_mentions
+            .contains(&"src/main.rs".to_string()));
     }
 }

@@ -1,5 +1,8 @@
+use crate::commands::cli_commands::{
+    cleanup_cli_sessions, get_sessions_status, send_quit_to_session, terminate_all_active_sessions,
+    terminate_session_by_id,
+};
 use crate::models::*;
-use crate::commands::cli_commands::{cleanup_cli_sessions, get_sessions_status, terminate_session_by_id, terminate_all_active_sessions, send_quit_to_session};
 
 #[tauri::command]
 pub async fn get_active_sessions() -> Result<SessionStatus, String> {

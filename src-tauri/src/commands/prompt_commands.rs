@@ -1,5 +1,5 @@
-use crate::services::prompt_service;
 use crate::models::*;
+use crate::services::prompt_service;
 
 #[tauri::command]
 pub async fn load_prompts(app: tauri::AppHandle) -> Result<PromptsConfig, String> {
@@ -17,16 +17,29 @@ pub async fn get_default_prompts() -> Result<PromptsConfig, String> {
 }
 
 #[tauri::command]
-pub async fn update_prompt(app: tauri::AppHandle, category: String, key: String, prompt: PromptTemplate) -> Result<(), String> {
+pub async fn update_prompt(
+    app: tauri::AppHandle,
+    category: String,
+    key: String,
+    prompt: PromptTemplate,
+) -> Result<(), String> {
     prompt_service::update_prompt(&app, &category, &key, &prompt).await
 }
 
 #[tauri::command]
-pub async fn delete_prompt(app: tauri::AppHandle, category: String, key: String) -> Result<(), String> {
+pub async fn delete_prompt(
+    app: tauri::AppHandle,
+    category: String,
+    key: String,
+) -> Result<(), String> {
     prompt_service::delete_prompt(&app, &category, &key).await
 }
 
 #[tauri::command]
-pub async fn create_prompt_category(app: tauri::AppHandle, category: String, description: String) -> Result<(), String> {
+pub async fn create_prompt_category(
+    app: tauri::AppHandle,
+    category: String,
+    description: String,
+) -> Result<(), String> {
     prompt_service::create_category(&app, &category, &description).await
 }

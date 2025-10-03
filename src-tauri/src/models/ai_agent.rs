@@ -8,6 +8,9 @@ pub struct AIAgent {
     pub available: bool,
     pub enabled: bool,
     pub error_message: Option<String>,
+    pub installed_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub upgrade_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

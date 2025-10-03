@@ -5,7 +5,7 @@ use tauri_plugin_store::StoreExt;
 /// Get default LLM settings
 pub fn get_default_llm_settings() -> LLMSettings {
     let mut providers = HashMap::new();
-    
+
     // Default OpenRouter provider
     let openrouter_provider = LLMProvider {
         id: "openrouter".to_string(),
@@ -66,7 +66,7 @@ pub fn get_default_llm_settings() -> LLMSettings {
         selected_model: None,
     };
     providers.insert("openai".to_string(), openai_provider);
-    
+
     LLMSettings {
         active_provider: "openrouter".to_string(),
         providers,
@@ -77,7 +77,7 @@ pub fn get_default_llm_settings() -> LLMSettings {
 /// Fetch available models from OpenRouter API
 pub async fn fetch_openrouter_models(api_key: &str) -> Result<Vec<LLMModel>, String> {
     let client = reqwest::Client::new();
-    
+
     let response = client
         .get("https://openrouter.ai/api/v1/models")
         .header("Authorization", format!("Bearer {}", api_key))
@@ -95,10 +95,12 @@ pub async fn fetch_openrouter_models(api_key: &str) -> Result<Vec<LLMModel>, Str
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-    let models = openrouter_response.data
+    let models = openrouter_response
+        .data
         .into_iter()
         .map(|model| {
-            let (input_cost, output_cost) = model.pricing
+            let (input_cost, output_cost) = model
+                .pricing
                 .as_ref()
                 .map(|p| {
                     let input = p.prompt.as_ref().and_then(|s| s.parse::<f64>().ok());
@@ -124,7 +126,7 @@ pub async fn fetch_openrouter_models(api_key: &str) -> Result<Vec<LLMModel>, Str
 /// Fetch available models from OpenAI API
 pub async fn fetch_openai_models(api_key: &str) -> Result<Vec<LLMModel>, String> {
     let client = reqwest::Client::new();
-    
+
     let response = client
         .get("https://api.openai.com/v1/models")
         .header("Authorization", format!("Bearer {}", api_key))
@@ -145,14 +147,17 @@ pub async fn fetch_openai_models(api_key: &str) -> Result<Vec<LLMModel>, String>
     let mut models = Vec::new();
     for model in openai_response.data {
         // Filter for GPT models and other important ones
-        if model.id.contains("gpt") || model.id.contains("davinci") || model.id.contains("text-embedding") {
+        if model.id.contains("gpt")
+            || model.id.contains("davinci")
+            || model.id.contains("text-embedding")
+        {
             models.push(LLMModel {
                 id: model.id.clone(),
                 name: model.id.clone(),
                 description: Some(format!("OpenAI model owned by {}", model.owned_by)),
                 context_length: None, // OpenAI doesn't provide this in the models endpoint
-                input_cost: None, // Would need to be manually configured
-                output_cost: None, // Would need to be manually configured
+                input_cost: None,     // Would need to be manually configured
+                output_cost: None,    // Would need to be manually configured
             });
         }
     }
@@ -164,22 +169,31 @@ pub async fn fetch_openai_models(api_key: &str) -> Result<Vec<LLMModel>, String>
 }
 
 /// Save LLM settings to store
-pub async fn save_llm_settings(app: &tauri::AppHandle, settings: &LLMSettings) -> Result<(), String> {
-    let store = app.store("settings.json").map_err(|e| format!("Failed to access store: {}", e))?;
-    
+pub async fn save_llm_settings(
+    app: &tauri::AppHandle,
+    settings: &LLMSettings,
+) -> Result<(), String> {
+    let store = app
+        .store("settings.json")
+        .map_err(|e| format!("Failed to access store: {}", e))?;
+
     let serialized = serde_json::to_value(settings)
         .map_err(|e| format!("Failed to serialize LLM settings: {}", e))?;
-    
+
     store.set("llm_settings", serialized);
-    store.save().map_err(|e| format!("Failed to save store: {}", e))?;
+    store
+        .save()
+        .map_err(|e| format!("Failed to save store: {}", e))?;
 
     Ok(())
 }
 
 /// Load LLM settings from store
 pub async fn load_llm_settings(app: &tauri::AppHandle) -> Result<LLMSettings, String> {
-    let store = app.store("settings.json").map_err(|e| format!("Failed to access store: {}", e))?;
-    
+    let store = app
+        .store("settings.json")
+        .map_err(|e| format!("Failed to access store: {}", e))?;
+
     let settings = store
         .get("llm_settings")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -187,4 +201,3 @@ pub async fn load_llm_settings(app: &tauri::AppHandle) -> Result<LLMSettings, St
 
     Ok(settings)
 }
-

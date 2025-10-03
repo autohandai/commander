@@ -17,10 +17,7 @@ mod tests {
     #[test]
     fn test_recent_projects_dedup_and_mru() {
         // existing list with A (older), B (newer)
-        let existing = vec![
-            rp("A", "/p/A", 100),
-            rp("B", "/p/B", 200),
-        ];
+        let existing = vec![rp("A", "/p/A", 100), rp("B", "/p/B", 200)];
 
         // upsert A again with newer timestamp -> A should move to front, no duplicates
         let updated_a = rp("A", "/p/A", 300);
@@ -43,12 +40,15 @@ mod tests {
 
         // Upsert a new project P21 with latest ts
         let new_item = rp("P21", "/p/21", 10_000);
-        let result = project_service::upsert_recent_projects(existing.drain(..).collect(), new_item, 20);
+        let result =
+            project_service::upsert_recent_projects(existing.drain(..).collect(), new_item, 20);
 
         assert_eq!(result.len(), 20, "List must be capped at 20");
         assert_eq!(result[0].path, "/p/21", "Newest project at front");
         // Oldest should have been dropped; ensure "/p/0" is not present
-        assert!(!result.iter().any(|p| p.path == "/p/0"), "Oldest item should be dropped");
+        assert!(
+            !result.iter().any(|p| p.path == "/p/0"),
+            "Oldest item should be dropped"
+        );
     }
 }
-

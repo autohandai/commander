@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useSidebarWidth } from '@/contexts/sidebar-width-context';
 import { useSidebar } from '@/components/ui/sidebar';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface AIAgent {
@@ -13,6 +13,9 @@ interface AIAgent {
   available: boolean;
   enabled: boolean;
   error_message?: string;
+  installed_version?: string | null;
+  latest_version?: string | null;
+  upgrade_available?: boolean;
 }
 
 interface AgentStatus {
@@ -26,8 +29,20 @@ interface AIAgentStatusBarProps {
 
 export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatusBarProps) {
   const [agents, setAgents] = useState<AIAgent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null);
   const { sidebarWidth } = useSidebarWidth();
   const { state } = useSidebar();
+
+  useEffect(() => {
+    if (!selectedAgent) {
+      return;
+    }
+
+    const updated = agents.find(agent => agent.name === selectedAgent.name);
+    if (updated && updated !== selectedAgent) {
+      setSelectedAgent(updated);
+    }
+  }, [agents, selectedAgent]);
 
   useEffect(() => {
     // Initial check
@@ -35,7 +50,10 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
 
     // Listen for status updates
     const unlisten = listen<AgentStatus>('ai-agent-status', (event) => {
-      setAgents(event.payload.agents);
+      const status = event.payload;
+      if (status && Array.isArray(status.agents)) {
+        setAgents(status.agents);
+      }
     });
 
     // Start monitoring
@@ -48,8 +66,12 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
 
   const checkAgents = async () => {
     try {
-      const status = await invoke<AgentStatus>('check_ai_agents');
-      setAgents(status.agents);
+      const status = await invoke<AgentStatus | null>('check_ai_agents');
+      if (status && Array.isArray(status.agents)) {
+        setAgents(status.agents);
+      } else {
+        setAgents([]);
+      }
     } catch (error) {
       console.error('Failed to check AI agents:', error);
     }
@@ -119,8 +141,9 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
           return (
             <div 
               key={agent.name} 
-              className="flex items-center gap-1.5 cursor-help relative group"
+              className={`flex items-center gap-1.5 cursor-pointer relative group ${selectedAgent?.name === agent.name ? 'text-foreground' : ''}`}
               title={getTooltipMessage(agent)}
+              onClick={() => setSelectedAgent(current => current?.name === agent.name ? null : agent)}
             >
               <div 
                 className={`w-2 h-2 rounded-full ${status.color} ${
@@ -143,6 +166,83 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
           <span className="text-muted-foreground">Checking...</span>
         )}
       </div>
+
+      {selectedAgent && (
+        <AgentVersionCard
+          agent={selectedAgent}
+          onClose={() => setSelectedAgent(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+interface AgentVersionCardProps {
+  agent: AIAgent;
+  onClose: () => void;
+}
+
+const upgradeHints: Record<string, { command: string; packageName: string }> = {
+  claude: {
+    command: 'npm install -g @anthropic-ai/claude-code',
+    packageName: '@anthropic-ai/claude-code',
+  },
+  codex: {
+    command: 'npm install -g @openai/codex',
+    packageName: '@openai/codex',
+  },
+  gemini: {
+    command: 'npm install -g @google/gemini-cli@latest',
+    packageName: '@google/gemini-cli',
+  },
+};
+
+function AgentVersionCard({ agent, onClose }: AgentVersionCardProps) {
+  const hint = upgradeHints[agent.name];
+  const installedVersion = agent.installed_version ?? 'Not detected';
+  const latestVersion = agent.latest_version ?? 'Unknown';
+  const showUpgrade = agent.upgrade_available;
+
+  return (
+    <div className="fixed bottom-8 right-4 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-4 flex flex-col gap-2 z-[60]">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="font-medium text-sm text-foreground">{agent.display_name}</p>
+          <p className="text-xs text-muted-foreground">Command: {agent.command}</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+          onClick={onClose}
+          aria-label={`Close ${agent.display_name} details`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
+        <span className="text-foreground">Installed: <strong>{installedVersion}</strong></span>
+        <span className="text-foreground">Latest: <strong>{latestVersion}</strong></span>
+        {!agent.available && (
+          <span className="text-red-500">Agent not detected on PATH.</span>
+        )}
+        {agent.error_message && (
+          <span className="text-red-500">{agent.error_message}</span>
+        )}
+      </div>
+
+      {hint && (
+        <div className="bg-muted/60 p-2 rounded text-xs">
+          {showUpgrade ? (
+            <p className="text-amber-600 font-medium">
+              New version available — run <code>{hint.command}</code> to upgrade.
+            </p>
+          ) : (
+            <p className="text-green-600 font-medium">Agent is up to date.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

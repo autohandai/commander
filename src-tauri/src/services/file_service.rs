@@ -11,4 +11,3 @@ pub fn read_file_content(path: &str) -> Result<String, String> {
     }
     fs::read_to_string(p).map_err(|e| format!("Failed to read file {}: {}", path, e))
 }
-
