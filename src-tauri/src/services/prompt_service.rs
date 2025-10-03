@@ -6,7 +6,7 @@ use tauri_plugin_store::StoreExt;
 pub fn get_default_prompts() -> PromptsConfig {
     let mut categories = HashMap::new();
     let mut prompts = HashMap::new();
-    
+
     // Plan Mode Category
     categories.insert(
         "plan_mode".to_string(),
@@ -14,9 +14,9 @@ pub fn get_default_prompts() -> PromptsConfig {
             name: "Plan Mode".to_string(),
             description: "Prompts for plan generation and execution".to_string(),
             enabled: true,
-        }
+        },
     );
-    
+
     let plan_prompts = HashMap::from([
         ("system".to_string(), PromptTemplate {
             name: "Plan Generation System Prompt".to_string(),
@@ -81,7 +81,7 @@ Please create a detailed execution plan for this request."#.to_string(),
         }),
     ]);
     prompts.insert("plan_mode".to_string(), plan_prompts);
-    
+
     // Agent Execution Category
     categories.insert(
         "agent_execution".to_string(),
@@ -89,9 +89,9 @@ Please create a detailed execution plan for this request."#.to_string(),
             name: "Agent Execution".to_string(),
             description: "Prompts used when executing tasks with AI agents".to_string(),
             enabled: true,
-        }
+        },
     );
-    
+
     let execution_prompts = HashMap::from([
         ("claude_system".to_string(), PromptTemplate {
             name: "Claude Code CLI System Prompt".to_string(),
@@ -184,7 +184,7 @@ When assisting with development:
         }),
     ]);
     prompts.insert("agent_execution".to_string(), execution_prompts);
-    
+
     // Code Analysis Category
     categories.insert(
         "code_analysis".to_string(),
@@ -192,14 +192,16 @@ When assisting with development:
             name: "Code Analysis".to_string(),
             description: "Prompts for code review and analysis tasks".to_string(),
             enabled: true,
-        }
+        },
     );
-    
+
     let analysis_prompts = HashMap::from([
-        ("review_checklist".to_string(), PromptTemplate {
-            name: "Code Review Checklist".to_string(),
-            description: "Comprehensive code review prompt template".to_string(),
-            content: r#"Please review the following code and provide feedback on:
+        (
+            "review_checklist".to_string(),
+            PromptTemplate {
+                name: "Code Review Checklist".to_string(),
+                description: "Comprehensive code review prompt template".to_string(),
+                content: r#"Please review the following code and provide feedback on:
 
 **Code Quality:**
 - [ ] Code readability and maintainability
@@ -228,16 +230,20 @@ When assisting with development:
 Code to review:
 {{code_content}}
 
-Please provide specific, actionable feedback with examples where appropriate."#.to_string(),
-            category: "code_analysis".to_string(),
-            variables: vec!["code_content".to_string()],
-            created_at: chrono::Utc::now().timestamp(),
-            updated_at: chrono::Utc::now().timestamp(),
-        }),
-        ("performance_analysis".to_string(), PromptTemplate {
-            name: "Performance Analysis Template".to_string(),
-            description: "Template for analyzing code performance".to_string(),
-            content: r#"Analyze the performance characteristics of this code:
+Please provide specific, actionable feedback with examples where appropriate."#
+                    .to_string(),
+                category: "code_analysis".to_string(),
+                variables: vec!["code_content".to_string()],
+                created_at: chrono::Utc::now().timestamp(),
+                updated_at: chrono::Utc::now().timestamp(),
+            },
+        ),
+        (
+            "performance_analysis".to_string(),
+            PromptTemplate {
+                name: "Performance Analysis Template".to_string(),
+                description: "Template for analyzing code performance".to_string(),
+                content: r#"Analyze the performance characteristics of this code:
 
 **Performance Analysis for:** {{component_name}}
 
@@ -260,15 +266,17 @@ Please provide specific, actionable feedback with examples where appropriate."#.
 **Trade-offs:**
 - Discuss performance vs. readability trade-offs
 - Memory vs. speed considerations
-- Maintenance implications of optimizations"#.to_string(),
-            category: "code_analysis".to_string(),
-            variables: vec!["component_name".to_string(), "code_content".to_string()],
-            created_at: chrono::Utc::now().timestamp(),
-            updated_at: chrono::Utc::now().timestamp(),
-        }),
+- Maintenance implications of optimizations"#
+                    .to_string(),
+                category: "code_analysis".to_string(),
+                variables: vec!["component_name".to_string(), "code_content".to_string()],
+                created_at: chrono::Utc::now().timestamp(),
+                updated_at: chrono::Utc::now().timestamp(),
+            },
+        ),
     ]);
     prompts.insert("code_analysis".to_string(), analysis_prompts);
-    
+
     PromptsConfig {
         categories,
         prompts,
@@ -279,9 +287,10 @@ Please provide specific, actionable feedback with examples where appropriate."#.
 
 /// Load prompts from store
 pub async fn load_prompts(app: &tauri::AppHandle) -> Result<PromptsConfig, String> {
-    let store = app.store("prompts.json")
+    let store = app
+        .store("prompts.json")
         .map_err(|e| format!("Failed to access prompts store: {}", e))?;
-    
+
     let prompts = store
         .get("prompts_config")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -292,32 +301,35 @@ pub async fn load_prompts(app: &tauri::AppHandle) -> Result<PromptsConfig, Strin
 
 /// Save prompts to store
 pub async fn save_prompts(app: &tauri::AppHandle, prompts: &PromptsConfig) -> Result<(), String> {
-    let store = app.store("prompts.json")
+    let store = app
+        .store("prompts.json")
         .map_err(|e| format!("Failed to access prompts store: {}", e))?;
-    
+
     let serialized = serde_json::to_value(prompts)
         .map_err(|e| format!("Failed to serialize prompts config: {}", e))?;
-    
+
     store.set("prompts_config", serialized);
-    store.save().map_err(|e| format!("Failed to save prompts store: {}", e))?;
+    store
+        .save()
+        .map_err(|e| format!("Failed to save prompts store: {}", e))?;
 
     Ok(())
 }
 
 /// Update a specific prompt
 pub async fn update_prompt(
-    app: &tauri::AppHandle, 
-    category: &str, 
-    key: &str, 
-    prompt: &PromptTemplate
+    app: &tauri::AppHandle,
+    category: &str,
+    key: &str,
+    prompt: &PromptTemplate,
 ) -> Result<(), String> {
     let mut config = load_prompts(app).await?;
-    
+
     if let Some(category_prompts) = config.prompts.get_mut(category) {
         let mut updated_prompt = prompt.clone();
         updated_prompt.updated_at = chrono::Utc::now().timestamp();
         category_prompts.insert(key.to_string(), updated_prompt);
-        
+
         config.updated_at = chrono::Utc::now().timestamp();
         save_prompts(app, &config).await?;
         Ok(())
@@ -330,17 +342,20 @@ pub async fn update_prompt(
 pub async fn delete_prompt(
     app: &tauri::AppHandle,
     category: &str,
-    key: &str
+    key: &str,
 ) -> Result<(), String> {
     let mut config = load_prompts(app).await?;
-    
+
     if let Some(category_prompts) = config.prompts.get_mut(category) {
         if category_prompts.remove(key).is_some() {
             config.updated_at = chrono::Utc::now().timestamp();
             save_prompts(app, &config).await?;
             Ok(())
         } else {
-            Err(format!("Prompt '{}' not found in category '{}'", key, category))
+            Err(format!(
+                "Prompt '{}' not found in category '{}'",
+                key, category
+            ))
         }
     } else {
         Err(format!("Category '{}' not found", category))
@@ -351,20 +366,20 @@ pub async fn delete_prompt(
 pub async fn create_category(
     app: &tauri::AppHandle,
     category: &str,
-    description: &str
+    description: &str,
 ) -> Result<(), String> {
     let mut config = load_prompts(app).await?;
-    
+
     let new_category = PromptCategory {
         name: category.to_string(),
         description: description.to_string(),
         enabled: true,
     };
-    
+
     config.categories.insert(category.to_string(), new_category);
     config.prompts.insert(category.to_string(), HashMap::new());
     config.updated_at = chrono::Utc::now().timestamp();
-    
+
     save_prompts(app, &config).await?;
     Ok(())
 }

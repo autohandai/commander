@@ -1,6 +1,6 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::fs;
 
 /// Check if a directory is a valid Git repository by looking for .git folder
 pub fn is_valid_git_repository(project_path: &str) -> bool {
@@ -64,15 +64,23 @@ pub fn find_git_root(current_path: &str) -> Option<String> {
         if dotgit.is_file() {
             // Worktree: .git is a file with a `gitdir:` pointer.
             if let Ok(content) = fs::read_to_string(&dotgit) {
-                if let Some(gitdir_line) = content.lines().find(|line| line.starts_with("gitdir:")) {
+                if let Some(gitdir_line) = content.lines().find(|line| line.starts_with("gitdir:"))
+                {
                     let gitdir = gitdir_line.trim_start_matches("gitdir:").trim();
                     let gitdir_path: PathBuf = {
                         let p = Path::new(gitdir);
-                        if p.is_absolute() { p.to_path_buf() } else { ancestor.join(p) }
+                        if p.is_absolute() {
+                            p.to_path_buf()
+                        } else {
+                            ancestor.join(p)
+                        }
                     };
 
                     // Find the main repo's .git directory by walking up from gitdir
-                    if let Some(main_git_dir) = gitdir_path.ancestors().find(|p| p.file_name().map(|n| n == ".git").unwrap_or(false)) {
+                    if let Some(main_git_dir) = gitdir_path
+                        .ancestors()
+                        .find(|p| p.file_name().map(|n| n == ".git").unwrap_or(false))
+                    {
                         if let Some(repo_root) = main_git_dir.parent() {
                             return Some(repo_root.to_string_lossy().into_owned());
                         }
@@ -89,16 +97,16 @@ pub fn find_git_root(current_path: &str) -> Option<String> {
 /// Returns the main repository root path if found, current path if it's a valid repo
 pub fn resolve_git_project_path(current_path: &str) -> Option<String> {
     let path = Path::new(current_path);
-    
+
     // First check if current path has git
     if !path.join(".git").exists() {
         // Not a git repo, return None
         return None;
     }
-    
+
     // Check if .git is a file (worktree) or directory (regular repo)
     let git_path = path.join(".git");
-    
+
     if git_path.is_file() {
         // This is likely a worktree - read the .git file to find main repo
         if let Ok(content) = fs::read_to_string(&git_path) {
@@ -119,6 +127,6 @@ pub fn resolve_git_project_path(current_path: &str) -> Option<String> {
         // Regular git repository
         return Some(current_path.to_string());
     }
-    
+
     None
 }

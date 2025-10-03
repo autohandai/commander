@@ -11,7 +11,6 @@ pub struct CLISession {
     pub last_activity: i64,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionStatus {
     pub active_sessions: Vec<CLISession>,

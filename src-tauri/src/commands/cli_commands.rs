@@ -1,25 +1,26 @@
-use std::collections::HashMap;
-use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Command, Child};
-use std::process::Stdio;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
 use once_cell::sync::Lazy;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::collections::HashMap;
+use std::process::Stdio;
+use std::sync::Arc;
+use tauri::Emitter;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::{mpsc, Mutex};
 
-use crate::models::*;
 use crate::commands::settings_commands::load_all_agent_settings;
-use crate::services::execution_mode_service::{ExecutionMode, codex_flags_for_mode};
+use crate::models::*;
+use crate::services::cli_output_service::sanitize_cli_output_line;
+use crate::services::execution_mode_service::{codex_flags_for_mode, ExecutionMode};
 
 // Constants for session management
 const SESSION_TIMEOUT_SECONDS: i64 = 1800; // 30 minutes
 
-static SESSIONS: Lazy<Arc<Mutex<HashMap<String, ActiveSession>>>> = 
+static SESSIONS: Lazy<Arc<Mutex<HashMap<String, ActiveSession>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 // Secondary index for O(1) session lookup by agent+working_dir
-static SESSION_INDEX: Lazy<Arc<Mutex<HashMap<String, String>>>> = 
+static SESSION_INDEX: Lazy<Arc<Mutex<HashMap<String, String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 // Internal ActiveSession struct for session management (not serializable due to Child process)
@@ -64,24 +65,31 @@ fn generate_session_key(agent: &str, working_dir: &Option<String>) -> String {
 fn get_agent_quit_command(agent: &str) -> &str {
     match agent {
         "claude" => "/quit",
-        "codex" => "/exit", 
+        "codex" => "/exit",
         "gemini" => "/quit",
         _ => "/quit",
     }
 }
 
-async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri::AppHandle, execution_mode: Option<String>, dangerous_bypass: bool, permission_mode: Option<String>) -> Vec<String> {
+async fn build_agent_command_args(
+    agent: &str,
+    message: &str,
+    app_handle: &tauri::AppHandle,
+    execution_mode: Option<String>,
+    dangerous_bypass: bool,
+    permission_mode: Option<String>,
+) -> Vec<String> {
     let mut args = Vec::new();
-    
+
     // Try to get agent settings to include model preference
-    let agent_settings = load_all_agent_settings(app_handle.clone()).await.unwrap_or_else(|_| {
-        AllAgentSettings {
+    let agent_settings = load_all_agent_settings(app_handle.clone())
+        .await
+        .unwrap_or_else(|_| AllAgentSettings {
             claude: AgentSettings::default(),
             codex: AgentSettings::default(),
             gemini: AgentSettings::default(),
             max_concurrent_sessions: 10,
-        }
-    });
+        });
 
     let current_agent_settings = match agent {
         "claude" => &agent_settings.claude,
@@ -89,7 +97,7 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
         "gemini" => &agent_settings.gemini,
         _ => &AgentSettings::default(),
     };
-    
+
     match agent {
         "claude" => {
             // Use prompt mode with stream-json for structured output
@@ -119,7 +127,7 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
         }
         "codex" => {
             args.push("exec".to_string());
-            
+
             // Add model flag if set in preferences
             if let Some(ref model) = current_agent_settings.model {
                 if !model.is_empty() {
@@ -131,11 +139,14 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
             // Add flags based on execution mode (if provided)
             if let Some(mode_str) = execution_mode {
                 if let Some(mode) = ExecutionMode::from_str(&mode_str) {
-                    let extra = codex_flags_for_mode(mode, dangerous_bypass && matches!(mode, ExecutionMode::Full));
+                    let extra = codex_flags_for_mode(
+                        mode,
+                        dangerous_bypass && matches!(mode, ExecutionMode::Full),
+                    );
                     args.extend(extra);
                 }
             }
-            
+
             if !message.is_empty() {
                 args.push(message.to_string());
             }
@@ -149,7 +160,7 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
                     args.push(pm.clone());
                 }
             }
-            
+
             // Add model flag if set in preferences
             if let Some(ref model) = current_agent_settings.model {
                 if !model.is_empty() {
@@ -157,7 +168,7 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
                     args.push(model.clone());
                 }
             }
-            
+
             if !message.is_empty() {
                 args.push(message.to_string());
             }
@@ -169,7 +180,7 @@ async fn build_agent_command_args(agent: &str, message: &str, app_handle: &tauri
             }
         }
     }
-    
+
     args
 }
 
@@ -179,13 +190,13 @@ fn parse_command_structure(agent: &str, message: &str) -> (String, String) {
     // 2. "/claude help" -> agent: "claude", message: "help"
     // 3. "/help" when agent is already "claude" -> agent: "claude", message: "/help"
     // 4. "help" when agent is "claude" -> agent: "claude", message: "help"
-    
+
     if message.starts_with('/') {
         let parts: Vec<&str> = message.trim_start_matches('/').split_whitespace().collect();
         if parts.is_empty() {
             return (agent.to_string(), "help".to_string());
         }
-        
+
         // Check if first part is an agent name (with aliases)
         let agent_or_aliases = ["claude", "codex", "gemini", "test", "code", "copilot"];
         if agent_or_aliases.contains(&parts[0]) {
@@ -195,7 +206,7 @@ fn parse_command_structure(agent: &str, message: &str) -> (String, String) {
                 other => other.to_string(),
             };
             let remaining_parts = &parts[1..];
-            
+
             if remaining_parts.is_empty() {
                 // Just "/claude" -> start interactive session
                 (actual_agent, String::new())
@@ -251,41 +262,42 @@ async fn terminate_session_process(session_id: &str) -> Result<(), String> {
         let mut sessions = SESSIONS.lock().await;
         sessions.remove(session_id)
     };
-    
+
     if let Some(session) = session_info {
         // Remove from index as well
         {
-            let session_key = generate_session_key(&session.session.agent, &session.session.working_dir);
+            let session_key =
+                generate_session_key(&session.session.agent, &session.session.working_dir);
             let mut session_index = SESSION_INDEX.lock().await;
             session_index.remove(&session_key);
         }
-        
+
         // Send quit command to the process first
         if let Some(sender) = &session.stdin_sender {
             let quit_cmd = get_agent_quit_command(&session.session.agent);
             let _ = sender.send(format!("{}\n", quit_cmd));
-            
+
             // Give the process a moment to gracefully exit
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
-        
+
         // Then forcefully kill if still running
         let mut process_guard = session.process.lock().await;
         if let Some(mut process) = process_guard.take() {
             let _ = process.kill().await;
         }
     }
-    
+
     Ok(())
 }
 
 async fn cleanup_inactive_sessions() -> Result<(), String> {
     let mut sessions_to_remove = Vec::new();
     let current_time = chrono::Utc::now().timestamp();
-    
+
     {
         let sessions = SESSIONS.lock().await;
-        
+
         for (id, session) in sessions.iter() {
             // Remove sessions inactive for configured timeout
             if current_time - session.session.last_activity > SESSION_TIMEOUT_SECONDS {
@@ -293,11 +305,11 @@ async fn cleanup_inactive_sessions() -> Result<(), String> {
             }
         }
     }
-    
+
     for session_id in sessions_to_remove {
         let _ = terminate_session_process(&session_id).await;
     }
-    
+
     Ok(())
 }
 
@@ -421,15 +433,18 @@ pub async fn execute_persistent_cli_command(
     dangerousBypass: Option<bool>,
     permissionMode: Option<String>,
 ) -> Result<(), String> {
-    println!("🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}", agent, working_dir);
+    println!(
+        "🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}",
+        agent, working_dir
+    );
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
     let _current_time = chrono::Utc::now().timestamp();
-    
+
     tokio::spawn(async move {
         // Parse command structure to handle both "/agent subcommand" and direct subcommands
         let (agent_name, actual_message) = parse_command_structure(&agent, &message);
-        
+
         // Emit session status info
         let info_chunk = StreamChunk {
             session_id: session_id_clone.clone(),
@@ -437,24 +452,27 @@ pub async fn execute_persistent_cli_command(
             finished: false,
         };
         let _ = app_clone.emit("cli-stream", info_chunk);
-        
+
         // Check if command is available
         if !check_command_available(&agent_name).await {
             let error_chunk = StreamChunk {
                 session_id: session_id_clone.clone(),
-                content: format!("❌ Command '{}' not found. Please install it first:\n\n", agent_name),
+                content: format!(
+                    "❌ Command '{}' not found. Please install it first:\n\n",
+                    agent_name
+                ),
                 finished: false,
             };
             let _ = app_clone.emit("cli-stream", error_chunk);
-            
+
             // Provide installation instructions
             let install_instructions = match agent_name.as_str() {
                 "claude" => "Install Claude CLI: https://docs.anthropic.com/claude/docs/cli\n",
-                "codex" => "Install GitHub Copilot CLI: https://github.com/features/copilot\n", 
+                "codex" => "Install GitHub Copilot CLI: https://github.com/features/copilot\n",
                 "gemini" => "Install Gemini CLI: https://cloud.google.com/sdk/docs/install\n",
                 _ => "Please check the official documentation for installation instructions.\n",
             };
-            
+
             let instruction_chunk = StreamChunk {
                 session_id: session_id_clone,
                 content: install_instructions.to_string(),
@@ -463,9 +481,17 @@ pub async fn execute_persistent_cli_command(
             let _ = app_clone.emit("cli-stream", instruction_chunk);
             return;
         }
-        
+
         // Build args once
-        let command_args = build_agent_command_args(&agent_name, &actual_message, &app_clone, execution_mode.clone(), dangerousBypass.unwrap_or(false), permissionMode.clone()).await;
+        let command_args = build_agent_command_args(
+            &agent_name,
+            &actual_message,
+            &app_clone,
+            execution_mode.clone(),
+            dangerousBypass.unwrap_or(false),
+            permissionMode.clone(),
+        )
+        .await;
 
         // Resolve absolute path of the executable to avoid PATH issues in GUI contexts
         let resolved_prog = which::which(&agent_name)
@@ -477,13 +503,24 @@ pub async fn execute_persistent_cli_command(
         // for maximum reliability across platforms. Otherwise try PTY first for richer streaming.
         // ALWAYS use pipe method when working_dir is specified to ensure directory is respected
         if working_dir.is_none() {
-            if let Err(e) = try_spawn_with_pty(app_clone.clone(), session_id_clone.clone(), &resolved_prog, &command_args, working_dir.clone()).await {
+            if let Err(e) = try_spawn_with_pty(
+                app_clone.clone(),
+                session_id_clone.clone(),
+                &resolved_prog,
+                &command_args,
+                working_dir.clone(),
+            )
+            .await
+            {
                 // Inform about PTY fallback
                 let _ = app_clone.emit(
                     "cli-stream",
                     StreamChunk {
                         session_id: session_id_clone.clone(),
-                        content: format!("ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n", e),
+                        content: format!(
+                            "ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n",
+                            e
+                        ),
                         finished: false,
                     },
                 );
@@ -510,40 +547,50 @@ pub async fn execute_persistent_cli_command(
                 if let Some(stdout) = child.stdout.take() {
                     let app_for_stdout = app_clone.clone();
                     let session_id_for_stdout = session_id_clone.clone();
+                    let agent_for_stdout = agent_name.clone();
                     tokio::spawn(async move {
                         let reader = BufReader::new(stdout);
                         let mut lines = reader.lines();
-                        
+
                         while let Ok(Some(line)) = lines.next_line().await {
-                            let chunk = StreamChunk {
-                                session_id: session_id_for_stdout.clone(),
-                                content: line + "\n",
-                                finished: false,
-                            };
-                            let _ = app_for_stdout.emit("cli-stream", chunk);
+                            if let Some(filtered) =
+                                sanitize_cli_output_line(&agent_for_stdout, &line)
+                            {
+                                let chunk = StreamChunk {
+                                    session_id: session_id_for_stdout.clone(),
+                                    content: filtered + "\n",
+                                    finished: false,
+                                };
+                                let _ = app_for_stdout.emit("cli-stream", chunk);
+                            }
                         }
                     });
                 }
-                
+
                 // Stream stderr
                 if let Some(stderr) = child.stderr.take() {
                     let app_for_stderr = app_clone.clone();
                     let session_id_for_stderr = session_id_clone.clone();
+                    let agent_for_stderr = agent_name.clone();
                     tokio::spawn(async move {
                         let reader = BufReader::new(stderr);
                         let mut lines = reader.lines();
-                        
+
                         while let Ok(Some(line)) = lines.next_line().await {
-                            let chunk = StreamChunk {
-                                session_id: session_id_for_stderr.clone(),
-                                content: format!("ERROR: {}\n", line),
-                                finished: false,
-                            };
-                            let _ = app_for_stderr.emit("cli-stream", chunk);
+                            if let Some(filtered) =
+                                sanitize_cli_output_line(&agent_for_stderr, &line)
+                            {
+                                let chunk = StreamChunk {
+                                    session_id: session_id_for_stderr.clone(),
+                                    content: format!("ERROR: {}\n", filtered),
+                                    finished: false,
+                                };
+                                let _ = app_for_stderr.emit("cli-stream", chunk);
+                            }
                         }
                     });
                 }
-                
+
                 // Wait for completion
                 match child.wait().await {
                     Ok(status) => {
@@ -552,7 +599,10 @@ pub async fn execute_persistent_cli_command(
                             content: if status.success() {
                                 "\n✅ Command completed successfully\n".to_string()
                             } else {
-                                format!("\n❌ Command failed with exit code: {}\n", status.code().unwrap_or(-1))
+                                format!(
+                                    "\n❌ Command failed with exit code: {}\n",
+                                    status.code().unwrap_or(-1)
+                                )
                             },
                             finished: true,
                         };
@@ -574,7 +624,7 @@ pub async fn execute_persistent_cli_command(
                 } else {
                     format!("Failed to start {}: {}", agent_name, e)
                 };
-                
+
                 let error_chunk = StreamChunk {
                     session_id: session_id_clone.clone(),
                     content: format!("❌ {}\n", error_message),
@@ -585,7 +635,7 @@ pub async fn execute_persistent_cli_command(
             }
         }
     });
-    
+
     Ok(())
 }
 
@@ -602,62 +652,94 @@ pub async fn execute_cli_command(
 ) -> Result<(), String> {
     // Legacy function - redirect to persistent session handler
     let message = args.join(" ");
-    execute_persistent_cli_command(app, session_id, command, message, working_dir, execution_mode, dangerousBypass, permissionMode).await
+    execute_persistent_cli_command(
+        app,
+        session_id,
+        command,
+        message,
+        working_dir,
+        execution_mode,
+        dangerousBypass,
+        permissionMode,
+    )
+    .await
 }
 
 #[tauri::command]
 pub async fn execute_claude_command(
     app: tauri::AppHandle,
-    #[allow(non_snake_case)]
-    sessionId: String,
+    #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)]
-    working_dir: Option<String>,
+    #[allow(non_snake_case)] working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, sessionId, "claude".to_string(), message, working_dir, None, None, None).await
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "claude".to_string(),
+        message,
+        working_dir,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
 pub async fn execute_codex_command(
     app: tauri::AppHandle,
-    #[allow(non_snake_case)]
-    sessionId: String,
+    #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)]
-    working_dir: Option<String>,
+    #[allow(non_snake_case)] working_dir: Option<String>,
     executionMode: Option<String>,
     dangerousBypass: Option<bool>,
     permissionMode: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, sessionId, "codex".to_string(), message, working_dir, executionMode, dangerousBypass, permissionMode).await
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "codex".to_string(),
+        message,
+        working_dir,
+        executionMode,
+        dangerousBypass,
+        permissionMode,
+    )
+    .await
 }
 
 #[tauri::command]
 pub async fn execute_gemini_command(
     app: tauri::AppHandle,
-    #[allow(non_snake_case)]
-    sessionId: String,
+    #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)]
-    working_dir: Option<String>,
+    #[allow(non_snake_case)] working_dir: Option<String>,
 ) -> Result<(), String> {
-    execute_persistent_cli_command(app, sessionId, "gemini".to_string(), message, working_dir, None, None, None).await
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "gemini".to_string(),
+        message,
+        working_dir,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 // Test command to demonstrate CLI streaming (this will always work)
 #[tauri::command]
 pub async fn execute_test_command(
     app: tauri::AppHandle,
-    #[allow(non_snake_case)]
-    sessionId: String,
+    #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)]
-    working_dir: Option<String>,
+    #[allow(non_snake_case)] working_dir: Option<String>,
 ) -> Result<(), String> {
     let app_clone = app.clone();
     let session_id_clone = sessionId.clone();
     let _ = working_dir; // currently unused
-    
+
     tokio::spawn(async move {
         // Simulate streaming response for testing
         let user_message = format!("💭 You said: {}", message);
@@ -668,10 +750,10 @@ pub async fn execute_test_command(
             "✅ CLI streaming is working correctly!".to_string(),
             "🚀 All systems operational.".to_string(),
         ];
-        
+
         for (i, line) in lines.iter().enumerate() {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            
+
             let chunk = StreamChunk {
                 session_id: session_id_clone.clone(),
                 content: format!("{}\n", line),
@@ -680,7 +762,7 @@ pub async fn execute_test_command(
             let _ = app_clone.emit("cli-stream", chunk);
         }
     });
-    
+
     Ok(())
 }
 
@@ -691,12 +773,12 @@ pub async fn cleanup_cli_sessions() -> Result<(), String> {
 
 pub async fn get_sessions_status() -> Result<SessionStatus, String> {
     let sessions = SESSIONS.lock().await;
-    
+
     let active_sessions: Vec<CLISession> = sessions
         .values()
         .map(|session| session.session.clone())
         .collect();
-    
+
     Ok(SessionStatus {
         active_sessions: active_sessions.clone(),
         total_sessions: active_sessions.len(),
@@ -712,21 +794,22 @@ pub async fn terminate_all_active_sessions() -> Result<(), String> {
         let sessions = SESSIONS.lock().await;
         sessions.keys().cloned().collect()
     };
-    
+
     for session_id in session_ids {
         let _ = terminate_session_process(&session_id).await;
     }
-    
+
     Ok(())
 }
 
 pub async fn send_quit_to_session(session_id: &str) -> Result<(), String> {
     let sessions = SESSIONS.lock().await;
-    
+
     if let Some(session) = sessions.get(session_id) {
         if let Some(ref sender) = session.stdin_sender {
             let quit_cmd = get_agent_quit_command(&session.session.agent);
-            sender.send(format!("{}\n", quit_cmd))
+            sender
+                .send(format!("{}\n", quit_cmd))
                 .map_err(|e| format!("Failed to send quit command: {}", e))?;
         } else {
             return Err("Session stdin not available".to_string());
@@ -734,6 +817,6 @@ pub async fn send_quit_to_session(session_id: &str) -> Result<(), String> {
     } else {
         return Err("Session not found".to_string());
     }
-    
+
     Ok(())
 }

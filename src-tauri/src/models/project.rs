@@ -10,7 +10,7 @@ pub struct RecentProject {
     pub git_status: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]  
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectsData {
     pub projects: Vec<RecentProject>,
 }
@@ -44,9 +44,15 @@ fn default_file_mentions_enabled() -> bool {
     true
 }
 
-fn default_ui_theme() -> String { "auto".to_string() }
-fn default_chat_send_shortcut() -> String { "mod+enter".to_string() }
-fn default_show_welcome_recent_projects() -> bool { true }
+fn default_ui_theme() -> String {
+    "auto".to_string()
+}
+fn default_chat_send_shortcut() -> String {
+    "mod+enter".to_string()
+}
+fn default_show_welcome_recent_projects() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeSettings {
@@ -56,12 +62,19 @@ pub struct CodeSettings {
     pub font_size: u16, // in px
 }
 
-fn default_code_theme() -> String { "github".to_string() }
-fn default_font_size() -> u16 { 14 }
+fn default_code_theme() -> String {
+    "github".to_string()
+}
+fn default_font_size() -> u16 {
+    14
+}
 
 impl Default for CodeSettings {
     fn default() -> Self {
-        Self { theme: default_code_theme(), font_size: default_font_size() }
+        Self {
+            theme: default_code_theme(),
+            font_size: default_font_size(),
+        }
     }
 }
 

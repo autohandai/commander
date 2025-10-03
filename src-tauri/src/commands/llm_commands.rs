@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+
 use tauri::Emitter;
 use tokio::process::Command;
 
-use crate::models::*;
-use crate::services::llm_service;
 use crate::commands::settings_commands::load_agent_settings;
+use crate::models::*;
+use crate::services::agent_status_service::AgentStatusService;
+use crate::services::llm_service;
 
 // Check if a command is available in the system
 async fn check_command_available(command: &str) -> bool {
@@ -13,7 +15,7 @@ async fn check_command_available(command: &str) -> bool {
     } else {
         Command::new("which").arg(command).output().await
     };
-    
+
     match check_cmd {
         Ok(output) => output.status.success(),
         Err(_) => false,
@@ -25,7 +27,7 @@ pub async fn fetch_openrouter_models(api_key: String) -> Result<Vec<LLMModel>, S
     if api_key.trim().is_empty() {
         return Err("OpenRouter API key is required to fetch models".to_string());
     }
-    
+
     llm_service::fetch_openrouter_models(&api_key).await
 }
 
@@ -34,7 +36,7 @@ pub async fn fetch_openai_models(api_key: String) -> Result<Vec<LLMModel>, Strin
     if api_key.trim().is_empty() {
         return Err("OpenAI API key is required to fetch models".to_string());
     }
-    
+
     llm_service::fetch_openai_models(&api_key).await
 }
 
@@ -44,7 +46,7 @@ pub async fn check_ollama_installation() -> Result<bool, String> {
         .arg("--version")
         .output()
         .await;
-    
+
     match output {
         Ok(output) => Ok(output.status.success()),
         Err(_) => Ok(false),
@@ -60,21 +62,23 @@ pub async fn fetch_ollama_models() -> Result<Vec<LLMModel>, String> {
         .map_err(|e| format!("Failed to execute ollama list: {}", e))?;
 
     if !output.status.success() {
-        return Err("Failed to list Ollama models. Make sure Ollama is installed and running.".to_string());
+        return Err(
+            "Failed to list Ollama models. Make sure Ollama is installed and running.".to_string(),
+        );
     }
 
     let stdout = String::from_utf8(output.stdout)
         .map_err(|e| format!("Failed to parse ollama output: {}", e))?;
 
     let mut models = Vec::new();
-    
+
     // Parse ollama list output
     // Skip the header line and process each model line
     for line in stdout.lines().skip(1) {
         if line.trim().is_empty() {
             continue;
         }
-        
+
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 1 {
             let model_name = parts[0].to_string();
@@ -145,14 +149,27 @@ pub async fn fetch_claude_models() -> Result<Vec<String>, String> {
     // Look for lines containing model names or --model parameter info
     for line in stdout.lines() {
         let line = line.trim().to_lowercase();
-        if line.contains("model") && (line.contains("claude") || line.contains("sonnet") || line.contains("opus") || line.contains("haiku")) {
+        if line.contains("model")
+            && (line.contains("claude")
+                || line.contains("sonnet")
+                || line.contains("opus")
+                || line.contains("haiku"))
+        {
             // Extract model names if they appear to be model identifiers
             if line.contains("claude-3") || line.contains("claude-3.5") {
                 // Common Claude model patterns
-                if line.contains("opus") { models.push("claude-3-opus".to_string()); }
-                if line.contains("sonnet") { models.push("claude-3-sonnet".to_string()); }
-                if line.contains("haiku") { models.push("claude-3-haiku".to_string()); }
-                if line.contains("3.5") && line.contains("sonnet") { models.push("claude-3-5-sonnet".to_string()); }
+                if line.contains("opus") {
+                    models.push("claude-3-opus".to_string());
+                }
+                if line.contains("sonnet") {
+                    models.push("claude-3-sonnet".to_string());
+                }
+                if line.contains("haiku") {
+                    models.push("claude-3-haiku".to_string());
+                }
+                if line.contains("3.5") && line.contains("sonnet") {
+                    models.push("claude-3-5-sonnet".to_string());
+                }
             }
         }
     }
@@ -197,9 +214,15 @@ pub async fn fetch_codex_models() -> Result<Vec<String>, String> {
             for line in stdout.lines() {
                 let line = line.trim().to_lowercase();
                 if line.contains("model") && (line.contains("gpt") || line.contains("codex")) {
-                    if line.contains("gpt-4") { models.push("gpt-4".to_string()); }
-                    if line.contains("gpt-3.5") { models.push("gpt-3.5-turbo".to_string()); }
-                    if line.contains("codex") { models.push("code-davinci-002".to_string()); }
+                    if line.contains("gpt-4") {
+                        models.push("gpt-4".to_string());
+                    }
+                    if line.contains("gpt-3.5") {
+                        models.push("gpt-3.5-turbo".to_string());
+                    }
+                    if line.contains("codex") {
+                        models.push("code-davinci-002".to_string());
+                    }
                 }
             }
         }
@@ -218,8 +241,12 @@ pub async fn fetch_codex_models() -> Result<Vec<String>, String> {
                 for line in stdout.lines() {
                     let line = line.trim().to_lowercase();
                     if line.contains("model") && line.contains("gpt") {
-                        if line.contains("gpt-4") { models.push("gpt-4".to_string()); }
-                        if line.contains("gpt-3.5") { models.push("gpt-3.5-turbo".to_string()); }
+                        if line.contains("gpt-4") {
+                            models.push("gpt-4".to_string());
+                        }
+                        if line.contains("gpt-3.5") {
+                            models.push("gpt-3.5-turbo".to_string());
+                        }
                     }
                 }
             }
@@ -267,10 +294,18 @@ pub async fn fetch_gemini_models() -> Result<Vec<String>, String> {
     for line in stdout.lines() {
         let line = line.trim().to_lowercase();
         if line.contains("model") && line.contains("gemini") {
-            if line.contains("gemini-pro") { models.push("gemini-pro".to_string()); }
-            if line.contains("gemini-1.5") { models.push("gemini-1.5-pro".to_string()); }
-            if line.contains("gemini-ultra") { models.push("gemini-ultra".to_string()); }
-            if line.contains("gemini-flash") { models.push("gemini-1.5-flash".to_string()); }
+            if line.contains("gemini-pro") {
+                models.push("gemini-pro".to_string());
+            }
+            if line.contains("gemini-1.5") {
+                models.push("gemini-1.5-pro".to_string());
+            }
+            if line.contains("gemini-ultra") {
+                models.push("gemini-ultra".to_string());
+            }
+            if line.contains("gemini-flash") {
+                models.push("gemini-1.5-flash".to_string());
+            }
         }
     }
 
@@ -302,97 +337,17 @@ pub async fn fetch_agent_models(agent: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, String> {
-    let agents = vec![
-        ("claude", "Claude Code CLI"),
-        ("codex", "Codex"),
-        ("gemini", "Gemini"),
-    ];
-
-    // Load agent settings to see which ones are enabled
     let enabled_agents = load_agent_settings(app).await.unwrap_or_else(|_| {
-        let mut default = HashMap::new();
-        default.insert("claude".to_string(), true);
-        default.insert("codex".to_string(), true);
-        default.insert("gemini".to_string(), true);
-        default
+        HashMap::from([
+            ("claude".to_string(), true),
+            ("codex".to_string(), true),
+            ("gemini".to_string(), true),
+        ])
     });
 
-    let mut checked_agents = Vec::new();
-    
-    for (command, display_name) in agents {
-        let enabled = enabled_agents.get(command).unwrap_or(&true) == &true;
-        let mut error_message: Option<String> = None;
-        
-        // Check availability for all agents (enabled and disabled)
-        let available = if enabled {
-            // For enabled agents, check if command exists and try to get more detailed status
-            let check_result = tokio::process::Command::new("which")
-                .arg(command)
-                .output()
-                .await;
-            
-            match check_result {
-                Ok(output) => {
-                    if output.status.success() {
-                        // Command exists, now try to run it to get more detailed error info
-                        let version_check = tokio::process::Command::new(command)
-                            .arg("--version")
-                            .output()
-                            .await;
-                            
-                        match version_check {
-                            Ok(version_output) => {
-                                if !version_output.status.success() {
-                                    let stderr = String::from_utf8_lossy(&version_output.stderr);
-                                    // Check for common error patterns like "limit" or "credits"
-                                    if stderr.to_lowercase().contains("limit") || 
-                                       stderr.to_lowercase().contains("credit") ||
-                                       stderr.to_lowercase().contains("quota") {
-                                        error_message = Some(format!("Rate limit or quota reached: {}", stderr.trim()));
-                                        false
-                                    } else if !stderr.trim().is_empty() {
-                                        error_message = Some(stderr.trim().to_string());
-                                        false
-                                    } else {
-                                        true
-                                    }
-                                } else {
-                                    true
-                                }
-                            }
-                            Err(e) => {
-                                error_message = Some(format!("Failed to execute {}: {}", command, e));
-                                false
-                            }
-                        }
-                    } else {
-                        error_message = Some(format!("{} command not found in PATH", command));
-                        false
-                    }
-                }
-                Err(e) => {
-                    error_message = Some(format!("Failed to check {}: {}", command, e));
-                    false
-                }
-            }
-        } else {
-            // For disabled agents, don't check availability but mark as unavailable
-            false
-        };
-        
-        checked_agents.push(AIAgent {
-            name: command.to_string(),
-            command: command.to_string(),
-            display_name: display_name.to_string(),
-            available,
-            enabled,
-            error_message,
-        });
-    }
-    
-    Ok(AgentStatus {
-        agents: checked_agents,
-    })
+    AgentStatusService::new()
+        .check_agents(&enabled_agents)
+        .await
 }
 
 #[tauri::command]
@@ -405,7 +360,10 @@ pub async fn generate_plan(prompt: String, system_prompt: String) -> Result<Stri
     // Get available Ollama models
     let models = fetch_ollama_models().await?;
     if models.is_empty() {
-        return Err("No Ollama models available. Please pull a model first with 'ollama pull <model>'".to_string());
+        return Err(
+            "No Ollama models available. Please pull a model first with 'ollama pull <model>'"
+                .to_string(),
+        );
     }
 
     // Use the first available model (you could make this configurable)
@@ -433,7 +391,7 @@ pub async fn generate_plan(prompt: String, system_prompt: String) -> Result<Stri
 
     // Try to extract JSON from the response if it's embedded in other text
     let response = response.trim();
-    
+
     // Look for JSON in the response
     if let Some(json_start) = response.find('{') {
         if let Some(json_end) = response.rfind('}') {
@@ -465,6 +423,6 @@ pub async fn monitor_ai_agents(app: tauri::AppHandle) -> Result<(), String> {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
     });
-    
+
     Ok(())
 }

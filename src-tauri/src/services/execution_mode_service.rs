@@ -1,8 +1,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionMode {
-    Chat,    // read-only, no writes
-    Collab,  // asks for approval
-    Full,    // auto execute (low friction)
+    Chat,   // read-only, no writes
+    Collab, // asks for approval
+    Full,   // auto execute (low friction)
 }
 
 impl ExecutionMode {
@@ -21,12 +21,16 @@ impl ExecutionMode {
 pub fn codex_flags_for_mode(mode: ExecutionMode, unsafe_full: bool) -> Vec<String> {
     match mode {
         ExecutionMode::Chat => vec![
-            "--sandbox".into(), "read-only".into(),
-            "--ask-for-approval".into(), "never".into(),
+            "--sandbox".into(),
+            "read-only".into(),
+            "--ask-for-approval".into(),
+            "never".into(),
         ],
         ExecutionMode::Collab => vec![
-            "--sandbox".into(), "workspace-write".into(),
-            "--ask-for-approval".into(), "on-request".into(),
+            "--sandbox".into(),
+            "workspace-write".into(),
+            "--ask-for-approval".into(),
+            "on-request".into(),
         ],
         ExecutionMode::Full => {
             if unsafe_full {
