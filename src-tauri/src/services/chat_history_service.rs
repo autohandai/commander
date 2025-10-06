@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
-use std::fs;
-use tokio::fs as async_fs;
-use chrono::Utc;
 use crate::models::chat_history::*;
+use chrono::Utc;
+use std::fs;
+use std::path::{Path, PathBuf};
+use tokio::fs as async_fs;
 
 const COMMANDER_DIR: &str = ".commander";
 const CHAT_HISTORY_DIR: &str = "chat_history";
@@ -14,16 +14,17 @@ pub async fn ensure_commander_directory(project_path: &str) -> Result<PathBuf, S
     let chat_dir = Path::new(project_path)
         .join(COMMANDER_DIR)
         .join(CHAT_HISTORY_DIR);
-    
-    async_fs::create_dir_all(&chat_dir).await
+
+    async_fs::create_dir_all(&chat_dir)
+        .await
         .map_err(|e| format!("Failed to create chat history directory: {}", e))?;
-    
+
     Ok(chat_dir)
 }
 
 /// Group messages into sessions based on timing and agent
 pub async fn group_messages_into_sessions(
-    messages: Vec<EnhancedChatMessage>
+    messages: Vec<EnhancedChatMessage>,
 ) -> Result<Vec<ChatSession>, String> {
     if messages.is_empty() {
         return Ok(Vec::new());
@@ -79,13 +80,14 @@ pub async fn save_chat_session(
     messages: &[EnhancedChatMessage],
 ) -> Result<(), String> {
     let chat_dir = ensure_commander_directory(project_path).await?;
-    
+
     // Save session messages
     let session_file = chat_dir.join(format!("session_{}.json", session.id));
     let messages_json = serde_json::to_string_pretty(messages)
         .map_err(|e| format!("Failed to serialize messages: {}", e))?;
-    
-    async_fs::write(session_file, messages_json).await
+
+    async_fs::write(session_file, messages_json)
+        .await
         .map_err(|e| format!("Failed to write session file: {}", e))?;
 
     // Update sessions index
@@ -95,15 +97,19 @@ pub async fn save_chat_session(
 }
 
 /// Update the sessions index with a new session
-async fn update_sessions_index(project_path: &str, new_session: &ChatSession) -> Result<(), String> {
+async fn update_sessions_index(
+    project_path: &str,
+    new_session: &ChatSession,
+) -> Result<(), String> {
     let chat_dir = ensure_commander_directory(project_path).await?;
     let index_file = chat_dir.join(SESSIONS_INDEX_FILE);
 
     // Load existing index
     let mut index = if index_file.exists() {
-        let index_content = async_fs::read_to_string(&index_file).await
+        let index_content = async_fs::read_to_string(&index_file)
+            .await
             .map_err(|e| format!("Failed to read sessions index: {}", e))?;
-        
+
         serde_json::from_str::<SessionsIndex>(&index_content)
             .unwrap_or_else(|_| SessionsIndex::default())
     } else {
@@ -117,7 +123,9 @@ async fn update_sessions_index(project_path: &str, new_session: &ChatSession) ->
     index.sessions.push(new_session.clone());
 
     // Sort by start time (newest first)
-    index.sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+    index
+        .sessions
+        .sort_by(|a, b| b.start_time.cmp(&a.start_time));
 
     // Update metadata
     index.last_updated = Utc::now().timestamp();
@@ -126,8 +134,9 @@ async fn update_sessions_index(project_path: &str, new_session: &ChatSession) ->
     // Save updated index
     let index_json = serde_json::to_string_pretty(&index)
         .map_err(|e| format!("Failed to serialize sessions index: {}", e))?;
-    
-    async_fs::write(index_file, index_json).await
+
+    async_fs::write(index_file, index_json)
+        .await
         .map_err(|e| format!("Failed to write sessions index: {}", e))?;
 
     Ok(())
@@ -146,9 +155,10 @@ pub async fn load_chat_sessions(
         return Ok(Vec::new());
     }
 
-    let index_content = async_fs::read_to_string(&index_file).await
+    let index_content = async_fs::read_to_string(&index_file)
+        .await
         .map_err(|e| format!("Failed to read sessions index: {}", e))?;
-    
+
     let index: SessionsIndex = serde_json::from_str(&index_content)
         .map_err(|e| format!("Failed to parse sessions index: {}", e))?;
 
@@ -179,9 +189,10 @@ pub async fn load_session_messages(
         return Err(format!("Session file not found: {}", session_id));
     }
 
-    let session_content = async_fs::read_to_string(&session_file).await
+    let session_content = async_fs::read_to_string(&session_file)
+        .await
         .map_err(|e| format!("Failed to read session file: {}", e))?;
-    
+
     let messages: Vec<EnhancedChatMessage> = serde_json::from_str(&session_content)
         .map_err(|e| format!("Failed to parse session messages: {}", e))?;
 
@@ -191,22 +202,24 @@ pub async fn load_session_messages(
 /// Delete a chat session
 pub async fn delete_chat_session(project_path: &str, session_id: &str) -> Result<(), String> {
     let chat_dir = ensure_commander_directory(project_path).await?;
-    
+
     // Delete session file
     let session_file = chat_dir.join(format!("session_{}.json", session_id));
     if session_file.exists() {
-        async_fs::remove_file(session_file).await
+        async_fs::remove_file(session_file)
+            .await
             .map_err(|e| format!("Failed to delete session file: {}", e))?;
     }
 
     // Remove from sessions index
     let index_file = chat_dir.join(SESSIONS_INDEX_FILE);
     if index_file.exists() {
-        let index_content = async_fs::read_to_string(&index_file).await
+        let index_content = async_fs::read_to_string(&index_file)
+            .await
             .map_err(|e| format!("Failed to read sessions index: {}", e))?;
-        
-        let mut index: SessionsIndex = serde_json::from_str(&index_content)
-            .unwrap_or_else(|_| SessionsIndex::default());
+
+        let mut index: SessionsIndex =
+            serde_json::from_str(&index_content).unwrap_or_else(|_| SessionsIndex::default());
 
         // Remove session from index
         index.sessions.retain(|s| s.id != session_id);
@@ -215,8 +228,9 @@ pub async fn delete_chat_session(project_path: &str, session_id: &str) -> Result
         // Save updated index
         let index_json = serde_json::to_string_pretty(&index)
             .map_err(|e| format!("Failed to serialize sessions index: {}", e))?;
-        
-        async_fs::write(index_file, index_json).await
+
+        async_fs::write(index_file, index_json)
+            .await
             .map_err(|e| format!("Failed to write sessions index: {}", e))?;
     }
 
@@ -260,7 +274,7 @@ pub async fn migrate_legacy_chat_data(
 /// Extract file mentions from content using regex
 pub fn extract_file_mentions(content: &str) -> Vec<String> {
     use regex::Regex;
-    
+
     // More comprehensive regex patterns for file detection
     // Note: The Rust `regex` crate does not support lookarounds, so we
     // capture the filename/path in group 1 and match trailing punctuation
@@ -320,22 +334,38 @@ fn is_likely_file_path(text: &str) -> bool {
 /// Check for common filename patterns
 fn is_common_filename(text: &str) -> bool {
     let common_files = [
-        "Makefile", "Dockerfile", "README", "LICENSE", "CHANGELOG",
-        "Cargo.toml", "package.json", "pom.xml", "build.gradle",
+        "Makefile",
+        "Dockerfile",
+        "README",
+        "LICENSE",
+        "CHANGELOG",
+        "Cargo.toml",
+        "package.json",
+        "pom.xml",
+        "build.gradle",
     ];
-    
-    common_files.iter().any(|&file| text.eq_ignore_ascii_case(file))
+
+    common_files
+        .iter()
+        .any(|&file| text.eq_ignore_ascii_case(file))
 }
 
 /// Check if text is likely a false positive
 fn is_false_positive(text: &str) -> bool {
     let false_positives = [
-        "localhost", "127.0.0.1", "0.0.0.0", "example.com",
-        "www.", ".com", ".org", ".net", ".io",
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "example.com",
+        "www.",
+        ".com",
+        ".org",
+        ".net",
+        ".io",
     ];
-    
-    false_positives.iter().any(|&fp| text.contains(fp)) ||
-    text.chars().all(|c| c.is_ascii_digit() || c == '.') // IP addresses
+
+    false_positives.iter().any(|&fp| text.contains(fp))
+        || text.chars().all(|c| c.is_ascii_digit() || c == '.') // IP addresses
 }
 
 /// Get chat history statistics
@@ -344,12 +374,13 @@ pub async fn get_chat_history_stats(project_path: &str) -> Result<ChatHistorySta
     let index_file = chat_dir.join(SESSIONS_INDEX_FILE);
 
     let sessions = if index_file.exists() {
-        let index_content = async_fs::read_to_string(&index_file).await
+        let index_content = async_fs::read_to_string(&index_file)
+            .await
             .map_err(|e| format!("Failed to read sessions index: {}", e))?;
-        
-        let index: SessionsIndex = serde_json::from_str(&index_content)
-            .unwrap_or_else(|_| SessionsIndex::default());
-        
+
+        let index: SessionsIndex =
+            serde_json::from_str(&index_content).unwrap_or_else(|_| SessionsIndex::default());
+
         index.sessions
     } else {
         Vec::new()
@@ -363,7 +394,7 @@ pub async fn get_chat_history_stats(project_path: &str) -> Result<ChatHistorySta
     for session in &sessions {
         // Count agents
         *agents_used.entry(session.agent.clone()).or_insert(0) += 1;
-        
+
         // Count branches
         if let Some(ref branch) = session.branch {
             *branches_used.entry(branch.clone()).or_insert(0) += 1;
@@ -376,10 +407,7 @@ pub async fn get_chat_history_stats(project_path: &str) -> Result<ChatHistorySta
         match date_range {
             None => date_range = Some((session.start_time, session.end_time)),
             Some((min, max)) => {
-                date_range = Some((
-                    min.min(session.start_time),
-                    max.max(session.end_time),
-                ));
+                date_range = Some((min.min(session.start_time), max.max(session.end_time)));
             }
         }
     }
@@ -412,10 +440,11 @@ pub async fn export_chat_history(
     request: ExportRequest,
 ) -> Result<String, String> {
     let sessions = load_chat_sessions(project_path, None, None).await?;
-    
+
     // Filter sessions if specific ones requested
     let sessions_to_export = if let Some(ref session_ids) = request.sessions {
-        sessions.into_iter()
+        sessions
+            .into_iter()
             .filter(|s| session_ids.contains(&s.id))
             .collect()
     } else {
@@ -423,7 +452,9 @@ pub async fn export_chat_history(
     };
 
     match request.format {
-        ExportFormat::Json => export_as_json(&sessions_to_export, project_path, request.include_metadata).await,
+        ExportFormat::Json => {
+            export_as_json(&sessions_to_export, project_path, request.include_metadata).await
+        }
         ExportFormat::Markdown => export_as_markdown(&sessions_to_export, project_path).await,
         ExportFormat::Html => export_as_html(&sessions_to_export, project_path).await,
         ExportFormat::Csv => export_as_csv(&sessions_to_export, project_path).await,
@@ -436,15 +467,19 @@ async fn export_as_json(
     include_metadata: bool,
 ) -> Result<String, String> {
     let mut export_data = serde_json::Map::new();
-    export_data.insert("export_date".to_string(), serde_json::Value::String(
-        chrono::Utc::now().to_rfc3339()
-    ));
-    export_data.insert("project_path".to_string(), serde_json::Value::String(project_path.to_string()));
+    export_data.insert(
+        "export_date".to_string(),
+        serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+    );
+    export_data.insert(
+        "project_path".to_string(),
+        serde_json::Value::String(project_path.to_string()),
+    );
 
     let mut sessions_data = Vec::new();
     for session in sessions {
         let messages = load_session_messages(project_path, &session.id).await?;
-        
+
         let session_data = if include_metadata {
             serde_json::json!({
                 "session": session,
@@ -452,13 +487,18 @@ async fn export_as_json(
             })
         } else {
             // Simplified format without metadata
-            let simple_messages: Vec<_> = messages.iter().map(|m| serde_json::json!({
-                "role": m.role,
-                "content": m.content,
-                "timestamp": m.timestamp,
-                "agent": m.agent
-            })).collect();
-            
+            let simple_messages: Vec<_> = messages
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "role": m.role,
+                        "content": m.content,
+                        "timestamp": m.timestamp,
+                        "agent": m.agent
+                    })
+                })
+                .collect();
+
             serde_json::json!({
                 "session_id": session.id,
                 "agent": session.agent,
@@ -467,30 +507,42 @@ async fn export_as_json(
                 "messages": simple_messages
             })
         };
-        
+
         sessions_data.push(session_data);
     }
 
-    export_data.insert("sessions".to_string(), serde_json::Value::Array(sessions_data));
-    
+    export_data.insert(
+        "sessions".to_string(),
+        serde_json::Value::Array(sessions_data),
+    );
+
     serde_json::to_string_pretty(&export_data)
         .map_err(|e| format!("Failed to serialize export data: {}", e))
 }
 
-async fn export_as_markdown(sessions: &[ChatSession], project_path: &str) -> Result<String, String> {
+async fn export_as_markdown(
+    sessions: &[ChatSession],
+    project_path: &str,
+) -> Result<String, String> {
     let mut markdown = String::new();
-    
+
     markdown.push_str(&format!("# Chat History Export\n\n"));
     markdown.push_str(&format!("**Project:** {}\n", project_path));
-    markdown.push_str(&format!("**Export Date:** {}\n\n", chrono::Utc::now().to_rfc3339()));
+    markdown.push_str(&format!(
+        "**Export Date:** {}\n\n",
+        chrono::Utc::now().to_rfc3339()
+    ));
 
     for session in sessions {
         let messages = load_session_messages(project_path, &session.id).await?;
         let session_date = chrono::DateTime::from_timestamp(session.start_time, 0)
             .unwrap_or_default()
             .format("%Y-%m-%d %H:%M:%S");
-        
-        markdown.push_str(&format!("## Session: {} ({})\n\n", session.summary, session_date));
+
+        markdown.push_str(&format!(
+            "## Session: {} ({})\n\n",
+            session.summary, session_date
+        ));
         markdown.push_str(&format!("**Agent:** {}\n", session.agent));
         if let Some(ref branch) = session.branch {
             markdown.push_str(&format!("**Branch:** {}\n", branch));
@@ -503,7 +555,7 @@ async fn export_as_markdown(sessions: &[ChatSession], project_path: &str) -> Res
                 "assistant" => "🤖 **Assistant**",
                 _ => &message.role,
             };
-            
+
             markdown.push_str(&format!("{}\n\n", role_display));
             markdown.push_str(&format!("{}\n\n", message.content));
             markdown.push_str("---\n\n");
@@ -532,10 +584,10 @@ mod tests {
     fn test_file_mention_extraction() {
         let content = "Check src/main.rs and ./config.json, also look at Makefile";
         let mentions = extract_file_mentions(content);
-        
+
         println!("Debug: Extracted mentions: {:?}", mentions);
         println!("Debug: Looking for: src/main.rs, ./config.json, Makefile");
-        
+
         assert!(mentions.contains(&"src/main.rs".to_string()));
         assert!(mentions.contains(&"./config.json".to_string()));
         assert!(mentions.contains(&"Makefile".to_string()));
@@ -545,7 +597,7 @@ mod tests {
     fn test_false_positive_filtering() {
         let content = "Visit https://example.com and 192.168.1.1";
         let mentions = extract_file_mentions(content);
-        
+
         assert!(!mentions.iter().any(|m| m.contains("https")));
         assert!(!mentions.iter().any(|m| m.contains("192.168")));
     }

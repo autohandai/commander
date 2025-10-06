@@ -7,17 +7,19 @@ use crate::models::*;
 
 #[tauri::command]
 pub async fn save_app_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
-    let store = app.store("app-settings.json")
+    let store = app
+        .store("app-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
-    
+
     let serialized_settings = serde_json::to_value(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    
+
     store.set("app_settings", serialized_settings);
-    
-    store.save()
+
+    store
+        .save()
         .map_err(|e| format!("Failed to persist settings: {}", e))?;
-    
+
     // Also persist user-facing option into ~/.commander/settings.json
     let _ = set_show_recent_projects_welcome_screen(settings.show_welcome_recent_projects);
 
@@ -40,9 +42,10 @@ pub async fn set_window_theme(window: tauri::Window, theme: String) -> Result<()
 
 #[tauri::command]
 pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
-    let store = app.store("app-settings.json")
+    let store = app
+        .store("app-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
-    
+
     match store.get("app_settings") {
         Some(value) => {
             let settings: AppSettings = serde_json::from_value(value)
@@ -52,14 +55,14 @@ pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, Str
             let mut merged = settings.clone();
             merged.show_welcome_recent_projects = show;
             Ok(merged)
-        },
+        }
         None => {
             // Return default settings
             let mut d = AppSettings::default();
             let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
             d.show_welcome_recent_projects = show;
             Ok(d)
-        },
+        }
     }
 }
 
@@ -74,48 +77,59 @@ pub async fn set_show_recent_projects_setting(enabled: bool) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub async fn save_agent_settings(app: tauri::AppHandle, settings: HashMap<String, bool>) -> Result<(), String> {
-    let store = app.store("agent-settings.json")
+pub async fn save_agent_settings(
+    app: tauri::AppHandle,
+    settings: HashMap<String, bool>,
+) -> Result<(), String> {
+    let store = app
+        .store("agent-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
-    
+
     let serialized_settings = serde_json::to_value(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    
+
     store.set("agent_settings", serialized_settings);
-    
-    store.save()
+
+    store
+        .save()
         .map_err(|e| format!("Failed to persist settings: {}", e))?;
-    
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn save_all_agent_settings(app: tauri::AppHandle, settings: AllAgentSettings) -> Result<(), String> {
-    let store = app.store("all-agent-settings.json")
+pub async fn save_all_agent_settings(
+    app: tauri::AppHandle,
+    settings: AllAgentSettings,
+) -> Result<(), String> {
+    let store = app
+        .store("all-agent-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
-    
+
     let serialized_settings = serde_json::to_value(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    
+
     store.set("all_agent_settings", serialized_settings);
-    
-    store.save()
+
+    store
+        .save()
         .map_err(|e| format!("Failed to persist settings: {}", e))?;
-    
+
     Ok(())
 }
 
 #[tauri::command]
 pub async fn load_all_agent_settings(app: tauri::AppHandle) -> Result<AllAgentSettings, String> {
-    let store = app.store("all-agent-settings.json")
+    let store = app
+        .store("all-agent-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
-    
+
     match store.get("all_agent_settings") {
         Some(value) => {
             let settings: AllAgentSettings = serde_json::from_value(value)
                 .map_err(|e| format!("Failed to deserialize settings: {}", e))?;
             Ok(settings)
-        },
+        }
         None => {
             // Return default settings
             Ok(AllAgentSettings {
@@ -124,16 +138,18 @@ pub async fn load_all_agent_settings(app: tauri::AppHandle) -> Result<AllAgentSe
                 gemini: AgentSettings::default(),
                 max_concurrent_sessions: 10,
             })
-        },
+        }
     }
 }
 
 #[tauri::command]
 fn user_settings_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "Could not determine user home directory".to_string())?;
+    let home =
+        dirs::home_dir().ok_or_else(|| "Could not determine user home directory".to_string())?;
     let dir = home.join(".commander");
     if !dir.exists() {
-        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create settings directory: {}", e))?;
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create settings directory: {}", e))?;
     }
     Ok(dir.join("settings.json"))
 }
@@ -147,7 +163,8 @@ fn load_user_settings_json() -> Result<serde_json::Value, String> {
             }
         }));
     }
-    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
     let v: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
     Ok(v)
 }
@@ -155,8 +172,11 @@ fn load_user_settings_json() -> Result<serde_json::Value, String> {
 fn save_user_settings_json(mut root: serde_json::Value) -> Result<(), String> {
     let path = user_settings_path()?;
     // Ensure object root
-    if !root.is_object() { root = serde_json::json!({}); }
-    let content = serde_json::to_string_pretty(&root).map_err(|e| format!("Failed to serialize settings.json: {}", e))?;
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    let content = serde_json::to_string_pretty(&root)
+        .map_err(|e| format!("Failed to serialize settings.json: {}", e))?;
     fs::write(&path, content).map_err(|e| format!("Failed to write settings.json: {}", e))?;
     Ok(())
 }
@@ -181,15 +201,16 @@ fn set_show_recent_projects_welcome_screen(enabled: bool) -> Result<(), String> 
 
 #[tauri::command]
 pub async fn load_agent_settings(app: tauri::AppHandle) -> Result<HashMap<String, bool>, String> {
-    let store = app.store("agent-settings.json")
+    let store = app
+        .store("agent-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
-    
+
     match store.get("agent_settings") {
         Some(value) => {
             let settings: HashMap<String, bool> = serde_json::from_value(value)
                 .map_err(|e| format!("Failed to deserialize settings: {}", e))?;
             Ok(settings)
-        },
+        }
         None => {
             // Return default settings (all agents enabled)
             let mut default = HashMap::new();
@@ -197,6 +218,6 @@ pub async fn load_agent_settings(app: tauri::AppHandle) -> Result<HashMap<String
             default.insert("codex".to_string(), true);
             default.insert("gemini".to_string(), true);
             Ok(default)
-        },
+        }
     }
 }

@@ -2,10 +2,10 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
 
 // Import all modules
-mod models;
-mod services;
 mod commands;
 mod error;
+mod models;
+mod services;
 
 use commands::*;
 
@@ -40,57 +40,64 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
 
     // Create the app menu (Commander) - this will be the first menu on macOS
     let app_submenu = SubmenuBuilder::new(app, "Commander")
-        .item(&MenuItemBuilder::with_id("about", "About Commander")
-            .build(app)?)
+        .item(&MenuItemBuilder::with_id("about", "About Commander").build(app)?)
         .separator()
-        .item(&MenuItemBuilder::with_id("preferences", "Preferences...")
-            .accelerator("CmdOrCtrl+,")
-            .build(app)?)
+        .item(
+            &MenuItemBuilder::with_id("preferences", "Preferences...")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?,
+        )
         .separator()
         .item(&PredefinedMenuItem::quit(app, Some("Quit Commander"))?)
         .build()?;
-    
+
     // Create Projects submenu as a separate menu
     let projects_submenu = SubmenuBuilder::new(app, "Projects")
-        .item(&MenuItemBuilder::with_id("new_project", "New Project")
-            .accelerator("CmdOrCtrl+N")
-            .build(app)?)
+        .item(
+            &MenuItemBuilder::with_id("new_project", "New Project")
+                .accelerator("CmdOrCtrl+N")
+                .build(app)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::with_id("clone_project", "Clone Project")
-            .accelerator("CmdOrCtrl+Shift+N")
-            .build(app)?)
-        .item(&MenuItemBuilder::with_id("open_project", "Open Project...")
-            .accelerator("CmdOrCtrl+O")
-            .build(app)?)
+        .item(
+            &MenuItemBuilder::with_id("clone_project", "Clone Project")
+                .accelerator("CmdOrCtrl+Shift+N")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("open_project", "Open Project...")
+                .accelerator("CmdOrCtrl+O")
+                .build(app)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::with_id("close_project", "Close Project")
-            .accelerator("CmdOrCtrl+W")
-            .build(app)?)
+        .item(
+            &MenuItemBuilder::with_id("close_project", "Close Project")
+                .accelerator("CmdOrCtrl+W")
+                .build(app)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::with_id("delete_project", "Delete Current Project")
-            .build(app)?)
+        .item(&MenuItemBuilder::with_id("delete_project", "Delete Current Project").build(app)?)
         .build()?;
-    
-    
+
     // Create Help submenu
     let help_submenu = SubmenuBuilder::new(app, "Help")
-        .item(&MenuItemBuilder::with_id("documentation", "Documentation")
-            .build(app)?)
-        .item(&MenuItemBuilder::with_id("keyboard_shortcuts_help", "Keyboard Shortcuts")
-            .build(app)?)
+        .item(&MenuItemBuilder::with_id("documentation", "Documentation").build(app)?)
+        .item(
+            &MenuItemBuilder::with_id("keyboard_shortcuts_help", "Keyboard Shortcuts")
+                .build(app)?,
+        )
         .separator()
-        .item(&MenuItemBuilder::with_id("report_issue", "Report Issue")
-            .build(app)?)
+        .item(&MenuItemBuilder::with_id("report_issue", "Report Issue").build(app)?)
         .build()?;
-    
+
     // Create main menu - order matters on macOS
     let menu = MenuBuilder::new(app)
-        .item(&app_submenu)        // Commander menu (first)
-        .item(&projects_submenu)   // Projects menu (second)
-        .item(&edit_submenu)       // Edit menu (third) enables keyboard copy/paste
-        .item(&help_submenu)       // Help menu (fourth)
+        .item(&app_submenu) // Commander menu (first)
+        .item(&projects_submenu) // Projects menu (second)
+        .item(&edit_submenu) // Edit menu (third) enables keyboard copy/paste
+        .item(&help_submenu) // Help menu (fourth)
         .build()?;
-    
+
     Ok(menu)
 }
 
@@ -104,7 +111,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            greet, 
+            greet,
             start_drag,
             execute_cli_command,
             execute_persistent_cli_command,
@@ -221,7 +228,8 @@ pub fn run() {
             select_git_project_folder,
             open_project_from_path,
             get_cli_project_path,
-            clear_cli_project_path
+            clear_cli_project_path,
+            open_file_in_editor
         ])
         .setup(|app| {
             // Handle command line arguments for opening projects
@@ -230,25 +238,27 @@ pub fn run() {
             if args.len() > 1 {
                 let path_arg = args[1].clone(); // Clone the string to avoid borrowing issues
                 let app_handle = app.handle().clone();
-                
+
                 // Spawn async task to handle project opening
                 tauri::async_runtime::spawn(async move {
                     // Wait longer for frontend to fully initialize and set up event listeners
                     println!("⏳ Waiting for frontend to initialize...");
                     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-                    
+
                     println!("🚀 Processing CLI project path: {}", path_arg);
-                    
+
                     // Resolve and store the project path for frontend to pick up
                     let absolute_path = if std::path::Path::new(&path_arg).is_absolute() {
                         std::path::PathBuf::from(&path_arg)
                     } else {
                         std::env::current_dir().unwrap_or_default().join(&path_arg)
                     };
-                    
+
                     let path_str = absolute_path.to_string_lossy().to_string();
-                    
-                    if let Some(git_root) = crate::services::git_service::resolve_git_project_path(&path_str) {
+
+                    if let Some(git_root) =
+                        crate::services::git_service::resolve_git_project_path(&path_str)
+                    {
                         println!("✅ CLI git root found: {}", git_root);
                         commands::git_commands::set_cli_project_path(git_root);
                     } else {
@@ -257,13 +267,13 @@ pub fn run() {
                 });
             }
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-            
+
             // Create and set the native menu
             println!("🍎 Creating native menu...");
             let menu = create_native_menu(app)?;
             app.set_menu(menu.clone())?;
             println!("✅ Native menu created and set successfully!");
-            
+
             // Handle menu events
             app.on_menu_event({
                 let app_handle = app.handle().clone();
@@ -276,49 +286,49 @@ pub fn run() {
                             "new_project" => {
                                 println!("📝 Creating new project via menu...");
                                 let _ = menu_new_project(app_clone).await;
-                            },
+                            }
                             "clone_project" => {
                                 println!("🌿 Cloning project via menu...");
                                 let _ = menu_clone_project(app_clone).await;
-                            },
+                            }
                             "open_project" => {
                                 println!("📂 Opening project via menu...");
                                 let _ = menu_open_project(app_clone).await;
-                            },
+                            }
                             "close_project" => {
                                 println!("❌ Closing project via menu...");
                                 let _ = menu_close_project(app_clone).await;
-                            },
+                            }
                             "delete_project" => {
                                 println!("🗑️ Deleting project via menu...");
                                 let _ = menu_delete_project(app_clone).await;
-                            },
+                            }
                             // Settings menu items
                             "preferences" => {
                                 println!("⚙️ Opening preferences via menu...");
                                 app_clone.emit("menu://open-settings", ()).unwrap();
-                            },
+                            }
                             "keyboard_shortcuts" => {
                                 println!("⌨️ Opening keyboard shortcuts via menu...");
                                 app_clone.emit("menu://open-shortcuts", ()).unwrap();
-                            },
+                            }
                             // Help menu items
                             "about" => {
                                 println!("ℹ️ Opening about dialog via menu...");
                                 app_clone.emit("menu://open-about", ()).unwrap();
-                            },
+                            }
                             "documentation" => {
                                 println!("📚 Opening documentation via menu...");
                                 app_clone.emit("menu://open-docs", ()).unwrap();
-                            },
+                            }
                             "keyboard_shortcuts_help" => {
                                 println!("⌨️ Opening keyboard shortcuts help via menu...");
                                 app_clone.emit("menu://open-shortcuts", ()).unwrap();
-                            },
+                            }
                             "report_issue" => {
                                 println!("🐛 Opening issue reporter via menu...");
                                 app_clone.emit("menu://report-issue", ()).unwrap();
-                            },
+                            }
                             _ => {
                                 println!("Unhandled menu event: {:?}", event.id());
                             }
@@ -326,13 +336,13 @@ pub fn run() {
                     });
                 }
             });
-            
+
             // Start monitoring AI agents on app startup
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = monitor_ai_agents(app_handle).await;
             });
-            
+
             // Start session cleanup task
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -342,31 +352,36 @@ pub fn run() {
                 }
             });
 
-            
             // Register Cmd+, shortcut for Settings on macOS
             let shortcut_manager = app.global_shortcut();
-            let settings_shortcut = Shortcut::new(Some(tauri_plugin_global_shortcut::Modifiers::SUPER), tauri_plugin_global_shortcut::Code::Comma);
-            
+            let settings_shortcut = Shortcut::new(
+                Some(tauri_plugin_global_shortcut::Modifiers::SUPER),
+                tauri_plugin_global_shortcut::Code::Comma,
+            );
+
             shortcut_manager.on_shortcut(settings_shortcut, move |app, _shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
                     // Emit an event to the frontend to open settings
                     app.emit("shortcut://open-settings", ()).unwrap();
                 }
             })?;
-            
-            // Register Cmd+Shift+P shortcut for Chat on macOS  
+
+            // Register Cmd+Shift+P shortcut for Chat on macOS
             let chat_shortcut = Shortcut::new(
-                Some(tauri_plugin_global_shortcut::Modifiers::SUPER | tauri_plugin_global_shortcut::Modifiers::SHIFT), 
-                tauri_plugin_global_shortcut::Code::KeyP
+                Some(
+                    tauri_plugin_global_shortcut::Modifiers::SUPER
+                        | tauri_plugin_global_shortcut::Modifiers::SHIFT,
+                ),
+                tauri_plugin_global_shortcut::Code::KeyP,
             );
-            
+
             shortcut_manager.on_shortcut(chat_shortcut, move |app, _shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
                     // Emit an event to the frontend to toggle chat
                     app.emit("shortcut://toggle-chat", ()).unwrap();
                 }
             })?;
-            
+
             Ok(())
         });
 

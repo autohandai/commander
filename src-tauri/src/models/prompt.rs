@@ -49,21 +49,21 @@ impl PromptTemplate {
     #[allow(dead_code)]
     pub fn render(&self, variables: &HashMap<String, String>) -> String {
         let mut rendered = self.content.clone();
-        
+
         for (key, value) in variables {
             let placeholder = format!("{{{{{}}}}}", key);
             rendered = rendered.replace(&placeholder, value);
         }
-        
+
         rendered
     }
-    
+
     /// Extract all variable placeholders from the content
     #[allow(dead_code)]
     pub fn extract_variables(&self) -> Vec<String> {
         let mut variables = Vec::new();
         let content = &self.content;
-        
+
         let mut start = 0;
         while let Some(open_pos) = content[start..].find("{{") {
             let open_pos = start + open_pos;
@@ -78,20 +78,23 @@ impl PromptTemplate {
                 break;
             }
         }
-        
+
         variables
     }
-    
+
     /// Validate that all required variables are provided
     #[allow(dead_code)]
-    pub fn validate_variables(&self, variables: &HashMap<String, String>) -> Result<(), Vec<String>> {
+    pub fn validate_variables(
+        &self,
+        variables: &HashMap<String, String>,
+    ) -> Result<(), Vec<String>> {
         let required_vars = self.extract_variables();
         let missing_vars: Vec<String> = required_vars
             .iter()
             .filter(|var| !variables.contains_key(*var))
             .cloned()
             .collect();
-            
+
         if missing_vars.is_empty() {
             Ok(())
         } else {
@@ -106,13 +109,13 @@ impl PromptsConfig {
     pub fn get_prompt(&self, category: &str, key: &str) -> Option<&PromptTemplate> {
         self.prompts.get(category)?.get(key)
     }
-    
+
     /// Get all prompts in a category
     #[allow(dead_code)]
     pub fn get_category_prompts(&self, category: &str) -> Option<&HashMap<String, PromptTemplate>> {
         self.prompts.get(category)
     }
-    
+
     /// Get all enabled categories
     #[allow(dead_code)]
     pub fn get_enabled_categories(&self) -> Vec<(&String, &PromptCategory)> {
@@ -121,14 +124,17 @@ impl PromptsConfig {
             .filter(|(_, category)| category.enabled)
             .collect()
     }
-    
+
     /// Add a new prompt to a category
     #[allow(dead_code)]
     pub fn add_prompt(&mut self, category: String, key: String, prompt: PromptTemplate) {
-        self.prompts.entry(category).or_default().insert(key, prompt);
+        self.prompts
+            .entry(category)
+            .or_default()
+            .insert(key, prompt);
         self.updated_at = chrono::Utc::now().timestamp();
     }
-    
+
     /// Remove a prompt from a category
     #[allow(dead_code)]
     pub fn remove_prompt(&mut self, category: &str, key: &str) -> Option<PromptTemplate> {

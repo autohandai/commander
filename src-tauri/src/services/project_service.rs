@@ -28,9 +28,11 @@ pub fn check_project_name_conflict(projects_folder: &str, project_name: &str) ->
     project_path.exists()
 }
 
-
 /// Add a project to the recent projects list
-pub async fn add_project_to_recent_projects(app: &tauri::AppHandle, project_path: String) -> Result<(), String> {
+pub async fn add_project_to_recent_projects(
+    app: &tauri::AppHandle,
+    project_path: String,
+) -> Result<(), String> {
     // Align with commands recent projects store: keep "projects" as an ARRAY of RecentProject
     let store = app
         .store("recent-projects.json")
@@ -77,7 +79,9 @@ pub async fn add_project_to_recent_projects(app: &tauri::AppHandle, project_path
     let serialized = serde_json::to_value(&existing)
         .map_err(|e| format!("Failed to serialize projects: {}", e))?;
     store.set("projects", serialized);
-    store.save().map_err(|e| format!("Failed to save store: {}", e))?;
+    store
+        .save()
+        .map_err(|e| format!("Failed to save store: {}", e))?;
 
     Ok(())
 }
@@ -148,7 +152,9 @@ pub async fn open_existing_project(
     let serialized = serde_json::to_value(&updated)
         .map_err(|e| format!("Failed to serialize projects: {}", e))?;
     store.set("projects", serialized);
-    store.save().map_err(|e| format!("Failed to save store: {}", e))?;
+    store
+        .save()
+        .map_err(|e| format!("Failed to save store: {}", e))?;
 
     // Set active working directory
     std::env::set_current_dir(&project_path)

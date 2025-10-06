@@ -23,6 +23,7 @@ import type { ChatMessage } from '@/components/chat/types';
 import type { SessionStatus } from '@/components/chat/types';
 import { useChatExecution } from '@/components/chat/hooks/useChatExecution';
 import { ClaudeStreamParser } from '@/components/chat/stream/claudeStreamParser'
+import { CodexStreamParser } from '@/components/chat/codex/streamParser'
 import { setStepStatus, updateMessagesPlanStep } from '@/components/chat/planStatus';
 import { buildAutocompleteOptions } from '@/components/chat/autocomplete';
 import type { Plan } from '@/components/chat/plan';
@@ -507,7 +508,34 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     setCommandType(null);
     
     const permissionMode = planModeEnabled ? 'plan' : 'acceptEdits'
-    await execute(agentToUse || selectedAgent || 'claude', messageToSend, executionMode, unsafeFull, permissionMode as any)
+    let approvalMode: 'default' | 'auto_edit' | 'yolo' | undefined
+
+    if (targetId === 'gemini') {
+      try {
+        const cliSettings = await invoke<any>('load_agent_cli_settings', { agent: 'gemini', projectPath: project.path })
+        const directDefault = cliSettings?.approvalDefault || cliSettings?.approval_default
+        if (typeof directDefault === 'string') {
+          const normalized = directDefault.replace('-', '_') as 'default' | 'auto_edit' | 'yolo'
+          approvalMode = normalized
+        } else if (agentSettings?.gemini?.auto_approval) {
+          approvalMode = 'auto_edit'
+        }
+      } catch (error) {
+        console.error('Failed to load Gemini CLI settings:', error)
+        if (agentSettings?.gemini?.auto_approval) {
+          approvalMode = 'auto_edit'
+        }
+      }
+    }
+
+    await execute(
+      agentToUse || selectedAgent || 'claude',
+      messageToSend,
+      executionMode,
+      unsafeFull,
+      permissionMode as any,
+      approvalMode
+    )
   };
 
   // Handle plan execution
@@ -697,11 +725,10 @@ Please focus only on this step.`;
 
       setMessages(prev => prev.map(msg => {
         if (msg.id !== chunk.session_id) return msg
-        // Detect if this is a Claude session and chunk looks like JSON stream
         const agentId = (msg.agent || '').toLowerCase()
-        const isClaude = agentId.includes('claude')
         const looksJson = chunk.content.trim().startsWith('{') || chunk.content.includes('"type"')
-        if (isClaude && looksJson) {
+
+        if (agentId.includes('claude') && looksJson) {
           let parser = parsers.get(chunk.session_id)
           if (!parser) {
             parser = new ClaudeStreamParser('claude')
@@ -710,6 +737,23 @@ Please focus only on this step.`;
           const delta = parser.feed(chunk.content)
           return { ...msg, content: msg.content + delta, isStreaming: !chunk.finished }
         }
+
+        if (agentId.includes('codex') && looksJson) {
+          if (!(window as any).__codexParsers) (window as any).__codexParsers = new Map<string, CodexStreamParser>()
+          const codexParsers: Map<string, CodexStreamParser> = (window as any).__codexParsers
+          let parser = codexParsers.get(chunk.session_id)
+          if (!parser) {
+            parser = new CodexStreamParser()
+            codexParsers.set(chunk.session_id, parser)
+          }
+          const text = parser.feed(chunk.content)
+          if (text !== undefined) {
+            return { ...msg, content: text, isStreaming: !chunk.finished }
+          }
+          // If parser returns undefined (filtered event), don't append raw content
+          return msg
+        }
+
         return { ...msg, content: msg.content + chunk.content, isStreaming: !chunk.finished }
       }))
       if (chunk.finished) {
@@ -732,6 +776,10 @@ Please focus only on this step.`;
         try {
           const parsers: Map<string, ClaudeStreamParser> = (window as any).__claudeParsers
           parsers?.delete(chunk.session_id)
+        } catch {}
+        try {
+          const codexParsers: Map<string, CodexStreamParser> = (window as any).__codexParsers
+          codexParsers?.delete(chunk.session_id)
         } catch {}
       }
     },

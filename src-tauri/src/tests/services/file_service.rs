@@ -23,4 +23,3 @@ mod tests {
         assert!(err.contains("Failed to read file"));
     }
 }
-
