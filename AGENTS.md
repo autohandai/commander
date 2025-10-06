@@ -4,6 +4,13 @@
 
 Every agent working on this Commander project MUST follow these standards. No exceptions.
 
+We use bun run tauri dev to run the app.
+
+You always work on features that are configurable via the Settings Panel in the app. Every feature must be toggleable or adjustable through user preferences.
+Before you write any code, you will write the PRD and save in the docs/ directory.
+
+You write the TDD and then write the feature implementation.
+
 ## Architecture Pattern - STRICT COMPLIANCE
 
 ### Modular Structure (REQUIRED)

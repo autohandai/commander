@@ -228,7 +228,8 @@ pub fn run() {
             select_git_project_folder,
             open_project_from_path,
             get_cli_project_path,
-            clear_cli_project_path
+            clear_cli_project_path,
+            open_file_in_editor
         ])
         .setup(|app| {
             // Handle command line arguments for opening projects

@@ -1,17 +1,40 @@
 use once_cell::sync::Lazy;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex};
 
 use crate::commands::settings_commands::load_all_agent_settings;
 use crate::models::*;
-use crate::services::cli_output_service::sanitize_cli_output_line;
-use crate::services::execution_mode_service::{codex_flags_for_mode, ExecutionMode};
+use crate::services::cli_command_builder::build_codex_command_args;
+use crate::services::cli_output_service::{sanitize_cli_output_line, CodexStreamAccumulator};
+use crate::services::codex_sdk_service::{build_codex_thread_prefs, CodexThreadPreferences};
+use crate::services::execution_mode_service::ExecutionMode;
+use serde::{Deserialize, Serialize};
+use std::process::Command as StdCommand;
+
+const CODEX_SDK_RUNNER_SOURCE: &str = include_str!("../../../scripts/codex-sdk-runner.mjs");
+
+static CODEX_SDK_RUNNER_PATH: Lazy<Result<PathBuf, String>> = Lazy::new(|| {
+    let mut path = std::env::temp_dir();
+    path.push("commander-codex-sdk-runner.mjs");
+
+    if let Err(e) = fs::write(&path, CODEX_SDK_RUNNER_SOURCE) {
+        return Err(format!(
+            "Failed to materialize Codex SDK runner script: {}",
+            e
+        ));
+    }
+
+    Ok(path)
+});
 
 // Constants for session management
 const SESSION_TIMEOUT_SECONDS: i64 = 1800; // 30 minutes
@@ -98,6 +121,8 @@ async fn build_agent_command_args(
         _ => &AgentSettings::default(),
     };
 
+    let parsed_execution_mode = execution_mode.as_deref().and_then(ExecutionMode::from_str);
+
     match agent {
         "claude" => {
             // Use prompt mode with stream-json for structured output
@@ -126,30 +151,12 @@ async fn build_agent_command_args(
             }
         }
         "codex" => {
-            args.push("exec".to_string());
-
-            // Add model flag if set in preferences
-            if let Some(ref model) = current_agent_settings.model {
-                if !model.is_empty() {
-                    args.push("--model".to_string());
-                    args.push(model.clone());
-                }
-            }
-
-            // Add flags based on execution mode (if provided)
-            if let Some(mode_str) = execution_mode {
-                if let Some(mode) = ExecutionMode::from_str(&mode_str) {
-                    let extra = codex_flags_for_mode(
-                        mode,
-                        dangerous_bypass && matches!(mode, ExecutionMode::Full),
-                    );
-                    args.extend(extra);
-                }
-            }
-
-            if !message.is_empty() {
-                args.push(message.to_string());
-            }
+            args.extend(build_codex_command_args(
+                message,
+                parsed_execution_mode,
+                dangerous_bypass,
+                Some(current_agent_settings),
+            ));
         }
         "gemini" => {
             args.push("--prompt".to_string());
@@ -324,6 +331,7 @@ async fn check_command_available(command: &str) -> bool {
 async fn try_spawn_with_pty(
     app: tauri::AppHandle,
     session_id: String,
+    agent: &str,
     program: &str,
     args: &[String],
     working_dir: Option<String>,
@@ -334,7 +342,10 @@ async fn try_spawn_with_pty(
     let args_v = args.to_vec();
     let session_id_clone = session_id.clone();
 
+    let agent_string = agent.to_string();
+
     tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let agent_ref = agent_string;
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -369,20 +380,48 @@ async fn try_spawn_with_pty(
 
         // Read loop: emit chunks as they arrive
         let mut buf = [0u8; 4096];
+        let mut codex_accumulator = if agent_ref.eq_ignore_ascii_case("codex") {
+            Some(CodexStreamAccumulator::new())
+        } else {
+            None
+        };
+
         loop {
             match std::io::Read::read(&mut reader, &mut buf) {
                 Ok(0) => break, // EOF
                 Ok(n) => {
                     let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                    // Emit synchronously — safe on main thread; tauri queues it.
-                    let _ = app_clone.emit(
-                        "cli-stream",
-                        StreamChunk {
-                            session_id: session_id_clone.clone(),
-                            content: text,
-                            finished: false,
-                        },
-                    );
+                    if let Some(acc) = codex_accumulator.as_mut() {
+                        for segment in acc.push_chunk(&text) {
+                            if let Some(filtered) = sanitize_cli_output_line(&agent_ref, &segment) {
+                                let _ = app_clone.emit(
+                                    "cli-stream",
+                                    StreamChunk {
+                                        session_id: session_id_clone.clone(),
+                                        content: filtered,
+                                        finished: false,
+                                    },
+                                );
+                            }
+                        }
+                    } else {
+                        for line in text.split_inclusive(['\n', '\r']) {
+                            let trimmed = line.trim_end_matches(['\n', '\r']);
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            if let Some(filtered) = sanitize_cli_output_line(&agent_ref, trimmed) {
+                                let _ = app_clone.emit(
+                                    "cli-stream",
+                                    StreamChunk {
+                                        session_id: session_id_clone.clone(),
+                                        content: format!("{}\n", filtered),
+                                        finished: false,
+                                    },
+                                );
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     let _ = app_clone.emit(
@@ -402,6 +441,20 @@ async fn try_spawn_with_pty(
         let status = child
             .wait()
             .map_err(|e| format!("Failed to wait on PTY child: {}", e))?;
+        if let Some(mut acc) = codex_accumulator {
+            if let Some(remaining) = acc.flush() {
+                if let Some(filtered) = sanitize_cli_output_line(&agent_ref, &remaining) {
+                    let _ = app_clone.emit(
+                        "cli-stream",
+                        StreamChunk {
+                            session_id: session_id_clone.clone(),
+                            content: filtered,
+                            finished: false,
+                        },
+                    );
+                }
+            }
+        }
         let _ = app_clone.emit(
             "cli-stream",
             StreamChunk {
@@ -420,6 +473,202 @@ async fn try_spawn_with_pty(
     .map_err(|e| format!("PTY task join error: {}", e))??;
 
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct CodexSdkInvocation {
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    prompt: String,
+    #[serde(rename = "workingDirectory", skip_serializing_if = "Option::is_none")]
+    working_directory: Option<String>,
+    #[serde(rename = "sandboxMode", skip_serializing_if = "Option::is_none")]
+    sandbox_mode: Option<String>,
+    #[serde(rename = "model", skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(rename = "skipGitRepoCheck")]
+    skip_git_repo_check: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexSdkBridgeMessage {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    content: Option<String>,
+    error: Option<String>,
+    #[serde(default)]
+    finished: bool,
+}
+
+fn resolve_codex_runner_path() -> Result<PathBuf, String> {
+    match CODEX_SDK_RUNNER_PATH.as_ref() {
+        Ok(path) => Ok(path.clone()),
+        Err(err) => Err(err.clone()),
+    }
+}
+
+async fn try_spawn_codex_sdk(
+    app: tauri::AppHandle,
+    session_id: String,
+    prompt: String,
+    working_dir: Option<String>,
+    prefs: CodexThreadPreferences,
+    model: Option<String>,
+) -> Result<(), String> {
+    let script_path = resolve_codex_runner_path()?;
+
+    let mut cmd = Command::new("node");
+    cmd.arg(
+        script_path
+            .to_str()
+            .ok_or_else(|| "Invalid script path".to_string())?,
+    )
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+
+    let node_modules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../node_modules");
+    if let Ok(canonical) = fs::canonicalize(&node_modules_dir) {
+        cmd.env("NODE_PATH", &canonical);
+
+        let sdk_dist_path = canonical.join("@openai/codex-sdk/dist/index.js");
+        if sdk_dist_path.exists() {
+            cmd.env("CODEX_SDK_DIST_PATH", sdk_dist_path);
+        }
+    }
+
+    if let Some(dir) = &working_dir {
+        cmd.current_dir(dir);
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn Codex SDK runner: {}", e))?;
+
+    let config = CodexSdkInvocation {
+        session_id: session_id.clone(),
+        prompt,
+        working_directory: working_dir.clone(),
+        sandbox_mode: prefs.sandbox_mode.clone(),
+        model,
+        skip_git_repo_check: prefs.skip_git_repo_check,
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let payload = serde_json::to_string(&config)
+            .map_err(|e| format!("Failed to serialize Codex SDK config: {}", e))?;
+        tokio::spawn(async move {
+            let _ = stdin.write_all(payload.as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        });
+    }
+
+    if let Some(stdout) = child.stdout.take() {
+        let app_for_stdout = app.clone();
+        let session_for_stdout = session_id.clone();
+        tokio::spawn(async move {
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                let parsed: Result<CodexSdkBridgeMessage, _> = serde_json::from_str(&line);
+                match parsed {
+                    Ok(msg) => {
+                        let sid = msg.session_id.unwrap_or_else(|| session_for_stdout.clone());
+
+                        if let Some(error) = msg.error {
+                            let chunk = StreamChunk {
+                                session_id: sid,
+                                content: format!("❌ Codex error: {}\n", error),
+                                finished: msg.finished,
+                            };
+                            let _ = app_for_stdout.emit("cli-stream", chunk);
+                        } else if let Some(content) = msg.content {
+                            let chunk = StreamChunk {
+                                session_id: sid,
+                                content,
+                                finished: msg.finished,
+                            };
+                            let _ = app_for_stdout.emit("cli-stream", chunk);
+                        }
+                    }
+                    Err(_) => {
+                        let chunk = StreamChunk {
+                            session_id: session_for_stdout.clone(),
+                            content: line + "\n",
+                            finished: false,
+                        };
+                        let _ = app_for_stdout.emit("cli-stream", chunk);
+                    }
+                }
+            }
+        });
+    }
+
+    if let Some(stderr) = child.stderr.take() {
+        let app_for_stderr = app.clone();
+        let session_for_stderr = session_id.clone();
+        tokio::spawn(async move {
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let parsed: Result<CodexSdkBridgeMessage, _> = serde_json::from_str(&line);
+                match parsed {
+                    Ok(msg) => {
+                        let sid = msg.session_id.unwrap_or_else(|| session_for_stderr.clone());
+                        if let Some(error) = msg.error {
+                            let chunk = StreamChunk {
+                                session_id: sid,
+                                content: format!("❌ Codex error: {}\n", error),
+                                finished: msg.finished,
+                            };
+                            let _ = app_for_stderr.emit("cli-stream", chunk);
+                        }
+                    }
+                    Err(_) => {
+                        // Ignore non-JSON stderr lines (debug logging from SDK runner)
+                    }
+                }
+            }
+        });
+    }
+
+    match child.wait().await {
+        Ok(status) => {
+            if status.success() {
+                let _ = app.emit(
+                    "cli-stream",
+                    StreamChunk {
+                        session_id,
+                        content: "\n✅ Command completed successfully\n".to_string(),
+                        finished: true,
+                    },
+                );
+            } else {
+                let _ = app.emit(
+                    "cli-stream",
+                    StreamChunk {
+                        session_id,
+                        content: format!(
+                            "\n❌ Codex SDK runner exited with status {}\n",
+                            status.code().unwrap_or(-1)
+                        ),
+                        finished: true,
+                    },
+                );
+            }
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to wait for Codex SDK runner: {}", e)),
+    }
 }
 
 #[tauri::command]
@@ -452,6 +701,50 @@ pub async fn execute_persistent_cli_command(
             finished: false,
         };
         let _ = app_clone.emit("cli-stream", info_chunk);
+
+        let dangerous_bypass = dangerousBypass.unwrap_or(false);
+
+        if agent_name.eq_ignore_ascii_case("codex") {
+            let all_agent_settings = load_all_agent_settings(app_clone.clone())
+                .await
+                .unwrap_or_else(|_| AllAgentSettings {
+                    claude: AgentSettings::default(),
+                    codex: AgentSettings::default(),
+                    gemini: AgentSettings::default(),
+                    max_concurrent_sessions: 10,
+                });
+
+            let current_agent_settings = all_agent_settings.codex.clone();
+            let parsed_execution_mode = execution_mode.as_deref().and_then(ExecutionMode::from_str);
+            let prefs = build_codex_thread_prefs(parsed_execution_mode, dangerous_bypass);
+            let model = current_agent_settings.model.clone();
+
+            match try_spawn_codex_sdk(
+                app_clone.clone(),
+                session_id_clone.clone(),
+                actual_message.clone(),
+                working_dir.clone(),
+                prefs,
+                model,
+            )
+            .await
+            {
+                Ok(()) => {
+                    return;
+                },
+                Err(err) => {
+                    let fallback_chunk = StreamChunk {
+                        session_id: session_id_clone.clone(),
+                        content: format!(
+                            "ℹ️ Codex SDK runner unavailable ({}). Falling back to CLI…\n",
+                            err
+                        ),
+                        finished: false,
+                    };
+                    let _ = app_clone.emit("cli-stream", fallback_chunk);
+                }
+            }
+        }
 
         // Check if command is available
         if !check_command_available(&agent_name).await {
@@ -488,7 +781,7 @@ pub async fn execute_persistent_cli_command(
             &actual_message,
             &app_clone,
             execution_mode.clone(),
-            dangerousBypass.unwrap_or(false),
+            dangerous_bypass,
             permissionMode.clone(),
         )
         .await;
@@ -498,14 +791,16 @@ pub async fn execute_persistent_cli_command(
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or(agent_name.clone());
 
-        // Decide spawn strategy:
-        // When a specific working_dir is requested we prefer pipe streaming with explicit current_dir
-        // for maximum reliability across platforms. Otherwise try PTY first for richer streaming.
-        // ALWAYS use pipe method when working_dir is specified to ensure directory is respected
-        if working_dir.is_none() {
+        // Prefer PTY for richer streaming – Codex in particular emits carriage-return updates that
+        // disappear when spawned via plain pipes. `try_spawn_with_pty` respects the working
+        // directory, so we can safely attempt it regardless of `working_dir`.
+        let prefer_pty = working_dir.is_none() || agent_name.eq_ignore_ascii_case("codex");
+
+        if prefer_pty {
             if let Err(e) = try_spawn_with_pty(
                 app_clone.clone(),
                 session_id_clone.clone(),
+                &agent_name,
                 &resolved_prog,
                 &command_args,
                 working_dir.clone(),
@@ -549,19 +844,69 @@ pub async fn execute_persistent_cli_command(
                     let session_id_for_stdout = session_id_clone.clone();
                     let agent_for_stdout = agent_name.clone();
                     tokio::spawn(async move {
-                        let reader = BufReader::new(stdout);
-                        let mut lines = reader.lines();
+                        if agent_for_stdout.eq_ignore_ascii_case("codex") {
+                            let mut reader = BufReader::new(stdout);
+                            let mut buf = vec![0u8; 4096];
+                            let mut accumulator = CodexStreamAccumulator::new();
 
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            if let Some(filtered) =
-                                sanitize_cli_output_line(&agent_for_stdout, &line)
-                            {
-                                let chunk = StreamChunk {
-                                    session_id: session_id_for_stdout.clone(),
-                                    content: filtered + "\n",
-                                    finished: false,
-                                };
-                                let _ = app_for_stdout.emit("cli-stream", chunk);
+                            loop {
+                                match reader.read(&mut buf).await {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        let text = String::from_utf8_lossy(&buf[..n]);
+                                        for segment in accumulator.push_chunk(text.as_ref()) {
+                                            if let Some(filtered) = sanitize_cli_output_line(
+                                                &agent_for_stdout,
+                                                &segment,
+                                            ) {
+                                                let chunk = StreamChunk {
+                                                    session_id: session_id_for_stdout.clone(),
+                                                    content: filtered,
+                                                    finished: false,
+                                                };
+                                                let _ = app_for_stdout.emit("cli-stream", chunk);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let chunk = StreamChunk {
+                                            session_id: session_id_for_stdout.clone(),
+                                            content: format!("ERROR: {}\n", e),
+                                            finished: false,
+                                        };
+                                        let _ = app_for_stdout.emit("cli-stream", chunk);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if let Some(remaining) = accumulator.flush() {
+                                if let Some(filtered) =
+                                    sanitize_cli_output_line(&agent_for_stdout, &remaining)
+                                {
+                                    let chunk = StreamChunk {
+                                        session_id: session_id_for_stdout,
+                                        content: filtered,
+                                        finished: false,
+                                    };
+                                    let _ = app_for_stdout.emit("cli-stream", chunk);
+                                }
+                            }
+                        } else {
+                            let reader = BufReader::new(stdout);
+                            let mut lines = reader.lines();
+
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                if let Some(filtered) =
+                                    sanitize_cli_output_line(&agent_for_stdout, &line)
+                                {
+                                    let chunk = StreamChunk {
+                                        session_id: session_id_for_stdout.clone(),
+                                        content: filtered + "\n",
+                                        finished: false,
+                                    };
+                                    let _ = app_for_stdout.emit("cli-stream", chunk);
+                                }
                             }
                         }
                     });
@@ -573,19 +918,69 @@ pub async fn execute_persistent_cli_command(
                     let session_id_for_stderr = session_id_clone.clone();
                     let agent_for_stderr = agent_name.clone();
                     tokio::spawn(async move {
-                        let reader = BufReader::new(stderr);
-                        let mut lines = reader.lines();
+                        if agent_for_stderr.eq_ignore_ascii_case("codex") {
+                            let mut reader = BufReader::new(stderr);
+                            let mut buf = vec![0u8; 4096];
+                            let mut accumulator = CodexStreamAccumulator::new();
 
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            if let Some(filtered) =
-                                sanitize_cli_output_line(&agent_for_stderr, &line)
-                            {
-                                let chunk = StreamChunk {
-                                    session_id: session_id_for_stderr.clone(),
-                                    content: format!("ERROR: {}\n", filtered),
-                                    finished: false,
-                                };
-                                let _ = app_for_stderr.emit("cli-stream", chunk);
+                            loop {
+                                match reader.read(&mut buf).await {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        let text = String::from_utf8_lossy(&buf[..n]);
+                                        for segment in accumulator.push_chunk(text.as_ref()) {
+                                            if let Some(filtered) = sanitize_cli_output_line(
+                                                &agent_for_stderr,
+                                                &segment,
+                                            ) {
+                                                let chunk = StreamChunk {
+                                                    session_id: session_id_for_stderr.clone(),
+                                                    content: format!("ERROR: {}\n", filtered),
+                                                    finished: false,
+                                                };
+                                                let _ = app_for_stderr.emit("cli-stream", chunk);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let chunk = StreamChunk {
+                                            session_id: session_id_for_stderr.clone(),
+                                            content: format!("ERROR: {}\n", e),
+                                            finished: false,
+                                        };
+                                        let _ = app_for_stderr.emit("cli-stream", chunk);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if let Some(remaining) = accumulator.flush() {
+                                if let Some(filtered) =
+                                    sanitize_cli_output_line(&agent_for_stderr, &remaining)
+                                {
+                                    let chunk = StreamChunk {
+                                        session_id: session_id_for_stderr,
+                                        content: format!("ERROR: {}\n", filtered),
+                                        finished: false,
+                                    };
+                                    let _ = app_for_stderr.emit("cli-stream", chunk);
+                                }
+                            }
+                        } else {
+                            let reader = BufReader::new(stderr);
+                            let mut lines = reader.lines();
+
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                if let Some(filtered) =
+                                    sanitize_cli_output_line(&agent_for_stderr, &line)
+                                {
+                                    let chunk = StreamChunk {
+                                        session_id: session_id_for_stderr.clone(),
+                                        content: format!("ERROR: {}\n", filtered),
+                                        finished: false,
+                                    };
+                                    let _ = app_for_stderr.emit("cli-stream", chunk);
+                                }
                             }
                         }
                     });
@@ -670,14 +1065,14 @@ pub async fn execute_claude_command(
     app: tauri::AppHandle,
     #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)] working_dir: Option<String>,
+    #[allow(non_snake_case)] workingDir: Option<String>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
         sessionId,
         "claude".to_string(),
         message,
-        working_dir,
+        workingDir,
         None,
         None,
         None,
@@ -690,7 +1085,7 @@ pub async fn execute_codex_command(
     app: tauri::AppHandle,
     #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)] working_dir: Option<String>,
+    #[allow(non_snake_case)] workingDir: Option<String>,
     executionMode: Option<String>,
     dangerousBypass: Option<bool>,
     permissionMode: Option<String>,
@@ -700,7 +1095,7 @@ pub async fn execute_codex_command(
         sessionId,
         "codex".to_string(),
         message,
-        working_dir,
+        workingDir,
         executionMode,
         dangerousBypass,
         permissionMode,
@@ -713,14 +1108,14 @@ pub async fn execute_gemini_command(
     app: tauri::AppHandle,
     #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)] working_dir: Option<String>,
+    #[allow(non_snake_case)] workingDir: Option<String>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
         sessionId,
         "gemini".to_string(),
         message,
-        working_dir,
+        workingDir,
         None,
         None,
         None,
@@ -734,11 +1129,11 @@ pub async fn execute_test_command(
     app: tauri::AppHandle,
     #[allow(non_snake_case)] sessionId: String,
     message: String,
-    #[allow(non_snake_case)] working_dir: Option<String>,
+    #[allow(non_snake_case)] workingDir: Option<String>,
 ) -> Result<(), String> {
     let app_clone = app.clone();
     let session_id_clone = sessionId.clone();
-    let _ = working_dir; // currently unused
+    let _ = workingDir; // currently unused
 
     tokio::spawn(async move {
         // Simulate streaming response for testing
@@ -816,6 +1211,42 @@ pub async fn send_quit_to_session(session_id: &str) -> Result<(), String> {
         }
     } else {
         return Err("Session not found".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_file_in_editor(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+
+    if !path.exists() {
+        return Err(format!("File does not exist: {}", file_path));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        StdCommand::new("open")
+            .arg("-t")
+            .arg(file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        StdCommand::new("cmd")
+            .args(&["/C", "start", "", &file_path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        StdCommand::new("xdg-open")
+            .arg(file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
     }
 
     Ok(())

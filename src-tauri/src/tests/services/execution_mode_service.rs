@@ -5,24 +5,13 @@ mod tests {
     #[test]
     fn test_codex_flags_chat_mode() {
         let flags = codex_flags_for_mode(ExecutionMode::Chat, false);
-        assert_eq!(
-            flags,
-            vec!["--sandbox", "read-only", "--ask-for-approval", "never"]
-        );
+        assert_eq!(flags, vec!["--sandbox", "read-only"]);
     }
 
     #[test]
     fn test_codex_flags_collab_mode() {
         let flags = codex_flags_for_mode(ExecutionMode::Collab, false);
-        assert_eq!(
-            flags,
-            vec![
-                "--sandbox",
-                "workspace-write",
-                "--ask-for-approval",
-                "on-request"
-            ]
-        );
+        assert_eq!(flags, vec!["--sandbox", "workspace-write"]);
     }
 
     #[test]

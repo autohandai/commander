@@ -2,6 +2,7 @@ import { User, Bot, Loader2, Copy, Expand, Shrink } from 'lucide-react'
 import { getAgentId } from '@/components/chat/agents'
 import { PlanBreakdown } from '@/components/PlanBreakdown'
 import { AgentResponse } from './AgentResponse'
+import { CodexRenderer } from './codex/CodexRenderer'
 import { useToast } from '@/components/ToastProvider'
 
 export interface ChatMessageLike {
@@ -63,13 +64,21 @@ export function MessagesList(props: MessagesListProps) {
 
   return (
     <>
-      {messages.map((message) => (
+      {messages.map((message) => {
+        const agentId = getAgentId(message.agent)
+        const isCodex = agentId === 'codex'
+        const isAssistant = message.role === 'assistant'
+
+        // Codex messages don't have box styling
+        const showBox = !isCodex || message.role === 'user'
+
+        return (
         <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-          <div className={`max-w-[80%] rounded-lg p-3 ${
-            message.role === 'user' 
-              ? 'bg-primary text-primary-foreground ml-12' 
+          <div className={showBox ? `max-w-[80%] rounded-lg p-3 ${
+            message.role === 'user'
+              ? 'bg-primary text-primary-foreground ml-12'
               : 'bg-muted mr-12'
-          }`}>
+          }` : 'max-w-[80%] mr-12'}>
             <div className="flex items-center gap-2 mb-1 text-xs opacity-70">
               {message.role === 'user' ? (
                 <User className="h-3 w-3" />
@@ -109,10 +118,14 @@ export function MessagesList(props: MessagesListProps) {
               const expanded = expandedMessages.has(message.id)
               const compact = long && !expanded
               const containerClass = `whitespace-pre-wrap text-sm ${compact ? 'max-h-[200px] overflow-hidden' : ''}`
+
               return (
                 <div className={containerClass} data-testid={compact ? 'message-compact' : undefined}>
                   {(() => {
                     if (!content && message.isStreaming) return 'Thinking...'
+                    if (message.role === 'assistant' && isCodex) {
+                      return <CodexRenderer content={content} />
+                    }
                     return <AgentResponse raw={content} />
                   })()}
                 </div>
@@ -159,7 +172,8 @@ export function MessagesList(props: MessagesListProps) {
             )}
           </div>
         </div>
-      ))}
+        )
+      })}
     </>
   )
 }
