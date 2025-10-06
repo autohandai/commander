@@ -40,49 +40,44 @@ export class CodexStreamParser {
         return this.buildOutput()
 
       case 'command_execution':
-        const cmdStatus = item.status === 'completed' ? '✅' : item.status === 'failed' ? '❌' : '⏳'
+        const cmdOutput = item.aggregated_output
+          ? `\n\`\`\`sh\n$ ${item.command}\n${item.aggregated_output}\n\`\`\``
+          : ''
         this.sections.messages.push(
-          `${cmdStatus} **Command:** \`${item.command}\`${item.aggregated_output ? `\n\`\`\`\n${item.aggregated_output}\n\`\`\`` : ''}`
+          `• ${item.command}${cmdOutput}`
         )
         return this.buildOutput()
 
       case 'file_change':
-        const fileStatus = item.status === 'completed' ? '✅' : '❌'
         const changes = item.changes.map(c => {
-          const icon = c.kind === 'add' ? '➕' : c.kind === 'delete' ? '➖' : '✏️'
-          // Make file paths clickable with file:// protocol
-          return `${icon} [${c.path}](file://${c.path})`
+          const action = c.kind === 'add' ? 'Created' : c.kind === 'delete' ? 'Deleted' : 'Modified'
+          return `• ${action} [${c.path}](file://${c.path})`
         }).join('\n')
-        this.sections.messages.push(
-          `${fileStatus} **File Changes:**\n${changes}`
-        )
+        this.sections.messages.push(changes)
         return this.buildOutput()
 
       case 'mcp_tool_call':
-        const toolStatus = item.status === 'completed' ? '✅' : item.status === 'failed' ? '❌' : '⏳'
         this.sections.messages.push(
-          `${toolStatus} **Tool Call:** ${item.server}/${item.tool}`
+          `• ${item.server}/${item.tool}`
         )
         return this.buildOutput()
 
       case 'web_search':
         this.sections.messages.push(
-          `🔍 **Web Search:** ${item.query}`
+          `• Searching: ${item.query}`
         )
         return this.buildOutput()
 
       case 'todo_list':
         const todos = item.items.map(t =>
-          `${t.completed ? '✅' : '⬜'} ${t.text}`
+          `${t.completed ? '◎' : '◯'} ${t.text}`
         ).join('\n')
-        this.sections.messages.push(
-          `**Todo List:**\n${todos}`
-        )
+        this.sections.messages.push(todos)
         return this.buildOutput()
 
       case 'error':
         this.sections.messages.push(
-          `❌ **Error:** ${item.message}`
+          `• Error: ${item.message}`
         )
         return this.buildOutput()
 

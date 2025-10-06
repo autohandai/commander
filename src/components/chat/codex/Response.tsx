@@ -1,93 +1,129 @@
-import React, { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import React from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { CodeBlock, CodeBlockCopyButton } from './CodeBlock'
 import { invoke } from '@tauri-apps/api/core'
 
-interface ResponseProps {
+export type ResponseProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode
-  title?: string
-  expandable?: boolean
-  defaultExpanded?: boolean
-  icon?: string
+  parseIncompleteMarkdown?: boolean
+  components?: Record<string, React.ComponentType<any>>
+  allowedImagePrefixes?: string[]
+  allowedLinkPrefixes?: string[]
+  defaultOrigin?: string
+  rehypePlugins?: any[]
+  remarkPlugins?: any[]
 }
 
-export function Response({ children, title, expandable = false, defaultExpanded = false, icon = '•' }: ResponseProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-
-  if (!expandable) {
-    return (
-      <div className="flex items-start gap-2 text-sm leading-relaxed">
-        <span className="select-none text-muted-foreground mt-0.5">{icon}</span>
-        <div className="flex-1 min-w-0">
-          {title && <span className="font-medium">{title}</span>}
-          {children}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="text-sm">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-start gap-2 w-full text-left hover:text-muted-foreground transition-colors"
-      >
-        <span className="select-none text-muted-foreground mt-0.5">{icon}</span>
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          {title && <span>{title}</span>}
-          {expanded ? <ChevronDown className="h-3 w-3 flex-shrink-0" /> : <ChevronRight className="h-3 w-3 flex-shrink-0" />}
-        </div>
-      </button>
-      {expanded && (
-        <div className="ml-5 mt-1 text-xs">
-          {children}
-        </div>
-      )}
-    </div>
-  )
+function closeUnfinishedCodeFences(md: string): string {
+  const fenceCount = (md.match(/```/g) || []).length
+  if (fenceCount % 2 === 1) return md + '\n```'
+  return md
 }
 
-interface ShellOutputProps {
-  command: string
-  output: string
+function isAllowed(uri: string, allowed: string[] | undefined): boolean {
+  if (!allowed || allowed.length === 0) return false
+  if (allowed.includes('*')) return true
+  return allowed.some((p) => uri.startsWith(p))
 }
 
-export function ShellOutput({ command, output }: ShellOutputProps) {
-  return (
-    <div className="bg-muted/30 rounded border border-muted-foreground/20 p-2 font-mono">
-      <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1">
-        <span>Shell</span>
-      </div>
-      <pre className="text-xs whitespace-pre-wrap overflow-x-auto">
-        <code>$ {command}</code>
-        {'\n'}
-        {output}
-      </pre>
-    </div>
-  )
-}
+export const Response: React.FC<ResponseProps> = ({
+  className,
+  children,
+  parseIncompleteMarkdown = true,
+  components,
+  allowedImagePrefixes = ['*'],
+  allowedLinkPrefixes = ['*', 'file://'],
+  defaultOrigin,
+  rehypePlugins = [],
+  remarkPlugins = [],
+  ...divProps
+}) => {
+  const raw = typeof children === 'string' ? children : ''
+  const content = parseIncompleteMarkdown ? closeUnfinishedCodeFences(raw || '') : raw || ''
 
-interface FilePathProps {
-  path: string
-  icon?: string
-}
-
-export function FilePath({ path, icon = '📄' }: FilePathProps) {
-  const handleClick = async (e: React.MouseEvent) => {
+  const handleFileClick = async (filePath: string, e: React.MouseEvent) => {
     e.preventDefault()
     try {
-      await invoke('open_file_in_editor', { filePath: path })
+      await invoke('open_file_in_editor', { filePath })
     } catch (error) {
       console.error('Failed to open file:', error)
     }
   }
 
+  const mergedComponents = {
+    code: ({ inline, className, children, ...props }: any) => {
+      const match = /language-(\w+)/.exec(className || '')
+      if (!inline && match) {
+        return (
+          <CodeBlock code={String(children).replace(/\n$/, '')} language={match[1]}>
+            <CodeBlockCopyButton />
+          </CodeBlock>
+        )
+      }
+      return (
+        <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono" {...props}>
+          {children}
+        </code>
+      )
+    },
+    a: ({ href = '', children, ...props }: any) => {
+      const safe = typeof href === 'string' && isAllowed(href, allowedLinkPrefixes)
+
+      // Handle file:// links
+      if (typeof href === 'string' && href.startsWith('file://')) {
+        const filePath = href.replace('file://', '')
+        return (
+          <a
+            href={href}
+            onClick={(e) => handleFileClick(filePath, e)}
+            className="text-blue-500 hover:text-blue-700 underline cursor-pointer"
+            {...props}
+          >
+            {children}
+          </a>
+        )
+      }
+
+      return (
+        <a href={safe ? href : undefined} target="_blank" rel="noreferrer" className="text-blue-500 hover:text-blue-700 underline" {...props}>
+          {children}
+        </a>
+      )
+    },
+    img: ({ src = '', alt = '', ...props }: any) => {
+      const safe = typeof src === 'string' && isAllowed(src, allowedImagePrefixes)
+      if (!safe) return null
+      return <img src={src} alt={alt} {...props} />
+    },
+    ul: ({ children }: any) => <ul className="list-disc list-inside space-y-1 my-2">{children}</ul>,
+    ol: ({ children }: any) => (
+      <ol className="list-decimal list-inside space-y-1 my-2">{children}</ol>
+    ),
+    li: ({ children }: any) => <li className="ml-2">{children}</li>,
+    p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
+    strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
+    em: ({ children }: any) => <em className="italic">{children}</em>,
+    ...(components || {}),
+  } as any
+
   return (
-    <button
-      onClick={handleClick}
-      className="text-blue-500 hover:text-blue-700 hover:underline cursor-pointer text-left flex items-center gap-1"
+    <div
+      className={cn('[&>p]:leading-normal [&>p]:my-0 prose prose-sm max-w-none', className)}
+      {...divProps}
     >
-      {icon && <span className="text-xs">{icon}</span>}
-      <span className="font-mono text-xs">{path}</span>
-    </button>
+      {typeof children === 'string' ? (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, ...remarkPlugins]}
+          rehypePlugins={[...rehypePlugins]}
+          components={mergedComponents}
+        >
+          {content}
+        </ReactMarkdown>
+      ) : (
+        children
+      )}
+    </div>
   )
 }

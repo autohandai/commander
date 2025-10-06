@@ -69,16 +69,38 @@ export function MessagesList(props: MessagesListProps) {
         const isCodex = agentId === 'codex'
         const isAssistant = message.role === 'assistant'
 
-        // Codex messages don't have box styling
-        const showBox = !isCodex || message.role === 'user'
+        // Codex assistant messages: no box, no padding, full width
+        if (message.role === 'assistant' && isCodex) {
+          return (
+            <div key={message.id} className="w-full">
+              <div className="flex items-center gap-2 mb-2 text-xs opacity-70">
+                <Bot className="h-3 w-3" />
+                <span className="text-blue-500">Codex</span>
+                <span>•</span>
+                <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+                {message.isStreaming && (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                )}
+              </div>
+              <div className="text-sm">
+                {(() => {
+                  const content = message.content || ''
+                  if (!content && message.isStreaming) return 'Thinking...'
+                  return <CodexRenderer content={content} isStreaming={message.isStreaming} />
+                })()}
+              </div>
+            </div>
+          )
+        }
 
+        // User messages and non-Codex agents: keep box styling
         return (
         <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-          <div className={showBox ? `max-w-[80%] rounded-lg p-3 ${
+          <div className={`max-w-[80%] rounded-lg p-3 ${
             message.role === 'user'
               ? 'bg-primary text-primary-foreground ml-12'
               : 'bg-muted mr-12'
-          }` : 'max-w-[80%] mr-12'}>
+          }`}>
             <div className="flex items-center gap-2 mb-1 text-xs opacity-70">
               {message.role === 'user' ? (
                 <User className="h-3 w-3" />
