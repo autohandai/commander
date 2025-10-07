@@ -195,11 +195,7 @@ function AppContent() {
   }
 
   const handleProjectSelect = (project: RecentProject) => {
-<<<<<<< HEAD
     setActiveTab('chat') // Default to chat tab when project is selected
-=======
-    setActiveTab('chat') // Start with chat tab when project is selected
->>>>>>> 99cd52d (closing the gap on the switch)
     // Ensure backend marks it active and updates recents and use returned project info
     invoke<RecentProject>('open_existing_project', { project_path: project.path, projectPath: project.path })
       .then(setCurrentProject)
