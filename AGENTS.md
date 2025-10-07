@@ -4,12 +4,16 @@
 
 Every agent working on this Commander project MUST follow these standards. No exceptions.
 
+<<<<<<< HEAD
 We use bun run tauri dev to run the app.
 
 You always work on features that are configurable via the Settings Panel in the app. Every feature must be toggleable or adjustable through user preferences.
 Before you write any code, you will write the PRD and save in the docs/ directory.
 
 You write the TDD and then write the feature implementation.
+=======
+Every prompt or request by the user you will create a PRD and store it in the `PRD/` folder with a filename that matches the feature name. You will then follow the TDD and architecture patterns below to implement the feature.
+>>>>>>> f5183e6 (fixing the ui for chat to be default)
 
 ## Architecture Pattern - STRICT COMPLIANCE
 
