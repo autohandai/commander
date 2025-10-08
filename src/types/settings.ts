@@ -27,6 +27,8 @@ export interface AppSettings {
   ui_theme?: string;
   // Show/Hide recent projects on the Welcome screen
   show_welcome_recent_projects?: boolean;
+  // Maximum number of chat messages retained per session
+  max_chat_history?: number;
   code_settings?: { theme: string; font_size: number };
 }
 
@@ -186,6 +188,10 @@ export interface ChatSettingsProps {
   onFileMentionsChange: (enabled: boolean) => void;
   tempChatSendShortcut?: 'enter' | 'mod+enter';
   onChatSendShortcutChange?: (shortcut: 'enter' | 'mod+enter') => void;
+  tempMaxChatHistory?: number;
+  onMaxChatHistoryChange?: (limit: number) => void;
+  tempDefaultCliAgent: string;
+  onDefaultCliAgentChange?: (agentId: string) => void;
 }
 
 export interface AgentSettingsProps {

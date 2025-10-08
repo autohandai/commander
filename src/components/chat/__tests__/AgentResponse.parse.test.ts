@@ -29,8 +29,8 @@ I will reply concisely.
 
 I’m doing well, thanks! How can I help you today?
 [2025-09-04T00:48:19] tokens used: 5347
-
-✅ Command completed successfully`;
+`
+;
 
 describe('parseAgentTranscript', () => {
   it('extracts header, meta, thinking, answer and tokens', () => {

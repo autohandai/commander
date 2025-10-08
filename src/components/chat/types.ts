@@ -8,6 +8,18 @@ export interface ChatMessage {
   agent: string
   isStreaming?: boolean
   plan?: Plan
+  conversationId?: string
+  steps?: TimelineStep[]
+  status?: 'thinking' | 'running' | 'completed' | 'failed'
+}
+
+export interface TimelineStep {
+  id: string
+  label: string
+  detail?: string
+  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  startedAt?: number
+  finishedAt?: number
 }
 
 export interface CLISession {

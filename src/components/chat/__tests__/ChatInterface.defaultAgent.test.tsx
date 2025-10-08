@@ -3,21 +3,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ToastProvider } from '@/components/ToastProvider'
 import { ChatInterface } from '@/components/ChatInterface'
 
-// Capture stream callback
-let streamCb: ((e: { payload: { session_id: string; content: string; finished: boolean } }) => void) | null = null
+let lastCommand: string | null = null
+let lastArgs: any = null
+let worktreesList: Array<{ path: string }> = []
+let currentDefaultAgent = 'claude'
 
-// Mock Tauri event listen to capture callbacks
-vi.mock('@tauri-apps/api/event', () => {
-  return {
-    listen: vi.fn(async (event: string, cb: any) => {
-      if (event === 'cli-stream') streamCb = cb
-      return () => {}
-    }),
-  }
-})
-
-// Track last invocation args for execute command
-let lastExecuteArgs: any = null
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async () => () => {}),
+}))
 
 vi.mock('@tauri-apps/api/core', () => {
   return {
@@ -42,11 +35,15 @@ vi.mock('@tauri-apps/api/core', () => {
         case 'get_git_worktree_preference':
           return true
         case 'get_git_worktrees':
-          return []
+          return worktreesList
         case 'save_project_chat':
           return null
+        case 'execute_claude_command':
+        case 'execute_codex_command':
+        case 'execute_gemini_command':
         case 'execute_test_command':
-          lastExecuteArgs = args
+          lastCommand = cmd
+          lastArgs = args
           return null
         default:
           return null
@@ -54,6 +51,24 @@ vi.mock('@tauri-apps/api/core', () => {
     })
   }
 })
+
+vi.mock('@/contexts/settings-context', () => ({
+  useSettings: () => ({
+    settings: {
+      show_console_output: true,
+      projects_folder: '',
+      file_mentions_enabled: true,
+      chat_send_shortcut: 'mod+enter',
+      show_welcome_recent_projects: true,
+      max_chat_history: 15,
+      code_settings: { theme: 'github', font_size: 14 },
+      default_cli_agent: currentDefaultAgent,
+    },
+    updateSettings: vi.fn(),
+    refreshSettings: vi.fn(),
+    isLoading: false,
+  }),
+}))
 
 const project = {
   name: 'demo',
@@ -64,45 +79,33 @@ const project = {
   git_status: 'clean',
 }
 
-if (typeof document !== 'undefined') describe('ChatInterface streaming', () => {
+if (typeof document !== 'undefined') describe('ChatInterface default agent setting', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    streamCb = null
-    lastExecuteArgs = null
-    // jsdom doesn't implement scrollIntoView
+    lastCommand = null
+    lastArgs = null
+    worktreesList = []
+    currentDefaultAgent = 'claude'
     // @ts-ignore
     Element.prototype.scrollIntoView = vi.fn()
   })
 
-  it('executes /test command and applies stream updates', async () => {
+  it('routes implicit messages through the configured default agent', async () => {
+    currentDefaultAgent = 'codex'
+
     render(
       <ToastProvider>
         <div className="h-screen">
-          <ChatInterface isOpen={true} onToggle={() => {}} selectedAgent={undefined} project={project as any} />
+          <ChatInterface isOpen={true} onToggle={() => {}} project={project as any} />
         </div>
       </ToastProvider>
     )
 
-    // Type a command and send
     const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '/test hello' } })
+    fireEvent.change(input, { target: { value: 'list files' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    // Ensure execute_test_command was invoked
-    await waitFor(() => expect(lastExecuteArgs).toBeTruthy())
-
-    // Simulate streaming back a chunk
-    const sid = lastExecuteArgs.sessionId as string
-    expect(typeof sid).toBe('string')
-    expect(sid.length).toBeGreaterThan(0)
-
-    // Deliver a stream chunk to append content
-    streamCb?.({ payload: { session_id: sid, content: '🔗 Agent: test | Command: hello', finished: false } })
-    await waitFor(() => expect(screen.queryByText(/Agent: test/i)).not.toBeInTheDocument())
-    streamCb?.({ payload: { session_id: sid, content: 'chunk-1', finished: false } })
-    await waitFor(() => expect(screen.getByText(/chunk-1/)).toBeInTheDocument())
-
-    // Finish the stream; should remove from executing set (no UI assertion, just ensure no crash)
-    streamCb?.({ payload: { session_id: sid, content: '', finished: true } })
+    await waitFor(() => expect(lastCommand).toBe('execute_codex_command'))
+    expect(lastArgs?.message).toBe('list files')
   })
 })

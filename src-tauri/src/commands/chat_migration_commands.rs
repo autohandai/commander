@@ -142,6 +142,9 @@ pub async fn save_enhanced_chat_message(
         content,
         timestamp: chrono::Utc::now().timestamp(),
         agent: Some(agent),
+        conversation_id: None,
+        status: None,
+        steps: None,
     };
 
     // Load existing legacy messages and append

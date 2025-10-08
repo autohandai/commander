@@ -6,7 +6,11 @@ use tauri_plugin_store::StoreExt;
 use crate::models::*;
 
 #[tauri::command]
-pub async fn save_app_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
+pub async fn save_app_settings(
+    app: tauri::AppHandle,
+    mut settings: AppSettings,
+) -> Result<(), String> {
+    settings.normalize();
     let store = app
         .store("app-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
@@ -48,8 +52,9 @@ pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, Str
 
     match store.get("app_settings") {
         Some(value) => {
-            let settings: AppSettings = serde_json::from_value(value)
+            let mut settings: AppSettings = serde_json::from_value(value)
                 .map_err(|e| format!("Failed to deserialize settings: {}", e))?;
+            settings.normalize();
             // Overlay with user settings file value for welcome recent projects
             let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
             let mut merged = settings.clone();
@@ -59,6 +64,7 @@ pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, Str
         None => {
             // Return default settings
             let mut d = AppSettings::default();
+            d.normalize();
             let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
             d.show_welcome_recent_projects = show;
             Ok(d)

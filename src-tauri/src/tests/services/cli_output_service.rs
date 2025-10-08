@@ -34,6 +34,15 @@ fn leaves_other_agents_output_untouched() {
 }
 
 #[test]
+fn claude_json_events_are_preserved() {
+    let event = r#"{"type":"message_start","session_id":"s1","message":{"id":"msg","type":"message","role":"assistant","content":[]}}"#;
+    assert_eq!(
+        sanitize_cli_output_line("claude", event),
+        Some(event.to_string())
+    );
+}
+
+#[test]
 fn codex_stream_accumulator_emits_on_carriage_return() {
     let mut acc = CodexStreamAccumulator::new();
 

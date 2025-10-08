@@ -1,6 +1,17 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
+type DefaultCliAgent = 'claude' | 'codex' | 'gemini' | 'ollama';
+
+const FALLBACK_AGENT: DefaultCliAgent = 'claude';
+const allowedDefaultAgents: DefaultCliAgent[] = ['claude', 'codex', 'gemini', 'ollama'];
+
+function normalizeDefaultAgent(value?: string | null): DefaultCliAgent {
+  if (!value) return FALLBACK_AGENT;
+  const normalized = value.toLowerCase() as DefaultCliAgent;
+  return allowedDefaultAgents.includes(normalized) ? normalized : FALLBACK_AGENT;
+}
+
 interface CodeSettings {
   theme: string;
   font_size: number;
@@ -14,6 +25,8 @@ interface AppSettings {
   code_settings: CodeSettings;
   chat_send_shortcut?: 'enter' | 'mod+enter';
   show_welcome_recent_projects?: boolean;
+  max_chat_history?: number;
+  default_cli_agent?: DefaultCliAgent;
 }
 
 interface SettingsContextType {
@@ -29,10 +42,12 @@ const defaultSettings: AppSettings = {
   file_mentions_enabled: true,
   chat_send_shortcut: 'mod+enter',
   show_welcome_recent_projects: true,
+  max_chat_history: 15,
   code_settings: {
     theme: 'github',
     font_size: 14
-  }
+  },
+  default_cli_agent: FALLBACK_AGENT,
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -46,7 +61,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       const appSettings = await invoke<AppSettings>('load_app_settings');
       console.log('🔄 Settings refreshed:', appSettings);
-      setSettings(appSettings);
+      const defaultCliAgent = normalizeDefaultAgent(appSettings.default_cli_agent);
+      setSettings({
+        ...defaultSettings,
+        ...appSettings,
+        default_cli_agent: defaultCliAgent,
+      });
     } catch (error) {
       console.warn('⚠️ Failed to load app settings (using defaults):', error);
       setSettings(defaultSettings);
@@ -57,7 +77,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const updateSettings = async (newSettings: Partial<AppSettings>) => {
     try {
-      const updatedSettings = { ...settings, ...newSettings };
+      const updatedSettings = {
+        ...settings,
+        ...newSettings,
+      };
+      updatedSettings.default_cli_agent = normalizeDefaultAgent(updatedSettings.default_cli_agent);
       await invoke('save_app_settings', { settings: updatedSettings });
       setSettings(updatedSettings);
       console.log('✅ Settings updated and saved:', updatedSettings);

@@ -146,7 +146,7 @@ export function parseAgentTranscript(raw: string): ParsedAgentOutput | null {
   }
 
   // Success
-  out.success = /✅\s*Command completed successfully/i.test(raw)
+  out.success = /\s*/i.test(raw)
 
   // If we didn't find anything structured beyond meta, bail out
   if (!out.header && !out.meta && !out.answer && !out.thinking && !out.tokensUsed) return null

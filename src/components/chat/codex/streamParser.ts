@@ -7,6 +7,17 @@ import type {
 } from './events'
 import type { ThreadItem } from './items'
 
+type TimelineStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+
+interface TimelineEntry {
+  id: string
+  label: string
+  detail?: string
+  status: TimelineStatus
+  startedAt?: number
+  finishedAt?: number
+}
+
 export class CodexStreamParser {
   private sections = {
     reasoning: [] as string[],
@@ -14,6 +25,9 @@ export class CodexStreamParser {
     usage: null as { input_tokens: number; cached_input_tokens: number; output_tokens: number } | null,
     threadId: null as string | null,
   }
+  private steps: TimelineEntry[] = []
+  private stepMap = new Map<string, TimelineEntry>()
+  private streamingBuffer = ''
 
   feed(raw: string): string | undefined {
     const normalized = this.normalize(raw)
@@ -29,6 +43,100 @@ export class CodexStreamParser {
     return this.handleEvent(event)
   }
 
+  getSteps(): TimelineEntry[] {
+    return this.steps.map((step) => ({ ...step }))
+  }
+
+  private recordStep(id: string, label: string, detail: string | undefined, status: TimelineStatus) {
+    const now = Date.now()
+    const existing = this.stepMap.get(id)
+    if (existing) {
+      existing.status = status
+      if (detail) existing.detail = detail
+      if (!existing.startedAt) existing.startedAt = now
+      if (status === 'completed' || status === 'failed') {
+        existing.finishedAt = now
+      }
+      return
+    }
+    const entry: TimelineEntry = {
+      id,
+      label,
+      detail,
+      status,
+      startedAt: now,
+      finishedAt: status === 'completed' || status === 'failed' ? now : undefined,
+    }
+    this.steps.push(entry)
+    this.stepMap.set(id, entry)
+  }
+
+  private mapStatus(status?: string): TimelineStatus {
+    if (!status) return 'in_progress'
+    switch (status) {
+      case 'completed':
+        return 'completed'
+      case 'failed':
+        return 'failed'
+      case 'in_progress':
+        return 'in_progress'
+      default:
+        return 'in_progress'
+    }
+  }
+
+  private handleCommandExecution(item: Extract<ThreadItem, { type: 'command_execution' }>): string | undefined {
+    const detail = item.aggregated_output
+      ? `\n\`\`\`sh\n$ ${item.command}\n${item.aggregated_output}\n\`\`\``
+      : undefined
+    this.recordStep(item.id, item.command, detail, this.mapStatus(item.status))
+    return this.buildOutput()
+  }
+
+  private handleFileChange(item: Extract<ThreadItem, { type: 'file_change' }>): string | undefined {
+    const changes = item.changes
+      .map((c) => {
+        const action = c.kind === 'add' ? 'Created' : c.kind === 'delete' ? 'Deleted' : 'Modified'
+        return `${action}: ${c.path}`
+      })
+      .join('\n')
+    this.recordStep(
+      item.id,
+      'File updates',
+      changes || undefined,
+      item.status === 'failed' ? 'failed' : 'completed'
+    )
+    return this.buildOutput()
+  }
+
+  private handleMcpToolCall(item: Extract<ThreadItem, { type: 'mcp_tool_call' }>): string | undefined {
+    this.recordStep(
+      item.id,
+      `${item.server}/${item.tool}`,
+      undefined,
+      this.mapStatus(item.status)
+    )
+    return this.buildOutput()
+  }
+
+  private handleWebSearch(item: Extract<ThreadItem, { type: 'web_search' }>): string | undefined {
+    this.recordStep(item.id, `Search: ${item.query}`, undefined, 'completed')
+    return this.buildOutput()
+  }
+
+  private handleTodoList(item: Extract<ThreadItem, { type: 'todo_list' }>): string | undefined {
+    const todos = item.items
+      .map((t) => `${t.completed ? '✓' : '•'} ${t.text}`)
+      .join('\n')
+    this.recordStep(item.id, 'To-do list', todos || undefined, 'completed')
+    return this.buildOutput()
+  }
+
+  private handleError(item: Extract<ThreadItem, { type: 'error' }>): string | undefined {
+    this.recordStep(item.id, 'Error', item.message, 'failed')
+    return this.buildOutput()
+  }
+
   private handleItem(item: ThreadItem): string | undefined {
     switch (item.type) {
       case 'agent_message':
@@ -40,46 +148,22 @@ export class CodexStreamParser {
         return this.buildOutput()
 
       case 'command_execution':
-        const cmdOutput = item.aggregated_output
-          ? `\n\`\`\`sh\n$ ${item.command}\n${item.aggregated_output}\n\`\`\``
-          : ''
-        this.sections.messages.push(
-          `• ${item.command}${cmdOutput}`
-        )
-        return this.buildOutput()
+        return this.handleCommandExecution(item)
 
       case 'file_change':
-        const changes = item.changes.map(c => {
-          const action = c.kind === 'add' ? 'Created' : c.kind === 'delete' ? 'Deleted' : 'Modified'
-          return `• ${action} [${c.path}](file://${c.path})`
-        }).join('\n')
-        this.sections.messages.push(changes)
-        return this.buildOutput()
+        return this.handleFileChange(item)
 
       case 'mcp_tool_call':
-        this.sections.messages.push(
-          `• ${item.server}/${item.tool}`
-        )
-        return this.buildOutput()
+        return this.handleMcpToolCall(item)
 
       case 'web_search':
-        this.sections.messages.push(
-          `• Searching: ${item.query}`
-        )
-        return this.buildOutput()
+        return this.handleWebSearch(item)
 
       case 'todo_list':
-        const todos = item.items.map(t =>
-          `${t.completed ? '◎' : '◯'} ${t.text}`
-        ).join('\n')
-        this.sections.messages.push(todos)
-        return this.buildOutput()
+        return this.handleTodoList(item)
 
       case 'error':
-        this.sections.messages.push(
-          `• Error: ${item.message}`
-        )
-        return this.buildOutput()
+        return this.handleError(item)
 
       default:
         return undefined
@@ -127,14 +211,15 @@ export class CodexStreamParser {
     if ('delta' in event) {
       const deltaText = this.extractDeltaText((event as any).delta)
       if (deltaText) {
-        // Handle streaming deltas if needed
-        return undefined
+        this.streamingBuffer += deltaText
+        return this.streamingBuffer
       }
     }
 
     if (event.type === 'response.completed') {
       const text = this.extractResponseText((event as ResponseCompletedEvent).response)
       if (text) {
+        this.streamingBuffer = text
         this.sections.messages.push(text)
         return this.buildOutput()
       }
@@ -143,7 +228,8 @@ export class CodexStreamParser {
     if (event.type === 'response.error') {
       const errorMessage =
         (event as ResponseErrorEvent).error?.message ?? 'Codex encountered an error.'
-      this.sections.messages.push(`❌ Error: ${errorMessage}`)
+      this.streamingBuffer = `Error: ${errorMessage}`
+      this.sections.messages.push(this.streamingBuffer)
       return this.buildOutput()
     }
 

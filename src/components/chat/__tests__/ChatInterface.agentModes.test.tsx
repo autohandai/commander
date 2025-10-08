@@ -42,11 +42,7 @@ const project = { name: 'demo', path: '/tmp/demo', last_accessed: 0, is_git_repo
 
 if (typeof document !== 'undefined') describe('Agent-specific modes in dropdown', () => {
   beforeEach(() => {
-<<<<<<< HEAD
-    lastArgs = null
-=======
     executeCalls = []
->>>>>>> 99cd52d (closing the gap on the switch)
     Element.prototype.scrollIntoView = vi.fn()
   })
 

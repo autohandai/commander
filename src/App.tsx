@@ -32,8 +32,8 @@ import type { MenuEventPayload } from "@/types/menu"
 
 interface ProjectViewProps {
   project: RecentProject
-  selectedAgent: string
-  onAgentChange: (agent: string) => void
+  selectedAgent?: string
+  onAgentChange: (agent: string | undefined) => void
   activeTab: string
   onTabChange: (tab: string) => void
 }
@@ -89,7 +89,7 @@ function AppContent() {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
   const [activeTab, setActiveTab] = useState<string>('chat')
-  const [selectedAgent, setSelectedAgent] = useState<string>('Claude Code CLI')
+  const [selectedAgent, setSelectedAgent] = useState<string | undefined>(undefined)
   const [welcomePhrase, setWelcomePhrase] = useState<string>("")
   const { showSuccess, showError } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
@@ -201,6 +201,10 @@ function AppContent() {
       .then(setCurrentProject)
       .catch(console.error)
   }
+
+  useEffect(() => {
+    setSelectedAgent(undefined)
+  }, [settings.default_cli_agent])
 
   const handleBackToWelcome = () => {
     setCurrentProject(null)

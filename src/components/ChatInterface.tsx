@@ -8,7 +8,7 @@ import { useFileMention } from '@/hooks/use-file-mention';
 import { CODE_EXTENSIONS } from '@/types/file-mention';
 import { useToast } from '@/components/ToastProvider';
 import { SubAgentGroup } from '@/types/sub-agent';
-import { AGENTS, AGENT_CAPABILITIES, getAgentId, DISPLAY_TO_ID } from '@/components/chat/agents';
+import { AGENTS, AGENT_CAPABILITIES, getAgentId, DISPLAY_TO_ID, getAgentDisplayById, normalizeDefaultAgentId } from '@/components/chat/agents';
 import { useWorkingDir } from '@/components/chat/hooks/useWorkingDir';
 import { ChatInput, AutocompleteOption as ChatAutocompleteOption } from '@/components/chat/ChatInput';
 import { MessagesList } from '@/components/chat/MessagesList';
@@ -28,6 +28,8 @@ import { setStepStatus, updateMessagesPlanStep } from '@/components/chat/planSta
 import { buildAutocompleteOptions } from '@/components/chat/autocomplete';
 import type { Plan } from '@/components/chat/plan';
 import { generatePlan as generatePlanShared } from '@/components/chat/plan';
+import { useSettings } from '@/contexts/settings-context';
+import { generateId } from '@/components/chat/utils/id';
 
 // Agent and capability types are defined in chat/agents
 
@@ -75,7 +77,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(0);
   const [commandType, setCommandType] = useState<'/' | '@' | null>(null);
   const [commandStart, setCommandStart] = useState(0);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessagesState] = useState<ChatMessage[]>([]);
   // Allow parallel executions: track active streaming sessions
   const [executingSessions, setExecutingSessions] = useState<Set<string>>(new Set());
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
@@ -97,7 +99,59 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const storageKey = React.useMemo(() => project ? `chat:${project.path}` : null, [project]);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [historyCompacted, setHistoryCompacted] = useState(false);
   const { showError } = useToast();
+  let settingsContextValue: ReturnType<typeof useSettings> | undefined
+  try {
+    settingsContextValue = useSettings()
+  } catch {
+    settingsContextValue = undefined
+  }
+  const settingsMaxHistory = settingsContextValue?.settings?.max_chat_history
+  const configuredDefaultAgentId = React.useMemo(
+    () => normalizeDefaultAgentId(settingsContextValue?.settings?.default_cli_agent),
+    [settingsContextValue?.settings?.default_cli_agent]
+  )
+  const configuredDefaultAgentDisplay = React.useMemo(
+    () => getAgentDisplayById(configuredDefaultAgentId),
+    [configuredDefaultAgentId]
+  )
+
+  const historyLimit = React.useMemo(() => {
+    const limit = settingsMaxHistory ?? 15
+    if (!limit || limit <= 0) return 15
+    return Math.max(1, Math.floor(limit))
+  }, [settingsMaxHistory])
+
+  const clampMessages = useCallback(
+    (next: ChatMessage[]) => {
+      if (!Array.isArray(next)) return next;
+      if (!historyLimit || historyLimit <= 0) return next;
+      if (next.length <= historyLimit) {
+        return next.map((msg) =>
+          msg.isStreaming ? { ...msg, status: msg.status ?? 'running' } : msg
+        );
+      }
+      const trimmed = next.slice(next.length - historyLimit);
+      return trimmed.map((msg) =>
+        msg.isStreaming ? { ...msg, status: msg.status ?? 'running' } : msg
+      );
+    },
+    [historyLimit]
+  );
+
+  const setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>> = useCallback(
+    (value) => {
+      setMessagesState((prev) => {
+        const computed =
+          typeof value === 'function'
+            ? (value as (prev: ChatMessage[]) => ChatMessage[])(prev)
+            : value;
+        return clampMessages(computed);
+      });
+    },
+    [clampMessages]
+  );
 
   // Utilities to normalize agent id and check enablement live in chat/agents
 
@@ -111,11 +165,6 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     if (text.length > 100) return true;
     const lines = text.split('\n');
     return lines.length > 6;
-  };
-
-  const truncateMessage = (text: string, limit = 100) => {
-    if (text.length <= limit) return text;
-    return text.slice(0, limit).trimEnd() + '…';
   };
 
   const toggleExpand = (id: string) => {
@@ -398,32 +447,36 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !project) return;
+    const conversationId = generateId('conv');
     
     // If plan mode is enabled, use CLAUDE/GEMINI permission-mode=plan instead of local planner
-    const defaultDisplay = selectedAgent || 'claude'
+    const defaultDisplay = selectedAgent || configuredDefaultAgentDisplay
     const defaultId = getAgentId(defaultDisplay)
     const isAgentPlanCapable = defaultId === 'claude' || defaultId === 'gemini'
     if (planModeEnabled && !isAgentPlanCapable) {
       const userMessage: ChatMessage = {
-        id: `user-${Date.now()}`,
+        id: generateId('user'),
         content: inputValue,
         role: 'user',
         timestamp: Date.now(),
         agent: 'Plan Mode',
+        conversationId,
       };
       
+      setHistoryCompacted(false);
       setMessages(prev => [...prev, userMessage]);
       
       // Create assistant message with generating plan
-      const assistantMessageId = `assistant-${Date.now()}`;
+      const assistantMessageId = generateId('assistant');
       const planMessage: ChatMessage = {
         id: assistantMessageId,
         content: '',
         role: 'assistant',
         timestamp: Date.now(),
         agent: 'Plan Mode',
+        conversationId,
         plan: {
-          id: `plan-${Date.now()}`,
+          id: generateId('plan'),
           title: 'Generating Plan...',
           description: 'Analyzing your request and creating a step-by-step plan',
           steps: [],
@@ -461,7 +514,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     
     // Regular message handling (existing logic)
     // Parse command from input (e.g., "/claude help" -> agent="claude", message="help")
-    let agentToUse = selectedAgent;
+    let agentToUse = selectedAgent || configuredDefaultAgentDisplay;
     let messageToSend = inputValue;
     
     // Check if input starts with a command
@@ -471,11 +524,12 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       const args = parts.slice(1).join(' ');
       
       // Map command to agent
-      if (['claude', 'codex', 'gemini', 'test'].includes(command)) {
+      if (['claude', 'codex', 'gemini', 'ollama', 'test'].includes(command)) {
         const commandToAgent = {
           'claude': 'Claude Code CLI',
           'codex': 'Codex', 
           'gemini': 'Gemini',
+          'ollama': 'Ollama',
           'test': 'Test CLI',
         };
         agentToUse = commandToAgent[command as keyof typeof commandToAgent];
@@ -484,15 +538,16 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     }
     
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: generateId('user'),
       content: inputValue,
       role: 'user',
       timestamp: Date.now(),
-      agent: agentToUse || selectedAgent || 'claude',
+      agent: agentToUse || configuredDefaultAgentDisplay,
+      conversationId,
     };
     
     // Respect settings: block disabled agents (refresh map if needed)
-    const targetDisplay = agentToUse || selectedAgent || 'claude';
+    const targetDisplay = agentToUse || configuredDefaultAgentDisplay;
     const targetId = getAgentId(targetDisplay);
     const allowed = await ensureEnabled(targetId);
     if (!allowed) {
@@ -500,6 +555,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       return;
     }
 
+    setHistoryCompacted(false);
     setMessages(prev => [...prev, userMessage]);
     
     // Clear input and hide autocomplete
@@ -529,12 +585,13 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     }
 
     await execute(
-      agentToUse || selectedAgent || 'claude',
+      agentToUse || configuredDefaultAgentDisplay,
       messageToSend,
       executionMode,
       unsafeFull,
       permissionMode as any,
-      approvalMode
+      approvalMode,
+      conversationId
     )
   };
 
@@ -553,25 +610,36 @@ ${planSteps}
 
 Please execute each step systematically.`;
     
+    const conversationId = generateId('conv');
     // Create a message for plan execution
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: generateId('user'),
       content: `Execute Plan: ${currentPlan.title}`,
       role: 'user',
       timestamp: Date.now(),
-      agent: selectedAgent || 'claude',
+      agent: selectedAgent || configuredDefaultAgentDisplay,
+      conversationId,
     };
     
+    setHistoryCompacted(false);
     setMessages(prev => [...prev, userMessage]);
     
     try {
-      const finalAgent = selectedAgent || 'claude';
+      const finalAgent = selectedAgent || configuredDefaultAgentDisplay;
       const targetId2 = getAgentId(finalAgent);
       if (!(await ensureEnabled(targetId2))) {
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
         return;
       }
-      await execute(finalAgent, planPrompt, executionMode, unsafeFull, planModeEnabled ? 'plan' : 'acceptEdits')
+      await execute(
+        finalAgent,
+        planPrompt,
+        executionMode,
+        unsafeFull,
+        planModeEnabled ? 'plan' : 'acceptEdits',
+        undefined,
+        conversationId
+      )
     } catch (error) {
       console.error('Failed to execute plan:', error);
     }
@@ -580,7 +648,7 @@ Please execute each step systematically.`;
   // Handle individual step execution  
   const handleExecuteStep = async (stepId: string) => {
     if (!currentPlan || !project) return;
-    
+
     const step = currentPlan.steps.find(s => s.id === stepId);
     if (!step) return;
     
@@ -591,7 +659,8 @@ Description: ${step.description}
 ${step.details ? `Details: ${step.details}` : ''}
 
 Please focus only on this step.`;
-    
+    const conversationId = generateId('conv');
+
     // Update step status to in_progress
     setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'in_progress') : null));
     
@@ -600,23 +669,33 @@ Please focus only on this step.`;
     
     // Create execution message
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: generateId('user'),
       content: `Execute Step: ${step.title}`,
       role: 'user',
       timestamp: Date.now(),
-      agent: selectedAgent || 'claude',
+      agent: selectedAgent || configuredDefaultAgentDisplay,
+      conversationId,
     };
     
+    setHistoryCompacted(false);
     setMessages(prev => [...prev, userMessage]);
     
     try {
-      const finalAgent = selectedAgent || 'claude';
+      const finalAgent = selectedAgent || configuredDefaultAgentDisplay;
       const targetId3 = getAgentId(finalAgent);
       if (!(await ensureEnabled(targetId3))) {
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
         return;
       }
-      await execute(finalAgent, stepPrompt, executionMode, unsafeFull, planModeEnabled ? 'plan' : 'acceptEdits')
+      await execute(
+        finalAgent,
+        stepPrompt,
+        executionMode,
+        unsafeFull,
+        planModeEnabled ? 'plan' : 'acceptEdits',
+        undefined,
+        conversationId
+      )
       // Mark step as completed after successful execution
       setTimeout(() => {
         setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'completed') : null));
@@ -629,6 +708,16 @@ Please focus only on this step.`;
       // Reflect pending state inside the plan in messages
       setMessages(prev => updateMessagesPlanStep(prev, stepId, 'pending'));
     }
+  };
+
+  const handleCompactConversation = () => {
+    setMessages(prev => {
+      if (!prev.length) return prev;
+      const keep = Math.max(1, Math.floor(historyLimit / 2));
+      const sliced = prev.slice(Math.max(prev.length - keep, 0));
+      return sliced;
+    });
+    setHistoryCompacted(true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -728,14 +817,31 @@ Please focus only on this step.`;
         const agentId = (msg.agent || '').toLowerCase()
         const looksJson = chunk.content.trim().startsWith('{') || chunk.content.includes('"type"')
 
-        if (agentId.includes('claude') && looksJson) {
-          let parser = parsers.get(chunk.session_id)
+        const announcement = chunk.content.trim().startsWith('🔗 Agent:')
+        if (announcement) {
+          return {
+            ...msg,
+            isStreaming: !chunk.finished,
+            status: chunk.finished ? 'completed' : 'running',
+          }
+        }
+
+        let parser = parsers.get(chunk.session_id)
+        const shouldParseClaude = agentId.includes('claude') && (parser || looksJson)
+
+        if (shouldParseClaude) {
           if (!parser) {
             parser = new ClaudeStreamParser('claude')
             parsers.set(chunk.session_id, parser)
           }
           const delta = parser.feed(chunk.content)
-          return { ...msg, content: msg.content + delta, isStreaming: !chunk.finished }
+          const content = delta ? msg.content + delta : msg.content
+          return {
+            ...msg,
+            content,
+            isStreaming: !chunk.finished,
+            status: chunk.finished ? 'completed' : 'running',
+          }
         }
 
         if (agentId.includes('codex') && looksJson) {
@@ -747,14 +853,31 @@ Please focus only on this step.`;
             codexParsers.set(chunk.session_id, parser)
           }
           const text = parser.feed(chunk.content)
+          const steps = parser.getSteps()
           if (text !== undefined) {
-            return { ...msg, content: text, isStreaming: !chunk.finished }
+            return {
+              ...msg,
+              content: text,
+              isStreaming: !chunk.finished,
+              status: chunk.finished ? 'completed' : 'running',
+              steps,
+            }
           }
-          // If parser returns undefined (filtered event), don't append raw content
-          return msg
+          // If parser returns undefined (filtered event), still propagate step updates
+          return {
+            ...msg,
+            steps,
+            isStreaming: !chunk.finished,
+            status: chunk.finished ? 'completed' : (msg.status ?? 'running'),
+          }
         }
 
-        return { ...msg, content: msg.content + chunk.content, isStreaming: !chunk.finished }
+        return {
+          ...msg,
+          content: msg.content + chunk.content,
+          isStreaming: !chunk.finished,
+          status: chunk.finished ? 'completed' : 'running',
+        }
       }))
       if (chunk.finished) {
         setExecutingSessions(prev => {
@@ -860,6 +983,9 @@ Please focus only on this step.`;
     }
   }, [selectedOptionIndex, showAutocomplete]);
 
+  const historyWarningThreshold = Math.max(1, historyLimit - 2);
+  const showCompactPrompt = messages.length >= historyWarningThreshold;
+
   return (
     <div className="relative flex flex-col flex-1 h-full min-h-0 overflow-hidden" data-testid="chat-root">
             <SessionStatusHeader
@@ -907,6 +1033,25 @@ Please focus only on this step.`;
         </div>
       )}
 
+      {showCompactPrompt && (
+        <div className="border-b bg-muted/40 px-6 py-2">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">
+              {historyCompacted
+                ? 'Conversation compacted. Older messages are collapsed to keep the recent context concise.'
+                : `Displaying the most recent ${historyLimit} messages. Compact older messages to maintain focus.`}
+            </span>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={handleCompactConversation}
+            >
+              Compact conversation
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Session Management Panel */}
       {showSessionPanel && sessionStatus && (
         <SessionManagementPanel
@@ -945,8 +1090,6 @@ Please focus only on this step.`;
                   expandedMessages={expandedMessages}
                   onToggleExpand={toggleExpand}
                   isLongMessage={isLongMessage}
-                  truncateMessage={truncateMessage}
-                  getAgentModel={getAgentModel}
                   onExecutePlan={handleExecutePlan}
                   onExecuteStep={handleExecuteStep}
                 />
@@ -985,6 +1128,7 @@ Please focus only on this step.`;
             getAgentModel={getAgentModel}
             fileMentionsEnabled={fileMentionsEnabled}
             chatSendShortcut={chatSendShortcut}
+            defaultAgentLabel={configuredDefaultAgentDisplay}
             onNewSession={handleNewSession}
             showNewSession={messages.length > 0}
             executionMode={executionMode}

@@ -699,12 +699,33 @@ pub async fn get_file_at_commit(
 // ---------------- Project Chat History ----------------
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatStep {
+    pub id: String,
+    pub label: String,
+    pub detail: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub started_at: Option<i64>,
+    #[serde(default)]
+    pub finished_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
     pub timestamp: i64,
     pub agent: Option<String>,
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub steps: Option<Vec<ChatStep>>,
 }
 
 fn chat_store_key(project_path: &str) -> String {

@@ -23,18 +23,31 @@ Working
 I will reply concisely.
 [2025-09-04T00:48:18] codex
 I’m doing well, thanks! How can I help you today?
-[2025-09-04T00:48:19] tokens used: 5347
-✅ Command completed successfully`;
+[2025-09-04T00:48:19] tokens used: 5347`;
 
 describe('AgentResponse view', () => {
   it('renders meta, hides thinking by default, and shows tokens', () => {
     render(<AgentResponse raw={sample} />)
     expect(screen.getByText(/model:\s*gpt-5/i)).toBeInTheDocument()
-    expect(screen.getByText(/Working/i)).toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: /Working steps/i })
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText(/Considering structured output/i)).not.toBeInTheDocument()
+    fireEvent.click(trigger)
     expect(screen.getByText(/Considering structured output/i)).toBeInTheDocument()
     expect(screen.getByText(/tokens:\s*5347/i)).toBeInTheDocument()
     expect(screen.queryByText(/I will reply concisely/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /show thinking/i }))
     expect(screen.getByText(/I will reply concisely/i)).toBeInTheDocument()
+    const icons = screen.getAllByTestId('claude-step-icon')
+    icons.forEach((icon) => {
+      expect(icon.className).toMatch(/h-5/)
+      expect(icon.className).toMatch(/w-5/)
+    })
+  })
+
+  it('shows streaming hint while thinking', () => {
+    render(<AgentResponse raw={sample} isStreaming />)
+    expect(screen.getByText(/Working steps \(3\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/Thinking…/i)).toBeInTheDocument()
   })
 })

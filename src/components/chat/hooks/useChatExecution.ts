@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { DISPLAY_TO_ID } from '@/components/chat/agents'
 import type { ChatMessage } from '@/components/chat/types'
+import { generateId } from '@/components/chat/utils/id'
 
 interface Params {
   resolveWorkingDir: () => Promise<string>
@@ -9,41 +10,54 @@ interface Params {
   setExecutingSessions: React.Dispatch<React.SetStateAction<Set<string>>>
   loadSessionStatus: () => void | Promise<void>
   invoke?: (cmd: string, args?: any) => Promise<any>
+  invoke?: (cmd: string, args?: any) => Promise<any>
 }
 
 export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingSessions, loadSessionStatus, invoke = tauriInvoke }: Params) {
   const execute = useCallback(
-    async (agentDisplayNameOrId: string, message: string, executionMode?: 'chat'|'collab'|'full', unsafeFull?: boolean, permissionMode?: 'plan'|'acceptEdits'|'ask', approvalMode?: 'default'|'auto_edit'|'yolo'): Promise<string | null> => {
+    async (
+      agentDisplayNameOrId: string,
+      message: string,
+      executionMode?: 'chat' | 'collab' | 'full',
+      unsafeFull?: boolean,
+      permissionMode?: 'plan' | 'acceptEdits' | 'ask',
+      approvalMode?: 'default' | 'auto_edit' | 'yolo',
+      conversationId?: string
+    ): Promise<string | null> => {
       const agentCommandMap = {
         claude: 'execute_claude_command',
         codex: 'execute_codex_command',
         gemini: 'execute_gemini_command',
+        ollama: 'execute_ollama_command',
         test: 'execute_test_command',
       } as const
 
-      const assistantMessageId = `assistant-${Date.now()}`
+      const sessionId = conversationId ?? generateId('conv')
+      const messageId = sessionId
       const assistantMessage: ChatMessage = {
-        id: assistantMessageId,
+        id: messageId,
         content: '',
         role: 'assistant',
         timestamp: Date.now(),
         agent: agentDisplayNameOrId,
         isStreaming: true,
+        conversationId: sessionId,
+        status: 'thinking',
       }
 
       setMessages((prev) => [...prev, assistantMessage])
       setExecutingSessions((prev) => {
         const s = new Set(prev)
-        s.add(assistantMessageId)
+        s.add(sessionId)
         return s
       })
 
       try {
         const name = DISPLAY_TO_ID[agentDisplayNameOrId as keyof typeof DISPLAY_TO_ID] || agentDisplayNameOrId.toLowerCase()
         const commandFunction = (agentCommandMap as any)[name]
-        if (!commandFunction) return assistantMessageId
+        if (!commandFunction) return sessionId
         const workingDir = await resolveWorkingDir()
-        const baseArgs: any = { sessionId: assistantMessageId, message, workingDir }
+        const baseArgs: any = { sessionId, message, workingDir }
         if (name === 'codex' && executionMode) {
           baseArgs.executionMode = executionMode
           if (unsafeFull) baseArgs.dangerousBypass = true
@@ -56,14 +70,18 @@ export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingS
             loadSessionStatus()
           } catch {}
         }, 500)
-        return assistantMessageId
+        return sessionId
       } catch (error) {
         setMessages((prev) =>
-          prev.map((msg) => (msg.id === assistantMessageId ? { ...msg, content: `Error: ${error}`, isStreaming: false } : msg))
+          prev.map((msg) =>
+            msg.id === messageId
+              ? { ...msg, content: `Error: ${error}`, isStreaming: false, status: 'failed' }
+              : msg
+          )
         )
         setExecutingSessions((prev) => {
           const s = new Set(prev)
-          s.delete(assistantMessageId)
+          s.delete(sessionId)
           return s
         })
         return null

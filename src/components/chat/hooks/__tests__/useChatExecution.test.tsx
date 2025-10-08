@@ -25,13 +25,14 @@ describe('useChatExecution', () => {
       useChatExecution({ resolveWorkingDir, setMessages: setMessages as any, setExecutingSessions: setExecuting as any, loadSessionStatus, invoke })
     )
 
-    const sessionId = await act(() => result.current.execute('Codex', 'help'))
+    const sessionId = await act(() => result.current.execute('Codex', 'help', undefined, undefined, undefined, undefined, 'conversation-1'))
     expect(sessionId).toBeTruthy()
     expect(calls[0].cmd).toBe('execute_codex_command')
     expect(calls[0].args.sessionId).toBe(sessionId)
     expect(calls[0].args.workingDir).toBe('/tmp/demo')
-    // Assistant message added and marked streaming
-    expect(messages.some((m) => m.id === sessionId && m.isStreaming)).toBe(true)
+    // Assistant message added and marked streaming with conversation id preserved
+    const assistant = messages.find((m) => m.id === sessionId)
+    expect(assistant?.isStreaming).toBe(true)
+    expect(assistant?.conversationId).toBe('conversation-1')
   })
 })
-

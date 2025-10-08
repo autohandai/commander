@@ -31,7 +31,7 @@ describe('ChatInput', () => {
 
   it('shows default placeholder in normal mode', () => {
     render(<ChatInput {...baseProps} />)
-    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', expect.stringContaining("/claude"))
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', expect.stringContaining('defaults to Claude Code CLI'))
   })
 
   it('shows plan placeholder in plan mode', () => {
@@ -42,5 +42,13 @@ describe('ChatInput', () => {
   it('renders project context helper', () => {
     render(<ChatInput {...baseProps} />)
     expect(screen.getByText(/Working in:\s*demo/i)).toBeInTheDocument()
+  })
+
+  it('reflects provided default agent label in placeholder', () => {
+    const { rerender } = render(<ChatInput {...(baseProps as any)} defaultAgentLabel="Codex" />)
+    const input = screen.getByRole('textbox')
+    expect(input).toHaveAttribute('placeholder', expect.stringContaining('Codex'))
+    rerender(<ChatInput {...(baseProps as any)} defaultAgentLabel="Ollama" />)
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', expect.stringContaining('Ollama'))
   })
 })

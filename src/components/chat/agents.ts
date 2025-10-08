@@ -15,12 +15,17 @@ export interface AgentCapability {
   category: string
 }
 
-export const allowedAgentIds = ['claude', 'codex', 'gemini', 'test'] as const
+export const allowedAgentIds = ['claude', 'codex', 'gemini', 'ollama', 'test'] as const
+
+export type AllowedAgentId = typeof allowedAgentIds[number]
+export const DEFAULT_CLI_AGENT_IDS = ['claude', 'codex', 'gemini', 'ollama'] as const
+export type DefaultCliAgentId = typeof DEFAULT_CLI_AGENT_IDS[number]
 
 export const DISPLAY_TO_ID: Record<string, string> = {
   'Claude Code CLI': 'claude',
   'Codex': 'codex',
   'Gemini': 'gemini',
+  'Ollama': 'ollama',
   'Test CLI': 'test',
 }
 
@@ -45,6 +50,13 @@ export const AGENTS: Agent[] = [
     displayName: 'Gemini',
     icon: Brain,
     description: "Google's multimodal AI assistant",
+  },
+  {
+    id: 'ollama',
+    name: 'ollama',
+    displayName: 'Ollama',
+    icon: Bot,
+    description: 'Local-first models served through the Ollama runtime',
   },
   {
     id: 'test',
@@ -75,6 +87,10 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
     { id: 'search', name: 'Web Integration', description: 'Real-time web search and integration', category: 'Integration' },
     { id: 'creative', name: 'Creative Solutions', description: 'Innovative problem-solving approaches', category: 'Creativity' },
   ],
+  ollama: [
+    { id: 'local', name: 'Local Execution', description: 'Runs models locally via the Ollama runtime', category: 'Offline' },
+    { id: 'custom', name: 'Custom Models', description: 'Switch between downloaded Ollama models', category: 'Configuration' },
+  ],
 }
 
 export function getAgentId(nameOrDisplay?: string | null): string {
@@ -86,3 +102,24 @@ export function getAgentId(nameOrDisplay?: string | null): string {
   return lower
 }
 
+export function getAgentDisplayById(id: string): string {
+  const normalized = id.toLowerCase()
+  const agent = AGENTS.find((a) => a.id === normalized || a.name === normalized)
+  if (agent) return agent.displayName
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+export function normalizeDefaultAgentId(value?: string | null): DefaultCliAgentId {
+  if (!value) return 'claude'
+  const normalized = value.toLowerCase() as DefaultCliAgentId
+  return DEFAULT_CLI_AGENT_IDS.includes(normalized) ? normalized : 'claude'
+}
+
+export const DEFAULT_CLI_AGENT_OPTIONS = DEFAULT_CLI_AGENT_IDS.map((id) => {
+  const agent = AGENTS.find((a) => a.id === id)
+  return {
+    id,
+    label: agent ? agent.displayName : getAgentDisplayById(id),
+    description: agent?.description ?? '',
+  }
+})
