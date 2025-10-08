@@ -23,6 +23,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+PRD/
+TDD/
 
 # Environment variables
 .env

@@ -12,7 +12,10 @@ fn codex_args_include_exec_and_prompt() {
     let args = build_codex_command_args("how are you?", None, false, Some(&settings));
 
     assert_eq!(args.first().map(String::as_str), Some("exec"));
-    assert!(args.contains(&"how are you?".to_string()), "prompt should be included in args");
+    assert!(
+        args.contains(&"how are you?".to_string()),
+        "prompt should be included in args"
+    );
     assert!(args.contains(&"--skip-git-repo-check".to_string()));
 }
 

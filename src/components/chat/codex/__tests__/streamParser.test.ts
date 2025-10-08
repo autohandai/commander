@@ -51,6 +51,6 @@ describe('CodexStreamParser', () => {
       parser.feed(
         'data: {"type":"response.error","error":{"message":"Agent failed"}}'
       )
-    ).toBe('Agent failed')
+    ).toBe('Error: Agent failed')
   })
 })

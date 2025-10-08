@@ -118,6 +118,7 @@ pub fn run() {
             execute_claude_command,
             execute_codex_command,
             execute_gemini_command,
+            execute_ollama_command,
             execute_test_command,
             get_active_sessions,
             terminate_session,

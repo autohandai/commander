@@ -25,7 +25,7 @@ vi.mock('@openai/codex-sdk', () => {
 
 const codexModule: any = await import('@openai/codex-sdk')
 const { Codex, __startThread, __runStreamed } = codexModule
-const { runCodex } = await import('../../../scripts/codex-sdk-runner.mjs')
+const { runCodex } = await import('../../../scripts/codex-sdk-core.mjs')
 
 describe('codex sdk runner', () => {
   beforeEach(() => {

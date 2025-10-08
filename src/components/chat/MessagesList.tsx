@@ -1,9 +1,14 @@
-import { User, Bot, Loader2, Copy, Expand, Shrink } from 'lucide-react'
+import { Loader2, Copy, Expand, Shrink } from 'lucide-react'
 import { getAgentId } from '@/components/chat/agents'
 import { PlanBreakdown } from '@/components/PlanBreakdown'
 import { AgentResponse } from './AgentResponse'
 import { CodexRenderer } from './codex/CodexRenderer'
 import { useToast } from '@/components/ToastProvider'
+import { getStepIconMeta } from '@/components/chat/utils/stepIcons'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export interface ChatMessageLike {
   id: string
@@ -19,6 +24,16 @@ export interface ChatMessageLike {
     progress: number
     isGenerating?: boolean
   }
+  conversationId?: string
+  steps?: {
+    id: string
+    label: string
+    detail?: string
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    startedAt?: number
+    finishedAt?: number
+  }[]
+  status?: 'thinking' | 'running' | 'completed' | 'failed'
 }
 
 interface MessagesListProps {
@@ -26,8 +41,6 @@ interface MessagesListProps {
   expandedMessages: Set<string>
   onToggleExpand: (id: string) => void
   isLongMessage: (text: string | undefined) => boolean
-  truncateMessage: (text: string, limit?: number) => string
-  getAgentModel: (agentName: string) => string | null
   onExecutePlan?: () => void
   onExecuteStep?: (id: string) => void
 }
@@ -38,13 +51,12 @@ export function MessagesList(props: MessagesListProps) {
     expandedMessages,
     onToggleExpand,
     isLongMessage,
-    getAgentModel,
     onExecutePlan,
     onExecuteStep,
   } = props
   const { showSuccess, showError } = useToast()
 
-  const copyMessage = async (text: string) => {
+  const copyValue = async (text: string, successTitle: string) => {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -56,146 +68,186 @@ export function MessagesList(props: MessagesListProps) {
         document.execCommand('copy')
         document.body.removeChild(ta)
       }
-      showSuccess('Message copied to clipboard', 'Copied')
+      showSuccess(successTitle, 'Copied')
     } catch (e) {
       showError('Failed to copy message', 'Error')
     }
   }
 
-  return (
-    <>
-      {messages.map((message) => {
-        const agentId = getAgentId(message.agent)
-        const isCodex = agentId === 'codex'
-        const isAssistant = message.role === 'assistant'
+  const buildCopyPayload = (message: ChatMessageLike) => {
+    const parts: string[] = []
+    if (message.conversationId) {
+      parts.push(`Conversation ID: ${message.conversationId}`)
+    }
+    if (message.content) {
+      parts.push(message.content)
+    }
+    return parts.join('\n\n').trim() || (message.conversationId ?? '')
+  }
 
-        // Codex assistant messages: no box, no padding, full width
-        if (message.role === 'assistant' && isCodex) {
-          return (
-            <div key={message.id} className="w-full">
-              <div className="flex items-center gap-2 mb-2 text-xs opacity-70">
-                <Bot className="h-3 w-3" />
-                <span className="text-blue-500">Codex</span>
-                <span>•</span>
-                <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-                {message.isStreaming && (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+  const renderSteps = (message: ChatMessageLike) => {
+    if (!message.steps || message.steps.length === 0) return null
+    return (
+      <Accordion type="multiple" className="w-full">
+        {message.steps.map((step) => (
+          <AccordionItem value={step.id} key={step.id}>
+            <AccordionTrigger className="text-sm font-medium">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const { icon: IconComp, className } = getStepIconMeta({ status: step.status, label: step.label })
+                  return (
+                    <span
+                      className={cn(
+                        'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border bg-background',
+                        className
+                      )}
+                    >
+                      <IconComp className="h-3 w-3" strokeWidth={2} />
+                    </span>
+                  )
+                })()}
+                <span>{step.label}</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="text-sm text-muted-foreground space-y-2">
+              {step.detail && <p className="whitespace-pre-wrap">{step.detail}</p>}
+              <div className="flex flex-wrap gap-3 text-[11px]">
+                {step.startedAt && (
+                  <span>
+                    started {new Date(step.startedAt).toLocaleTimeString()}
+                  </span>
+                )}
+                {step.finishedAt && (
+                  <span>
+                    finished {new Date(step.finishedAt).toLocaleTimeString()}
+                  </span>
                 )}
               </div>
-              <div className="text-sm">
-                {(() => {
-                  const content = message.content || ''
-                  if (!content && message.isStreaming) return 'Thinking...'
-                  return <CodexRenderer content={content} isStreaming={message.isStreaming} />
-                })()}
-              </div>
-            </div>
-          )
-        }
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    )
+  }
 
-        // User messages and non-Codex agents: keep box styling
+  return (
+    <div className="space-y-4">
+      {messages.map((message, index) => {
+        const agentId = getAgentId(message.agent)
+        const isAssistant = message.role === 'assistant'
+        const long = isLongMessage(message.content)
+        const expanded = expandedMessages.has(message.id)
+        const compact = long && !expanded
+        const timestamp = new Date(message.timestamp).toLocaleTimeString()
+        const timelineAccent = isAssistant ? 'bg-primary' : 'bg-muted-foreground'
+        const label =
+          message.role === 'user'
+            ? 'User'
+            : agentId === 'claude'
+              ? 'Claude'
+              : agentId === 'codex'
+                ? 'Codex'
+                : agentId === 'gemini'
+                  ? 'Gemini'
+                  : message.agent || 'Assistant'
+
         return (
-        <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-          <div className={`max-w-[80%] rounded-lg p-3 ${
-            message.role === 'user'
-              ? 'bg-primary text-primary-foreground ml-12'
-              : 'bg-muted mr-12'
-          }`}>
-            <div className="flex items-center gap-2 mb-1 text-xs opacity-70">
-              {message.role === 'user' ? (
-                <User className="h-3 w-3" />
-              ) : (
-                <Bot className="h-3 w-3" />
-              )}
-              {message.role === 'user' ? (
-                <span>You</span>
-              ) : (
-                (() => {
-                  const id = getAgentId(message.agent)
-                  const label = id === 'claude' ? 'Claude'
-                    : id === 'codex' ? 'Codex'
-                    : id === 'gemini' ? 'Gemini'
-                    : id === 'test' ? 'Test'
-                    : (message.agent || 'Agent')
-                  const colorClass = id === 'claude'
-                    ? 'text-orange-500'
-                    : (id === 'gemini'
-                      ? 'text-purple-500'
-                      : (id === 'codex' || id === 'openai')
-                        ? 'text-blue-500'
-                        : '')
-                  return <span className={colorClass}>{label}</span>
-                })()
-              )}
-              {/* No model in header; footer contains model info */}
-              <span>•</span>
-              <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-              {message.isStreaming && (
-                <Loader2 className="h-3 w-3 animate-spin" />
+          <div key={message.id} className="flex gap-3" data-testid="chat-message">
+            <div className="flex flex-col items-center pt-2">
+              <span className={cn('h-2 w-2 rounded-full', timelineAccent)} />
+              {index < messages.length - 1 && (
+                <span className="flex-1 w-px bg-muted-foreground/30" />
               )}
             </div>
-            {(() => {
-              const content = message.content || ''
-              const long = isLongMessage(content)
-              const expanded = expandedMessages.has(message.id)
-              const compact = long && !expanded
-              const containerClass = `whitespace-pre-wrap text-sm ${compact ? 'max-h-[200px] overflow-hidden' : ''}`
+            <div className="flex-1 min-w-0">
+              <div className="rounded-md border border-border/60 bg-background px-4 py-3 shadow-sm space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-[11px] uppercase tracking-wide">
+                      {label}
+                    </Badge>
+                    {message.status && (
+                      <Badge variant="outline" className="capitalize text-[11px]">
+                        {message.status.replace('_', ' ')}
+                      </Badge>
+                    )}
+                    {message.isStreaming && (
+                      <Loader2
+                        data-testid="chat-message-loader"
+                        className="h-4 w-4 animate-spin text-primary"
+                      />
+                    )}
+                  </div>
+                  <time dateTime={new Date(message.timestamp).toISOString()}>{timestamp}</time>
+                </div>
 
-              return (
-                <div className={containerClass} data-testid={compact ? 'message-compact' : undefined}>
+                <div
+                  className={cn(
+                    'prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed',
+                    compact && 'relative max-h-[220px] overflow-hidden'
+                  )}
+                  data-testid={compact ? 'message-compact' : undefined}
+                >
                   {(() => {
-                    if (!content && message.isStreaming) return 'Thinking...'
-                    if (message.role === 'assistant' && isCodex) {
-                      return <CodexRenderer content={content} />
+                    const content = message.content || ''
+                    if (!content && message.isStreaming) return 'Thinking…'
+                    if (isAssistant && agentId === 'codex') {
+                      return <CodexRenderer content={content} isStreaming={message.isStreaming} />
                     }
-                    return <AgentResponse raw={content} />
+                    return <AgentResponse raw={content} isStreaming={message.isStreaming} />
                   })()}
                 </div>
-              )
-            })()}
-            {/* Controls: copy and compact/expand */}
-            {(() => {
-              const content = message.content || ''
-              const long = isLongMessage(content)
-              const expanded = expandedMessages.has(message.id)
-              return (
-                <div className="mt-1 flex items-center justify-end gap-1 opacity-70">
-                  <button
-                    title="Copy message"
-                    className="p-1 rounded hover:bg-muted/60"
-                    onClick={() => copyMessage(content)}
-                  >
-                    <Copy className="h-3 w-3" />
-                  </button>
-                  {long && (
-                    <button
-                      title={expanded ? 'Compact message' : 'Expand message'}
-                      className="p-1 rounded hover:bg-muted/60"
-                      onClick={() => onToggleExpand(message.id)}
-                    >
-                      {expanded ? <Shrink className="h-3 w-3" /> : <Expand className="h-3 w-3" />}
-                    </button>
+
+                {message.plan && (
+                  <div className="rounded-md border border-dashed border-border/60 p-3">
+                    <PlanBreakdown
+                      title={message.plan.title}
+                      description={message.plan.description}
+                      steps={message.plan.steps}
+                      progress={message.plan.progress}
+                      isGenerating={message.plan.isGenerating}
+                      onExecutePlan={onExecutePlan}
+                      onExecuteStep={onExecuteStep}
+                    />
+                  </div>
+                )}
+
+                {renderSteps(message)}
+
+                <div className="flex flex-wrap items-center gap-3 justify-between text-[11px] text-muted-foreground">
+                  {message.conversationId && (
+                    <span data-testid="conversation-id">
+                      Conversation ID: {message.conversationId}
+                    </span>
                   )}
+                  <div className="flex items-center gap-1 ml-auto">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Copy"
+                      onClick={() => copyValue(buildCopyPayload(message), 'Message copied')}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                    {long && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title={expanded ? 'Compact message' : 'Expand message'}
+                        onClick={() => onToggleExpand(message.id)}
+                      >
+                        {expanded ? <Shrink className="h-3 w-3" /> : <Expand className="h-3 w-3" />}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              )
-            })()}
-            {message.plan && (
-              <div className="mt-3">
-                <PlanBreakdown
-                  title={message.plan.title}
-                  description={message.plan.description}
-                  steps={message.plan.steps}
-                  progress={message.plan.progress}
-                  isGenerating={message.plan.isGenerating}
-                  onExecutePlan={onExecutePlan}
-                  onExecuteStep={onExecuteStep}
-                />
               </div>
-            )}
+            </div>
           </div>
-        </div>
         )
       })}
-    </>
+    </div>
   )
 }

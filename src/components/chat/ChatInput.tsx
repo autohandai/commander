@@ -49,6 +49,7 @@ interface ChatInputProps {
   // File mentions toggle affects autocomplete header text
   fileMentionsEnabled: boolean
   chatSendShortcut?: 'enter' | 'mod+enter'
+  defaultAgentLabel?: string
 
   // Session controls
   onNewSession?: () => void
@@ -87,6 +88,7 @@ export function ChatInput(props: ChatInputProps) {
     getAgentModel,
     fileMentionsEnabled,
     chatSendShortcut = 'mod+enter',
+    defaultAgentLabel,
     onNewSession,
     showNewSession,
     executionMode = 'collab',
@@ -94,6 +96,9 @@ export function ChatInput(props: ChatInputProps) {
     unsafeFull = false,
     onUnsafeFullChange,
   } = props
+
+  const resolvedDefaultAgentLabel = defaultAgentLabel ?? 'Claude Code CLI'
+  const defaultPlaceholder = `Send a message (defaults to ${resolvedDefaultAgentLabel}). Use /agent to target a specific CLI.`
 
   // Global shortcut for starting a new chat session
   React.useEffect(() => {
@@ -259,7 +264,7 @@ export function ChatInput(props: ChatInputProps) {
             placeholder={typedPlaceholder || (
               planModeEnabled
                 ? "Describe what you want to accomplish - I'll create a step-by-step plan..."
-                : "Type /claude 'your prompt', /codex 'your code request', or /gemini 'your question'..."
+                : defaultPlaceholder
             )}
             className="pr-12 py-2.5 text-base"
             autoComplete="off"

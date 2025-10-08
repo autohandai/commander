@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Command as StdCommand;
 
 const CODEX_SDK_RUNNER_SOURCE: &str = include_str!("../../../scripts/codex-sdk-runner.mjs");
+const CODEX_SDK_CORE_SOURCE: &str = include_str!("../../../scripts/codex-sdk-core.mjs");
 
 static CODEX_SDK_RUNNER_PATH: Lazy<Result<PathBuf, String>> = Lazy::new(|| {
     let mut path = std::env::temp_dir();
@@ -31,6 +32,17 @@ static CODEX_SDK_RUNNER_PATH: Lazy<Result<PathBuf, String>> = Lazy::new(|| {
             "Failed to materialize Codex SDK runner script: {}",
             e
         ));
+    }
+
+    // Also materialize the shared core module alongside the runner
+    if let Some(parent) = path.parent() {
+        let core_path = parent.join("codex-sdk-core.mjs");
+        if let Err(e) = fs::write(&core_path, CODEX_SDK_CORE_SOURCE) {
+            return Err(format!(
+                "Failed to materialize Codex SDK core module: {}",
+                e
+            ));
+        }
     }
 
     Ok(path)
@@ -125,30 +137,11 @@ async fn build_agent_command_args(
 
     match agent {
         "claude" => {
-            // Use prompt mode with stream-json for structured output
-            args.push("-p".to_string());
-            if !message.is_empty() {
-                args.push(message.to_string());
-            }
-            args.push("--output-format".to_string());
-            args.push("stream-json".to_string());
-            args.push("--verbose".to_string());
-
-            // Permission mode for Claude (plan | acceptEdits | ask)
-            if let Some(pm) = permission_mode.as_ref() {
-                if !pm.is_empty() {
-                    args.push("--permission-mode".to_string());
-                    args.push(pm.clone());
-                }
-            }
-
-            // Add model flag if set in preferences
-            if let Some(ref model) = current_agent_settings.model {
-                if !model.is_empty() {
-                    args.push("--model".to_string());
-                    args.push(model.clone());
-                }
-            }
+            args.extend(build_claude_cli_args(
+                message,
+                permission_mode.as_deref(),
+                current_agent_settings,
+            ));
         }
         "codex" => {
             args.extend(build_codex_command_args(
@@ -185,6 +178,39 @@ async fn build_agent_command_args(
             if !message.is_empty() {
                 args.push(message.to_string());
             }
+        }
+    }
+
+    args
+}
+
+fn build_claude_cli_args(
+    message: &str,
+    permission_mode: Option<&str>,
+    settings: &AgentSettings,
+) -> Vec<String> {
+    let mut args = Vec::new();
+
+    args.push("-p".to_string());
+    if !message.is_empty() {
+        args.push(message.to_string());
+    }
+    args.push("--output-format".to_string());
+    args.push("stream-json".to_string());
+    args.push("--include-partial-messages".to_string());
+    args.push("--verbose".to_string());
+
+    if let Some(pm) = permission_mode {
+        if !pm.is_empty() {
+            args.push("--permission-mode".to_string());
+            args.push(pm.to_string());
+        }
+    }
+
+    if let Some(model) = settings.model.as_ref() {
+        if !model.is_empty() {
+            args.push("--model".to_string());
+            args.push(model.clone());
         }
     }
 
@@ -239,8 +265,7 @@ fn parse_command_structure(agent: &str, message: &str) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_command_structure;
-
+    use super::{build_claude_cli_args, parse_command_structure};
     #[test]
     fn parses_code_alias_to_codex_with_help() {
         let (agent, msg) = parse_command_structure("claude", "/code help");
@@ -260,6 +285,44 @@ mod tests {
         let (agent, msg) = parse_command_structure("claude", "/codex help");
         assert_eq!(agent, "codex");
         assert_eq!(msg, "help");
+    }
+
+    #[test]
+    fn claude_cli_args_include_stream_json_and_partials() {
+        let settings = crate::models::AgentSettings {
+            model: Some("claude-opus".to_string()),
+            ..Default::default()
+        };
+
+        let args = build_claude_cli_args("list files", Some("plan"), &settings);
+
+        assert!(
+            args.contains(&"-p".to_string()),
+            "expected -p to be present"
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--output-format" && pair[1] == "stream-json"),
+            "expected --output-format stream-json"
+        );
+        assert!(
+            args.contains(&"--include-partial-messages".to_string()),
+            "expected --include-partial-messages to be present"
+        );
+        assert!(
+            args.contains(&"--verbose".to_string()),
+            "expected --verbose to be present"
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--model" && pair[1] == "claude-opus"),
+            "expected --model flag to use configured model"
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--permission-mode" && pair[1] == "plan"),
+            "expected permission mode passthrough"
+        );
     }
 }
 
@@ -455,15 +518,16 @@ async fn try_spawn_with_pty(
                 }
             }
         }
+        let final_content = if status.success() {
+            String::new()
+        } else {
+            format!("\n❌ Command failed with status\n")
+        };
         let _ = app_clone.emit(
             "cli-stream",
             StreamChunk {
                 session_id: session_id_clone,
-                content: if status.success() {
-                    "\n✅ Command completed successfully\n".to_string()
-                } else {
-                    format!("\n❌ Command failed with status\n")
-                },
+                content: final_content,
                 finished: true,
             },
         );
@@ -634,7 +698,12 @@ async fn try_spawn_codex_sdk(
                         }
                     }
                     Err(_) => {
-                        // Ignore non-JSON stderr lines (debug logging from SDK runner)
+                        let chunk = StreamChunk {
+                            session_id: session_for_stderr.clone(),
+                            content: format!("{}\n", line),
+                            finished: false,
+                        };
+                        let _ = app_for_stderr.emit("cli-stream", chunk);
                     }
                 }
             }
@@ -648,7 +717,7 @@ async fn try_spawn_codex_sdk(
                     "cli-stream",
                     StreamChunk {
                         session_id,
-                        content: "\n✅ Command completed successfully\n".to_string(),
+                        content: "\n \n".to_string(),
                         finished: true,
                     },
                 );
@@ -731,7 +800,7 @@ pub async fn execute_persistent_cli_command(
             {
                 Ok(()) => {
                     return;
-                },
+                }
                 Err(err) => {
                     let fallback_chunk = StreamChunk {
                         session_id: session_id_clone.clone(),
@@ -794,7 +863,10 @@ pub async fn execute_persistent_cli_command(
         // Prefer PTY for richer streaming – Codex in particular emits carriage-return updates that
         // disappear when spawned via plain pipes. `try_spawn_with_pty` respects the working
         // directory, so we can safely attempt it regardless of `working_dir`.
-        let prefer_pty = working_dir.is_none() || agent_name.eq_ignore_ascii_case("codex");
+        let prefer_pty = working_dir.is_none()
+            || agent_name.eq_ignore_ascii_case("codex")
+            || agent_name.eq_ignore_ascii_case("claude")
+            || agent_name.eq_ignore_ascii_case("gemini");
 
         if prefer_pty {
             if let Err(e) = try_spawn_with_pty(
@@ -992,7 +1064,7 @@ pub async fn execute_persistent_cli_command(
                         let final_chunk = StreamChunk {
                             session_id: session_id_clone,
                             content: if status.success() {
-                                "\n✅ Command completed successfully\n".to_string()
+                                String::new()
                             } else {
                                 format!(
                                     "\n❌ Command failed with exit code: {}\n",
@@ -1114,6 +1186,26 @@ pub async fn execute_gemini_command(
         app,
         sessionId,
         "gemini".to_string(),
+        message,
+        workingDir,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn execute_ollama_command(
+    app: tauri::AppHandle,
+    #[allow(non_snake_case)] sessionId: String,
+    message: String,
+    #[allow(non_snake_case)] workingDir: Option<String>,
+) -> Result<(), String> {
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "ollama".to_string(),
         message,
         workingDir,
         None,

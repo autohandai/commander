@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { AgentResponse } from '@/components/chat/AgentResponse'
 
-const sample = `Agent: codex | Command: test\n--------\nmodel: gpt-5\n--------\n[2025-09-04T00:00:00] codex\nhello\n[2025-09-04T00:00:01] tokens used: 10\n✅ Command completed successfully`;
+const sample = `Agent: codex | Command: test\n--------\nmodel: gpt-5\n--------\n[2025-09-04T00:00:00] codex\nhello\n[2025-09-04T00:00:01] tokens used: 10\n `;
 
 describe('AgentResponse compact footer', () => {
   it('renders compact footer with command and no raw or details toggles', () => {

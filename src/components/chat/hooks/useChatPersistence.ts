@@ -6,6 +6,16 @@ export interface PersistableMessage {
   content: string
   timestamp: number
   agent: string
+  conversationId?: string
+  status?: 'thinking' | 'running' | 'completed' | 'failed'
+  steps?: {
+    id: string
+    label: string
+    detail?: string
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    startedAt?: number
+    finishedAt?: number
+  }[]
 }
 
 interface Params {
@@ -54,6 +64,9 @@ export function useChatPersistence({
             role: m.role === 'assistant' ? 'assistant' : 'user',
             timestamp: Number(m.timestamp ?? Date.now()),
             agent: String(m.agent ?? 'claude'),
+            conversationId: typeof m.conversationId === 'string' ? m.conversationId : undefined,
+            status: m.status,
+            steps: Array.isArray(m.steps) ? m.steps : undefined,
           })) as PersistableMessage[]
           onRestore(restored)
         }
@@ -78,6 +91,9 @@ export function useChatPersistence({
         content: m.content,
         timestamp: m.timestamp,
         agent: m.agent,
+        conversationId: m.conversationId,
+        status: m.status,
+        steps: m.steps,
       }))
       tauriInvoke('save_project_chat', { projectPath, messages: cleaned }).catch(() => {})
     }, debounceMs)

@@ -1,76 +1,8 @@
 #!/usr/bin/env node
 import fs from 'fs'
-import { pathToFileURL, fileURLToPath } from 'url'
-
-export async function runCodex(options = {}, io = defaultIO) {
-  const {
-    sessionId,
-    prompt = '',
-    workingDirectory,
-    sandboxMode,
-    model,
-    skipGitRepoCheck,
-  } = options
-
-  let CodexModule
-  const distPath = process.env.CODEX_SDK_DIST_PATH
-  if (distPath && fs.existsSync(distPath)) {
-    CodexModule = await import(pathToFileURL(distPath).href)
-  } else {
-    CodexModule = await import('@openai/codex-sdk')
-  }
-  const { Codex } = CodexModule
-
-  const codexOptions = workingDirectory ? { workingDirectory } : {}
-  const codex = new Codex(codexOptions)
-
-  const threadOptions = {
-    ...(model ? { model } : {}),
-    ...(sandboxMode ? { sandboxMode } : {}),
-    ...(workingDirectory ? { workingDirectory } : {}),
-    skipGitRepoCheck: skipGitRepoCheck !== false,
-  }
-
-  const thread = codex.startThread(threadOptions)
-
-  try {
-    const { events } = await thread.runStreamed(prompt)
-    for await (const event of events) {
-      await io.write(
-        JSON.stringify({
-          sessionId,
-          content: JSON.stringify(event),
-          finished: false,
-        })
-      )
-    }
-
-    await io.write(
-      JSON.stringify({
-        sessionId,
-        content: '',
-        finished: true,
-      })
-    )
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const payload = JSON.stringify({ sessionId, error: message, finished: true })
-    if (io.writeError) {
-      await io.writeError(payload)
-    } else {
-      await io.write(payload)
-    }
-  }
-}
-
-async function readStdin() {
-  const chunks = []
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk)
-  }
-  if (!chunks.length) return ''
-  return Buffer.concat(chunks.map((c) => (typeof c === 'string' ? Buffer.from(c) : c))).toString('utf8')
-}
+import { fileURLToPath } from 'url'
+import { runCodex, readStdin } from './codex-sdk-core.mjs'
+export { runCodex } from './codex-sdk-core.mjs'
 
 async function main() {
   const stdin = await readStdin()
@@ -83,15 +15,6 @@ async function main() {
 
   const payload = JSON.parse(rawInput)
   await runCodex(payload)
-}
-
-const defaultIO = {
-  write: async (msg) => {
-    process.stdout.write(msg + '\n')
-  },
-  writeError: async (msg) => {
-    process.stderr.write(msg + '\n')
-  },
 }
 
 // Check if this script is being run directly

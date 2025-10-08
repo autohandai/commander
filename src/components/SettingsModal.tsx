@@ -34,6 +34,21 @@ import { useLLMSettings } from "@/hooks/use-llm-settings"
 import { useSettings as useAppSettingsContext } from "@/contexts/settings-context"
 import type { SettingsModalProps, SettingsTab } from "@/types/settings"
 
+const DEFAULT_CLI_AGENT_CHOICES = ['claude', 'codex', 'gemini', 'ollama'] as const
+type DefaultCliAgentChoice = typeof DEFAULT_CLI_AGENT_CHOICES[number]
+
+const normalizeDefaultCliAgent = (value?: string | null): DefaultCliAgentChoice => {
+  if (!value) return 'claude'
+  const normalized = value.toLowerCase() as DefaultCliAgentChoice
+  return DEFAULT_CLI_AGENT_CHOICES.includes(normalized) ? normalized : 'claude'
+}
+
+if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function (_arg?: boolean | ScrollIntoViewOptions) {
+    return undefined
+  }
+}
+
 export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
   console.log('🏗️ SettingsModal render - isOpen:', isOpen)
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -64,6 +79,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [tempFileMentionsEnabled, setTempFileMentionsEnabled] = useState(true)
   const [chatSendShortcut, setChatSendShortcut] = useState<'enter' | 'mod+enter'>('mod+enter')
   const [tempChatSendShortcut, setTempChatSendShortcut] = useState<'enter' | 'mod+enter'>('mod+enter')
+  const [maxChatHistory, setMaxChatHistory] = useState<number>(15)
+  const [tempMaxChatHistory, setTempMaxChatHistory] = useState<number>(15)
+  const [defaultCliAgent, setDefaultCliAgent] = useState<DefaultCliAgentChoice>('claude')
+  const [tempDefaultCliAgent, setTempDefaultCliAgent] = useState<DefaultCliAgentChoice>('claude')
   // UI Theme state
   const [uiTheme, setUiTheme] = useState<string>('auto')
   const [tempUiTheme, setTempUiTheme] = useState<string>('auto')
@@ -111,7 +130,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         
         // Load app settings with error handling
         try {
-          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number }, chat_send_shortcut?: 'enter' | 'mod+enter', show_welcome_recent_projects?: boolean }>('load_app_settings')
+          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number }, chat_send_shortcut?: 'enter' | 'mod+enter', show_welcome_recent_projects?: boolean, max_chat_history?: number, default_cli_agent?: string }>('load_app_settings')
           console.log('✅ App settings loaded:', appSettings)
           if (appSettings) {
             setShowConsoleOutput(appSettings.show_console_output)
@@ -121,9 +140,18 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
             const sendShortcut = (appSettings as any).chat_send_shortcut || 'mod+enter'
             setChatSendShortcut(sendShortcut)
             setTempChatSendShortcut(sendShortcut)
+            const historyCap = typeof (appSettings as any).max_chat_history === 'number'
+              ? Math.max(5, Math.floor((appSettings as any).max_chat_history))
+              : 15
+            setMaxChatHistory(historyCap)
+            setTempMaxChatHistory(historyCap)
             const showWelcome = (appSettings as any).show_welcome_recent_projects ?? true
             setShowWelcomeRecentProjects(showWelcome)
             setTempShowWelcomeRecentProjects(showWelcome)
+            const defaultAgent = normalizeDefaultCliAgent((appSettings as any).default_cli_agent)
+            setDefaultCliAgent(defaultAgent)
+            setTempDefaultCliAgent(defaultAgent)
+
             if (appSettings.projects_folder) {
               setDefaultProjectsFolder(appSettings.projects_folder)
               setTempDefaultProjectsFolder(appSettings.projects_folder)
@@ -178,10 +206,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         // Load full agent configuration (for advanced settings)
         loadAllAgentSettings()
         
-      } catch (error) {
-        console.error('❌ Error loading settings:', error)
+        } catch (error) {
+          console.error('❌ Error loading settings:', error)
+        }
       }
-    }
 
     const loadAllAgentSettings = async () => {
       try {
@@ -268,6 +296,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       tempShowConsoleOutput !== showConsoleOutput ||
       tempFileMentionsEnabled !== fileMentionsEnabled ||
       tempChatSendShortcut !== chatSendShortcut ||
+      tempMaxChatHistory !== maxChatHistory ||
+      tempDefaultCliAgent !== defaultCliAgent ||
       tempUiTheme !== uiTheme ||
       tempShowWelcomeRecentProjects !== showWelcomeRecentProjects ||
       tempCodeTheme !== codeTheme ||
@@ -283,6 +313,12 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     showConsoleOutput,
     tempFileMentionsEnabled,
     fileMentionsEnabled,
+    tempChatSendShortcut,
+    chatSendShortcut,
+    tempMaxChatHistory,
+    maxChatHistory,
+    tempDefaultCliAgent,
+    defaultCliAgent,
     tempUiTheme,
     uiTheme,
     tempShowWelcomeRecentProjects,
@@ -317,15 +353,17 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     // Persist theme selection immediately without affecting other unsaved changes
     const saveTheme = async () => {
       try {
-        const appSettings = {
-          show_console_output: showConsoleOutput,
-          projects_folder: defaultProjectsFolder,
-          file_mentions_enabled: fileMentionsEnabled,
-          ui_theme: tempUiTheme,
-          chat_send_shortcut: tempChatSendShortcut,
-          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
-          code_settings: { theme: codeTheme, font_size: codeFontSize }
-        }
+          const appSettings = {
+            show_console_output: showConsoleOutput,
+            projects_folder: defaultProjectsFolder,
+            file_mentions_enabled: fileMentionsEnabled,
+            ui_theme: tempUiTheme,
+            max_chat_history: tempMaxChatHistory,
+            chat_send_shortcut: tempChatSendShortcut,
+            show_welcome_recent_projects: tempShowWelcomeRecentProjects,
+            default_cli_agent: tempDefaultCliAgent,
+            code_settings: { theme: codeTheme, font_size: codeFontSize }
+          }
         await updateAppSettings(appSettings)
         // Also update native window theme
         await invoke('set_window_theme', { theme: tempUiTheme })
@@ -346,8 +384,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           projects_folder: defaultProjectsFolder,
           file_mentions_enabled: fileMentionsEnabled,
           ui_theme: tempUiTheme,
+          max_chat_history: tempMaxChatHistory,
           chat_send_shortcut: tempChatSendShortcut,
           show_welcome_recent_projects: tempShowWelcomeRecentProjects,
+          default_cli_agent: tempDefaultCliAgent,
           code_settings: { theme: codeTheme, font_size: codeFontSize },
         }
         await updateAppSettings(appSettings)
@@ -359,6 +399,29 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     saveShortcut()
   }, [tempChatSendShortcut])
 
+  useEffect(() => {
+    const saveHistoryLimit = async () => {
+      try {
+        const appSettings = {
+          show_console_output: showConsoleOutput,
+          projects_folder: defaultProjectsFolder,
+          file_mentions_enabled: fileMentionsEnabled,
+          ui_theme: tempUiTheme,
+          max_chat_history: tempMaxChatHistory,
+          chat_send_shortcut: tempChatSendShortcut,
+          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
+          default_cli_agent: tempDefaultCliAgent,
+          code_settings: { theme: codeTheme, font_size: codeFontSize },
+        }
+        await updateAppSettings(appSettings)
+        setMaxChatHistory(tempMaxChatHistory)
+      } catch (e) {
+        console.error('Failed to auto-save max_chat_history:', e)
+      }
+    }
+    saveHistoryLimit()
+  }, [tempMaxChatHistory])
+
   // Auto-save Welcome Screen recents toggle for immediate reflection on Welcome screen
   useEffect(() => {
     const saveWelcomeToggle = async () => {
@@ -368,8 +431,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           projects_folder: defaultProjectsFolder,
           file_mentions_enabled: fileMentionsEnabled,
           ui_theme: tempUiTheme,
+          max_chat_history: tempMaxChatHistory,
           chat_send_shortcut: tempChatSendShortcut,
           show_welcome_recent_projects: tempShowWelcomeRecentProjects,
+          default_cli_agent: tempDefaultCliAgent,
           code_settings: { theme: codeTheme, font_size: codeFontSize },
         }
         await updateAppSettings(appSettings)
@@ -380,6 +445,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     }
     saveWelcomeToggle()
   }, [tempShowWelcomeRecentProjects])
+
+  // Default CLI agent changes are persisted via explicit Save action to respect unsaved-changes workflow.
 
   // Load git config when tab is activated
   useEffect(() => {
@@ -538,8 +605,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         projects_folder: tempDefaultProjectsFolder,
         file_mentions_enabled: tempFileMentionsEnabled,
         ui_theme: tempUiTheme,
+        max_chat_history: tempMaxChatHistory,
         chat_send_shortcut: tempChatSendShortcut,
         show_welcome_recent_projects: tempShowWelcomeRecentProjects,
+        default_cli_agent: tempDefaultCliAgent,
         code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize }
       }
       await updateAppSettings(appSettings)
@@ -558,6 +627,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setShowConsoleOutput(tempShowConsoleOutput)
       setFileMentionsEnabled(tempFileMentionsEnabled)
       setChatSendShortcut(tempChatSendShortcut)
+      setMaxChatHistory(tempMaxChatHistory)
+      setDefaultCliAgent(tempDefaultCliAgent)
       setDefaultProjectsFolder(tempDefaultProjectsFolder)
       setUiTheme(tempUiTheme)
       setShowWelcomeRecentProjects(tempShowWelcomeRecentProjects)
@@ -586,8 +657,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     // Reset temp values
     setTempDefaultProjectsFolder(defaultProjectsFolder)
     setTempShowConsoleOutput(showConsoleOutput)
-      setTempFileMentionsEnabled(fileMentionsEnabled)
-      setTempChatSendShortcut(chatSendShortcut)
+    setTempFileMentionsEnabled(fileMentionsEnabled)
+    setTempChatSendShortcut(chatSendShortcut)
+    setTempMaxChatHistory(maxChatHistory)
+    setTempDefaultCliAgent(defaultCliAgent)
     setTempUiTheme(uiTheme)
     setTempShowWelcomeRecentProjects(showWelcomeRecentProjects)
     setTempCodeTheme(codeTheme)
@@ -759,6 +832,10 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   onFileMentionsChange={setTempFileMentionsEnabled}
                   tempChatSendShortcut={tempChatSendShortcut}
                   onChatSendShortcutChange={setTempChatSendShortcut}
+                  tempMaxChatHistory={tempMaxChatHistory}
+                  onMaxChatHistoryChange={setTempMaxChatHistory}
+                  tempDefaultCliAgent={tempDefaultCliAgent}
+                  onDefaultCliAgentChange={(value) => setTempDefaultCliAgent(normalizeDefaultCliAgent(value))}
                 />
               )}
               {activeTab === 'prompts' && <PromptsUISettings />}
