@@ -454,6 +454,10 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
     })();
   }, [project.path]);
 
+  useEffect(() => {
+    setSelectedFile((prev) => (prev ? null : prev));
+  }, [viewScope, workspacePath]);
+
   const handleFileSelect = (file: FileInfo) => {
     setSelectedFile(file);
   };
@@ -464,22 +468,6 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
       {/* File Explorer Sidebar */}
       <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
         <div className="p-2 border-b bg-muted/20 space-y-2">
-          <Label className="text-xs text-muted-foreground">View</Label>
-          {viewScope !== 'workspace' ? (
-            <Select value={viewScope} onValueChange={(v: 'main' | 'workspace') => { setViewScope(v); setSelectedFile(null); }}>
-              <SelectTrigger className="h-8 mt-1">
-                <SelectValue placeholder="Select view" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="main">Main Branch</SelectItem>
-                <SelectItem value="workspace" disabled={!workspacePath}>Workspace</SelectItem>
-              </SelectContent>
-            </Select>
-          ) : (
-            <div className="h-8 mt-1 flex items-center text-xs text-muted-foreground">
-              Workspace View
-            </div>
-          )}
           {viewScope !== 'workspace' && (
             <Button size="sm" className="w-full" disabled={creatingWs} onClick={() => setIsCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-2" /> Create Workspace

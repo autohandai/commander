@@ -19,7 +19,7 @@ const { RECENT_PROJECTS, defaultInvokeImplementation } = vi.hoisted(() => {
   const handler = async (cmd: string) => {
     switch (cmd) {
       case 'load_app_settings':
-        return { show_welcome_recent_projects: true, show_console_output: true, file_mentions_enabled: true, projects_folder: '', ui_theme: 'auto', chat_send_shortcut: 'mod+enter', code_settings: { theme: 'github', font_size: 14 } }
+        return { show_welcome_recent_projects: true, show_console_output: true, file_mentions_enabled: true, projects_folder: '', ui_theme: 'auto', chat_send_shortcut: 'mod+enter', code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false } }
       case 'list_recent_projects':
         return recents
       case 'refresh_recent_projects':
@@ -167,7 +167,7 @@ if (typeof document !== 'undefined') describe('App welcome screen recent project
     ;(invoke as any).mockImplementation(async (cmd: string) => {
       switch (cmd) {
         case 'load_app_settings':
-          return { show_welcome_recent_projects: false, show_console_output: true, file_mentions_enabled: true, projects_folder: '', ui_theme: 'auto', chat_send_shortcut: 'mod+enter', code_settings: { theme: 'github', font_size: 14 } }
+          return { show_welcome_recent_projects: false, show_console_output: true, file_mentions_enabled: true, projects_folder: '', ui_theme: 'auto', chat_send_shortcut: 'mod+enter', code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false } }
         case 'list_recent_projects':
           return []
         case 'check_ai_agents':

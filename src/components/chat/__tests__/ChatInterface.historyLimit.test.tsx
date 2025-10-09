@@ -55,7 +55,7 @@ const defaultInvokeImpl = async (cmd: string) => {
         projects_folder: '',
         ui_theme: 'auto',
         show_welcome_recent_projects: true,
-        code_settings: { theme: 'github', font_size: 14 },
+        code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false },
       }
     default:
       return null

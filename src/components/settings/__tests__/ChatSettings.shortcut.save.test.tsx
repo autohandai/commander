@@ -11,7 +11,7 @@ vi.mock('@tauri-apps/api/core', () => {
       invokes.push({ cmd, args })
       switch (cmd) {
         case 'load_app_settings':
-          return { show_console_output: true, projects_folder: '', file_mentions_enabled: true, ui_theme: 'auto', code_settings: { theme: 'github', font_size: 14 }, chat_send_shortcut: 'mod+enter' }
+          return { show_console_output: true, projects_folder: '', file_mentions_enabled: true, ui_theme: 'auto', code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false }, chat_send_shortcut: 'mod+enter' }
         case 'get_default_projects_folder':
           return '/tmp'
         case 'load_agent_settings':

@@ -99,7 +99,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [fetchingAgentModels, setFetchingAgentModels] = useState<Record<string, boolean>>({})
   const [agentSettingsLoading, setAgentSettingsLoading] = useState(true)
   const [agentSettingsError, setAgentSettingsError] = useState<string | null>(null)
-  const { updateSettings: updateAppSettings } = useAppSettingsContext()
+  const { updateSettings: updateAppSettings, settings: appSettingsContext } = useAppSettingsContext()
 
   // Code settings
   const [codeTheme, setCodeTheme] = useState<string>('github')
@@ -130,7 +130,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         
         // Load app settings with error handling
         try {
-          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number }, chat_send_shortcut?: 'enter' | 'mod+enter', show_welcome_recent_projects?: boolean, max_chat_history?: number, default_cli_agent?: string }>('load_app_settings')
+          const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number, auto_collapse_sidebar?: boolean }, chat_send_shortcut?: 'enter' | 'mod+enter', show_welcome_recent_projects?: boolean, max_chat_history?: number, default_cli_agent?: string }>('load_app_settings')
           console.log('✅ App settings loaded:', appSettings)
           if (appSettings) {
             setShowConsoleOutput(appSettings.show_console_output)
@@ -156,7 +156,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
               setDefaultProjectsFolder(appSettings.projects_folder)
               setTempDefaultProjectsFolder(appSettings.projects_folder)
             }
-            const code = appSettings.code_settings || { theme: 'github', font_size: 14 }
+            const code = appSettings.code_settings || { theme: 'github', font_size: 14, auto_collapse_sidebar: false }
             setCodeTheme(code.theme)
             setTempCodeTheme(code.theme)
             setCodeFontSize(code.font_size)
@@ -362,7 +362,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
             chat_send_shortcut: tempChatSendShortcut,
             show_welcome_recent_projects: tempShowWelcomeRecentProjects,
             default_cli_agent: tempDefaultCliAgent,
-            code_settings: { theme: codeTheme, font_size: codeFontSize }
+            code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar }
           }
         await updateAppSettings(appSettings)
         // Also update native window theme
@@ -388,7 +388,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           chat_send_shortcut: tempChatSendShortcut,
           show_welcome_recent_projects: tempShowWelcomeRecentProjects,
           default_cli_agent: tempDefaultCliAgent,
-          code_settings: { theme: codeTheme, font_size: codeFontSize },
+          code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
         }
         await updateAppSettings(appSettings)
         setChatSendShortcut(tempChatSendShortcut)
@@ -411,7 +411,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           chat_send_shortcut: tempChatSendShortcut,
           show_welcome_recent_projects: tempShowWelcomeRecentProjects,
           default_cli_agent: tempDefaultCliAgent,
-          code_settings: { theme: codeTheme, font_size: codeFontSize },
+          code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
         }
         await updateAppSettings(appSettings)
         setMaxChatHistory(tempMaxChatHistory)
@@ -435,7 +435,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
           chat_send_shortcut: tempChatSendShortcut,
           show_welcome_recent_projects: tempShowWelcomeRecentProjects,
           default_cli_agent: tempDefaultCliAgent,
-          code_settings: { theme: codeTheme, font_size: codeFontSize },
+          code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
         }
         await updateAppSettings(appSettings)
         setShowWelcomeRecentProjects(tempShowWelcomeRecentProjects)
@@ -609,7 +609,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         chat_send_shortcut: tempChatSendShortcut,
         show_welcome_recent_projects: tempShowWelcomeRecentProjects,
         default_cli_agent: tempDefaultCliAgent,
-        code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize }
+        code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar }
       }
       await updateAppSettings(appSettings)
       

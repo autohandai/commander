@@ -23,6 +23,8 @@ if (typeof document !== 'undefined') describe('CodeView workspaces', () => {
         <CodeView project={project as any} tauriInvoke={fakeInvoke as any} />
       </SettingsProvider>
     )
+    expect(screen.queryByText('View')).not.toBeInTheDocument()
+    expect(screen.queryByText(/workspace view/i)).not.toBeInTheDocument()
     // Switch to workspace view automatically (since mocked list is non-empty)
     await waitFor(() => expect(screen.getByText('Workspace')).toBeInTheDocument())
     // Open workspace select

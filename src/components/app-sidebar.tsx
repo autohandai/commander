@@ -68,7 +68,7 @@ export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProject
 
   return (
     <ResizableSidebar>
-      <Sidebar variant="sidebar" className="flex flex-col" {...props}>
+      <Sidebar variant="sidebar" className="flex flex-col" data-testid="app-sidebar" {...props}>
         {/* Sidebar title bar drag area - matching the main content */}
         <div 
           className="h-7 w-full drag-area" 

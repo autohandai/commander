@@ -61,7 +61,7 @@ vi.mock('@/contexts/settings-context', () => ({
       chat_send_shortcut: 'mod+enter',
       show_welcome_recent_projects: true,
       max_chat_history: 15,
-      code_settings: { theme: 'github', font_size: 14 },
+      code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false },
       default_cli_agent: currentDefaultAgent,
     },
     updateSettings: vi.fn(),

@@ -29,7 +29,7 @@ export interface AppSettings {
   show_welcome_recent_projects?: boolean;
   // Maximum number of chat messages retained per session
   max_chat_history?: number;
-  code_settings?: { theme: string; font_size: number };
+  code_settings?: { theme: string; font_size: number; auto_collapse_sidebar?: boolean };
 }
 
 // ============================

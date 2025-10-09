@@ -70,15 +70,18 @@ vi.mock('@/components/ui/tabs', () => {
   return { Tabs, TabsList, TabsTrigger, TabsContent }
 })
 
-const defaultSettings = {
+let autoCollapse = true
+
+const buildSettings = () => ({
   show_console_output: true,
   projects_folder: '',
   file_mentions_enabled: true,
   show_welcome_recent_projects: true,
-  chat_send_shortcut: 'mod+enter',
-  code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false },
+  chat_send_shortcut: 'mod+enter' as const,
   ui_theme: 'auto',
-}
+  default_cli_agent: 'claude' as const,
+  code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: autoCollapse },
+})
 
 if (typeof window !== 'undefined' && !window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
@@ -91,14 +94,15 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
-if (typeof document !== 'undefined') describe('App project selection default tab', () => {
+if (typeof document !== 'undefined') describe('App sidebar auto-collapse in code view', () => {
   beforeEach(() => {
     const invoke = tauriCore.invoke as unknown as ReturnType<typeof vi.fn>
     invoke.mockReset()
+    autoCollapse = true
     invoke.mockImplementation(async (cmd: string) => {
       switch (cmd) {
         case 'load_app_settings':
-          return defaultSettings
+          return buildSettings()
         case 'list_recent_projects':
           return [project]
         case 'refresh_recent_projects':
@@ -121,21 +125,43 @@ if (typeof document !== 'undefined') describe('App project selection default tab
     })
   })
 
-  it('activates the chat tab after selecting a recent project', async () => {
+  it('collapses the sidebar when entering the Code tab and restores it afterwards', async () => {
     render(<App />)
 
     const projectButton = await screen.findByRole('button', { name: /Sample Project/i })
     fireEvent.click(projectButton)
 
-    const chatTab = await screen.findByRole('tab', { name: /Chat/i })
-
-    await waitFor(() => {
-      expect(chatTab).toHaveAttribute('data-state', 'active')
-    })
+    const sidebarPanel = await screen.findByTestId('app-sidebar')
+    const sidebar = sidebarPanel.closest('[data-state]') as HTMLElement | null
+    expect(sidebar).not.toBeNull()
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
 
     const codeTab = screen.getByRole('tab', { name: /Code/i })
-    expect(codeTab).toHaveAttribute('data-state', 'inactive')
+    fireEvent.click(codeTab)
 
-    expect(await screen.findByTestId('chat-interface')).toBeInTheDocument()
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'collapsed'))
+
+    const chatTab = screen.getByRole('tab', { name: /Chat/i })
+    fireEvent.click(chatTab)
+
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
+  })
+
+  it('keeps sidebar expanded when preference is disabled', async () => {
+    autoCollapse = false
+    render(<App />)
+
+    const projectButton = await screen.findByRole('button', { name: /Sample Project/i })
+    fireEvent.click(projectButton)
+
+    const sidebarPanel = await screen.findByTestId('app-sidebar')
+    const sidebar = sidebarPanel.closest('[data-state]') as HTMLElement | null
+    expect(sidebar).not.toBeNull()
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
+
+    const codeTab = screen.getByRole('tab', { name: /Code/i })
+    fireEvent.click(codeTab)
+
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
   })
 })
