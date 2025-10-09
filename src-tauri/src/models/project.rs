@@ -101,6 +101,8 @@ pub struct CodeSettings {
     pub theme: String, // e.g., "github" | "dracula"
     #[serde(default = "default_font_size")]
     pub font_size: u16, // in px
+    #[serde(default = "default_auto_collapse_sidebar")]
+    pub auto_collapse_sidebar: bool,
 }
 
 fn default_code_theme() -> String {
@@ -109,12 +111,16 @@ fn default_code_theme() -> String {
 fn default_font_size() -> u16 {
     14
 }
+fn default_auto_collapse_sidebar() -> bool {
+    false
+}
 
 impl Default for CodeSettings {
     fn default() -> Self {
         Self {
             theme: default_code_theme(),
             font_size: default_font_size(),
+            auto_collapse_sidebar: default_auto_collapse_sidebar(),
         }
     }
 }

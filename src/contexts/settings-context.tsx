@@ -15,6 +15,7 @@ function normalizeDefaultAgent(value?: string | null): DefaultCliAgent {
 interface CodeSettings {
   theme: string;
   font_size: number;
+  auto_collapse_sidebar: boolean;
 }
 
 interface AppSettings {
@@ -45,7 +46,8 @@ const defaultSettings: AppSettings = {
   max_chat_history: 15,
   code_settings: {
     theme: 'github',
-    font_size: 14
+    font_size: 14,
+    auto_collapse_sidebar: false,
   },
   default_cli_agent: FALLBACK_AGENT,
 };
@@ -59,12 +61,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const refreshSettings = async () => {
     try {
       setIsLoading(true);
-      const appSettings = await invoke<AppSettings>('load_app_settings');
+      const appSettings = await invoke<Partial<AppSettings>>('load_app_settings');
       console.log('🔄 Settings refreshed:', appSettings);
-      const defaultCliAgent = normalizeDefaultAgent(appSettings.default_cli_agent);
+      const defaultCliAgent = normalizeDefaultAgent(appSettings?.default_cli_agent);
+      const mergedCodeSettings = {
+        ...defaultSettings.code_settings,
+        ...(appSettings.code_settings || {}),
+      };
       setSettings({
         ...defaultSettings,
         ...appSettings,
+        code_settings: mergedCodeSettings,
         default_cli_agent: defaultCliAgent,
       });
     } catch (error) {
@@ -77,9 +84,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const updateSettings = async (newSettings: Partial<AppSettings>) => {
     try {
-      const updatedSettings = {
+      const mergedCodeSettings = newSettings.code_settings
+        ? {
+            ...settings.code_settings,
+            ...newSettings.code_settings,
+          }
+        : settings.code_settings;
+
+      const updatedSettings: AppSettings = {
         ...settings,
         ...newSettings,
+        code_settings: mergedCodeSettings,
       };
       updatedSettings.default_cli_agent = normalizeDefaultAgent(updatedSettings.default_cli_agent);
       await invoke('save_app_settings', { settings: updatedSettings });

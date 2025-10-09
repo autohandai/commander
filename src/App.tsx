@@ -1,5 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar"
-import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
+import { SidebarProvider, SidebarTrigger, SidebarInset, useSidebar } from "@/components/ui/sidebar"
 import { SidebarWidthProvider } from "@/contexts/sidebar-width-context"
 import { Separator } from "@/components/ui/separator"
 import { 
@@ -78,6 +78,24 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
       </Tabs>
     </div>
   )
+}
+
+function SidebarAutoCollapseManager({ activeTab, enabled, projectActive }: { activeTab: string; enabled: boolean; projectActive: boolean }) {
+  const { setOpen } = useSidebar()
+
+  useEffect(() => {
+    setOpen((currentOpen) => {
+      if (!enabled || !projectActive) {
+        return true
+      }
+      if (activeTab === 'code') {
+        return false
+      }
+      return true
+    })
+  }, [activeTab, enabled, projectActive, setOpen])
+
+  return null
 }
 
 function AppContent() {
@@ -416,6 +434,11 @@ function AppContent() {
   return (
     <SidebarWidthProvider>
       <SidebarProvider>
+        <SidebarAutoCollapseManager
+          activeTab={activeTab}
+          enabled={Boolean(settings.code_settings?.auto_collapse_sidebar)}
+          projectActive={Boolean(currentProject)}
+        />
         <AppSidebar 
           isSettingsOpen={isSettingsOpen} 
           setIsSettingsOpen={setIsSettingsOpen}

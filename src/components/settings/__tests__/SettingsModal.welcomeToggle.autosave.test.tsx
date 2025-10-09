@@ -8,7 +8,7 @@ import { SettingsProvider } from '@/contexts/settings-context'
 const invokeMock = vi.fn(async (cmd: string, args?: any) => {
   switch (cmd) {
     case 'load_app_settings':
-      return { show_console_output: true, projects_folder: '', file_mentions_enabled: true, ui_theme: 'auto', chat_send_shortcut: 'mod+enter', show_welcome_recent_projects: true, code_settings: { theme: 'github', font_size: 14 } }
+      return { show_console_output: true, projects_folder: '', file_mentions_enabled: true, ui_theme: 'auto', chat_send_shortcut: 'mod+enter', show_welcome_recent_projects: true, code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false } }
     case 'set_window_theme':
       return null
     case 'save_app_settings':
@@ -56,4 +56,3 @@ if (typeof document !== 'undefined') describe('SettingsModal autosaves welcome r
     expect(lastArgs.settings.show_welcome_recent_projects).toBe(false)
   })
 })
-
