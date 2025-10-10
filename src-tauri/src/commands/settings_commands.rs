@@ -26,6 +26,7 @@ pub async fn save_app_settings(
 
     // Also persist user-facing option into ~/.commander/settings.json
     let _ = set_show_recent_projects_welcome_screen(settings.show_welcome_recent_projects);
+    let _ = set_code_auto_collapse_sidebar(settings.code_settings.auto_collapse_sidebar);
 
     Ok(())
 }
@@ -59,14 +60,19 @@ pub async fn load_app_settings(app: tauri::AppHandle) -> Result<AppSettings, Str
             let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
             let mut merged = settings.clone();
             merged.show_welcome_recent_projects = show;
+            if let Some(auto) = get_code_auto_collapse_sidebar()? {
+                merged.code_settings.auto_collapse_sidebar = auto;
+            }
             Ok(merged)
         }
         None => {
             // Return default settings
             let mut d = AppSettings::default();
             d.normalize();
-            let show = get_show_recent_projects_welcome_screen().unwrap_or(true);
-            d.show_welcome_recent_projects = show;
+            d.show_welcome_recent_projects = get_show_recent_projects_welcome_screen().unwrap_or(true);
+            if let Some(auto) = get_code_auto_collapse_sidebar()? {
+                d.code_settings.auto_collapse_sidebar = auto;
+            }
             Ok(d)
         }
     }
@@ -202,6 +208,23 @@ fn set_show_recent_projects_welcome_screen(enabled: bool) -> Result<(), String> 
         root["general"] = serde_json::json!({});
     }
     root["general"]["show_recent_projects_welcome_screen"] = serde_json::json!(enabled);
+    save_user_settings_json(root)
+}
+
+fn get_code_auto_collapse_sidebar() -> Result<Option<bool>, String> {
+    let root = load_user_settings_json()?;
+    Ok(root
+        .get("code")
+        .and_then(|code| code.get("auto_collapse_sidebar"))
+        .and_then(|value| value.as_bool()))
+}
+
+fn set_code_auto_collapse_sidebar(enabled: bool) -> Result<(), String> {
+    let mut root = load_user_settings_json()?;
+    if !root.get("code").map(|c| c.is_object()).unwrap_or(false) {
+        root["code"] = serde_json::json!({});
+    }
+    root["code"]["auto_collapse_sidebar"] = serde_json::json!(enabled);
     save_user_settings_json(root)
 }
 
