@@ -2,9 +2,9 @@
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use serial_test::serial;
-    use tempfile::TempDir;
     use std::fs;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     use crate::commands::settings_commands::{load_app_settings, save_app_settings};
     use crate::models::AppSettings;
@@ -57,10 +57,9 @@ mod tests {
         let sf = settings_file_path(&home_td);
         assert!(sf.exists(), "user settings file should be created");
 
-        let mut json: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(&sf).expect("read user settings"),
-        )
-        .expect("parse user settings json");
+        let mut json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&sf).expect("read user settings"))
+                .expect("parse user settings json");
         assert_eq!(
             json.get("code")
                 .and_then(|c| c.get("auto_collapse_sidebar"))
@@ -70,8 +69,11 @@ mod tests {
 
         // Flip the value manually to ensure load respects user edits.
         json["code"]["auto_collapse_sidebar"] = serde_json::json!(false);
-        fs::write(&sf, serde_json::to_string_pretty(&json).expect("serialize json"))
-            .expect("write user settings");
+        fs::write(
+            &sf,
+            serde_json::to_string_pretty(&json).expect("serialize json"),
+        )
+        .expect("write user settings");
 
         let loaded = tauri::async_runtime::block_on(load_app_settings(handle.clone()))
             .expect("load_app_settings should succeed after manual edit");

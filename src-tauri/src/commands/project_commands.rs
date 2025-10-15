@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use tauri::Runtime;
 use tauri_plugin_store::StoreExt;
 
 use crate::models::*;
@@ -179,16 +180,29 @@ pub async fn select_projects_folder(app: tauri::AppHandle) -> Result<Option<Stri
     }
 }
 
-#[tauri::command]
-pub async fn load_projects_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub(crate) async fn load_projects_folder_internal<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<Option<String>, String> {
     let store = app
         .store("app-settings.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
 
-    match store.get("projects_folder") {
-        Some(serde_json::Value::String(path)) => Ok(Some(path)),
-        _ => Ok(None),
+    if let Some(serde_json::Value::String(path)) = store.get("projects_folder") {
+        return Ok(Some(path));
     }
+
+    if let Some(serde_json::Value::Object(map)) = store.get("app_settings") {
+        if let Some(serde_json::Value::String(path)) = map.get("projects_folder") {
+            return Ok(Some(path.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn load_projects_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    load_projects_folder_internal(app).await
 }
 
 #[tauri::command]

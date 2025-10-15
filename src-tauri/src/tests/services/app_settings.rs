@@ -49,4 +49,26 @@ mod tests {
             "invalid agent strings should fall back to the standard default"
         );
     }
+
+    #[test]
+    fn optional_projects_folder_and_agent_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.projects_folder = Some("/tmp/projects".to_string());
+        settings.default_cli_agent = "gemini".to_string();
+
+        let serialized = serde_json::to_value(&settings).expect("serialize settings");
+        let deserialized: AppSettings =
+            serde_json::from_value(serialized).expect("deserialize settings");
+
+        assert_eq!(
+            deserialized.projects_folder,
+            Some("/tmp/projects".to_string()),
+            "projects_folder should round-trip through serde"
+        );
+        assert_eq!(
+            deserialized.default_cli_agent,
+            "gemini".to_string(),
+            "default_cli_agent should retain explicit choices"
+        );
+    }
 }

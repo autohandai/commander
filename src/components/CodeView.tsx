@@ -412,6 +412,7 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
 }
 
 export function CodeView({ project, tauriInvoke }: CodeViewProps) {
+  const { settings } = useSettings();
   const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null);
   const [viewScope, setViewScope] = useState<'main' | 'workspace'>('main');
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
@@ -431,6 +432,13 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
   }, [])
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
+  const [isExplorerOpen, setIsExplorerOpen] = useState(
+    () => !settings.code_settings?.auto_collapse_sidebar
+  );
+
+  useEffect(() => {
+    setIsExplorerOpen(!settings.code_settings?.auto_collapse_sidebar);
+  }, [settings.code_settings?.auto_collapse_sidebar]);
 
   // Discover a workspace worktree under .commander if available
   useEffect(() => {
@@ -464,72 +472,84 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
 
   return (
     <>
-    <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
-      {/* File Explorer Sidebar */}
-      <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
-        <div className="p-2 border-b bg-muted/20 space-y-2">
-          {viewScope !== 'workspace' && (
-            <Button size="sm" className="w-full" disabled={creatingWs} onClick={() => setIsCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" /> Create Workspace
-            </Button>
-          )}
-          {viewScope === 'workspace' && (
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Workspace</Label>
-              <Select value={workspacePath || ''} open={wsOpen} onOpenChange={setWsOpen} onValueChange={(p) => { setWorkspacePath(p); setSelectedFile(null); }}>
-                <SelectTrigger className="h-8" onMouseDown={() => setWsOpen(true)}>
-                  {!wsOpen ? (
-                    <SelectValue placeholder="Select workspace" />
-                  ) : (
-                    // Hide current value while open to avoid duplicate text queries in tests
-                    <span className="sr-only">Workspace menu open</span>
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {workspaces.map((ws) => (
-                    <SelectItem key={ws.path} value={ws.path}>{ws.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex gap-2">
-                <Button size="sm" className="flex-1" onClick={() => setIsCreateOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" /> New Workspace
-                </Button>
-                <Button size="sm" variant="outline" disabled={!workspacePath} onClick={async () => {
-                  if (!workspacePath) return;
-                  const ws = workspaces.find((w) => w.path === workspacePath);
-                  const ok = confirm(`Delete workspace "${ws?.name || 'current'}"? This will remove its worktree directory.`);
-                  if (!ok) return;
-                  try {
-                    const call = tauriInvoke || invoke;
-                    await call('remove_workspace_worktree', { projectPath: project.path, worktreePath: workspacePath });
-                    const list = await call<Array<Record<string, string>>>('get_git_worktrees');
-                    const next = parseWorkspaceWorktrees(list as any, project.path);
-                    setWorkspaces(next);
-                    if (next.length > 0) {
-                      setWorkspacePath(next[0].path);
-                    } else {
-                      setWorkspacePath(null);
-                      setViewScope('main');
-                    }
-                  } catch (e) {
-                    console.error('Failed to remove workspace', e);
-                  }
-                }}>Remove</Button>
-              </div>
-            </div>
-          )}
-        </div>
-        <FileExplorer
-          project={project}
-          onFileSelect={handleFileSelect}
-          selectedFile={selectedFile?.relative_path || null}
-          rootPath={viewScope === 'workspace' && workspacePath ? workspacePath : project.path}
-        />
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex justify-end px-2 pb-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsExplorerOpen((prev) => !prev)}
+        >
+          {isExplorerOpen ? 'Hide File Explorer' : 'Show File Explorer'}
+        </Button>
       </div>
+      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
+        {isExplorerOpen && (
+          <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
+            <div className="p-2 border-b bg-muted/20 space-y-2">
+              {viewScope !== 'workspace' && (
+                <Button size="sm" className="w-full" disabled={creatingWs} onClick={() => setIsCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" /> Create Workspace
+                </Button>
+              )}
+              {viewScope === 'workspace' && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Workspace</Label>
+                  <Select value={workspacePath || ''} open={wsOpen} onOpenChange={setWsOpen} onValueChange={(p) => { setWorkspacePath(p); setSelectedFile(null); }}>
+                    <SelectTrigger className="h-8" onMouseDown={() => setWsOpen(true)}>
+                      {!wsOpen ? (
+                        <SelectValue placeholder="Select workspace" />
+                      ) : (
+                        // Hide current value while open to avoid duplicate text queries in tests
+                        <span className="sr-only">Workspace menu open</span>
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workspaces.map((ws) => (
+                        <SelectItem key={ws.path} value={ws.path}>{ws.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1" onClick={() => setIsCreateOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" /> New Workspace
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={!workspacePath} onClick={async () => {
+                      if (!workspacePath) return;
+                      const ws = workspaces.find((w) => w.path === workspacePath);
+                      const ok = confirm(`Delete workspace "${ws?.name || 'current'}"? This will remove its worktree directory.`);
+                      if (!ok) return;
+                      try {
+                        const call = tauriInvoke || invoke;
+                        await call('remove_workspace_worktree', { projectPath: project.path, worktreePath: workspacePath });
+                        const list = await call<Array<Record<string, string>>>('get_git_worktrees');
+                        const next = parseWorkspaceWorktrees(list as any, project.path);
+                        setWorkspaces(next);
+                        if (next.length > 0) {
+                          setWorkspacePath(next[0].path);
+                        } else {
+                          setWorkspacePath(null);
+                          setViewScope('main');
+                        }
+                      } catch (e) {
+                        console.error('Failed to remove workspace', e);
+                      }
+                    }}>Remove</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <FileExplorer
+              project={project}
+              onFileSelect={handleFileSelect}
+              selectedFile={selectedFile?.relative_path || null}
+              rootPath={viewScope === 'workspace' && workspacePath ? workspacePath : project.path}
+            />
+          </div>
+        )}
 
-      {/* Code Editor */}
-      <CodeEditor file={selectedFile} />
+        {/* Code Editor */}
+        <CodeEditor file={selectedFile} />
+      </div>
     </div>
     <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
       <DialogContent className="max-w-sm">
