@@ -245,7 +245,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     try {
       const agents = await invoke<SubAgentGroup>('load_sub_agents_grouped');
       setSubAgents(agents);
-      console.log('Loaded sub-agents:', agents);
+      // sub-agents loaded
     } catch (error) {
       console.error('Failed to load sub-agents:', error);
     }

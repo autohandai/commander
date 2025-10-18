@@ -39,9 +39,13 @@ interface ProjectViewProps {
 }
 
 function ProjectView({ project, selectedAgent, activeTab, onTabChange }: ProjectViewProps) {
+  const handleTabChange = React.useCallback((value: string) => {
+    onTabChange(value)
+  }, [onTabChange])
+
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
-      <Tabs value={activeTab} onValueChange={onTabChange} className="flex-1 flex flex-col min-h-0 min-w-0">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col min-h-0 min-w-0">
         <div className="px-4 pt-4">
           <TabsList className="grid max-w-[600px] mx-auto grid-cols-3">
             <TabsTrigger value="chat" className="flex items-center justify-center gap-2">
@@ -82,9 +86,20 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
 
 function SidebarAutoCollapseManager({ activeTab, enabled, projectActive }: { activeTab: string; enabled: boolean; projectActive: boolean }) {
   const { setOpen } = useSidebar()
+  const { settings } = useSettings()
+  const isEnabled = enabled ?? Boolean(settings.code_settings?.auto_collapse_sidebar)
 
   useEffect(() => {
     setOpen((currentOpen) => {
+      const nextState = (() => {
+        if (!isEnabled || !projectActive) {
+          return true
+        }
+        if (activeTab === 'code') {
+          return false
+        }
+        return true
+      })()
       if (!enabled || !projectActive) {
         return true
       }
@@ -93,7 +108,7 @@ function SidebarAutoCollapseManager({ activeTab, enabled, projectActive }: { act
       }
       return true
     })
-  }, [activeTab, enabled, projectActive, setOpen])
+  }, [activeTab, isEnabled, projectActive, setOpen])
 
   return null
 }
@@ -137,14 +152,10 @@ function AppContent() {
   const handleDragStart = async (e: React.MouseEvent) => {
     // Only trigger drag if not clicking on interactive elements
     if ((e.target as HTMLElement).closest('.no-drag')) {
-      console.log('Drag prevented - clicked on no-drag element');
       return;
     }
-    
-    console.log('Attempting to start drag...');
     try {
       await invoke('start_drag');
-      console.log('Drag started successfully');
     } catch (error) {
       console.warn('Failed to start window drag:', error);
     }
@@ -160,11 +171,9 @@ function AppContent() {
 
   const handleOpenProject = async () => {
     try {
-      console.log('📂 Opening git project selection dialog...')
       const selectedPath = await invoke('select_git_project_folder') as string | null
       
       if (selectedPath) {
-        console.log('📁 Git project selected:', selectedPath)
         
         // Open via backend (validates, sets cwd, updates recents w/ dedup) and use returned data
         const opened = await invoke<RecentProject>('open_existing_project', { project_path: selectedPath, projectPath: selectedPath })
@@ -294,7 +303,6 @@ function AppContent() {
 
   // Listen for global shortcut and menu events
   useEffect(() => {
-    console.log('🚀 Frontend initializing event listeners...')
     const unlistenSettings = listen('shortcut://open-settings', () => {
       setIsSettingsOpen(true)
     })
@@ -323,11 +331,9 @@ function AppContent() {
     const unlistenMenuOpenProject = listen<MenuEventPayload<'menu://open-project'>>('menu://open-project', async (event) => {
       try {
         // Handle opening project from menu
-        console.log('Opening project from menu:', event.payload)
         
         if (event.payload && typeof event.payload === 'string') {
           const projectPath = event.payload
-          console.log('📁 Project opened via menu:', projectPath)
           // Query backend for updated recents and set the first (MRU) as current including git info
           const recents = await invoke<RecentProject[]>('list_recent_projects')
           if (recents && recents.length > 0) {
@@ -357,7 +363,6 @@ function AppContent() {
     const unlistenMenuDeleteProject = listen<MenuEventPayload<'menu://delete-project'>>('menu://delete-project', () => {
       if (currentProject) {
         // TODO: Implement delete project confirmation dialog
-        console.log('Delete project requested:', currentProject.name)
       }
     })
     const unlistenMenuAbout = listen('menu://open-about', () => {
@@ -369,7 +374,6 @@ function AppContent() {
       try {
         const cliPath = await invoke<string | null>('get_cli_project_path')
         if (cliPath) {
-          console.log('📂 CLI project found:', cliPath)
           
           // Open the project via backend to get full project info
           const opened = await invoke<RecentProject>('open_existing_project', { 
@@ -594,11 +598,13 @@ function AppContent() {
         </div>
       </SidebarInset>
       
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)}
-        initialTab={settingsInitialTab}
-      />
+      {isSettingsOpen && (
+        <SettingsModal 
+          isOpen={true} 
+          onClose={() => setIsSettingsOpen(false)}
+          initialTab={settingsInitialTab}
+        />
+      )}
       
       <CloneRepositoryModal
         isOpen={isCloneModalOpen}

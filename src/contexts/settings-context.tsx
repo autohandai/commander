@@ -62,7 +62,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       const appSettings = await invoke<Partial<AppSettings>>('load_app_settings');
-      console.log('🔄 Settings refreshed:', appSettings);
       const defaultCliAgent = normalizeDefaultAgent(appSettings?.default_cli_agent);
       const mergedCodeSettings = {
         ...defaultSettings.code_settings,
@@ -99,7 +98,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       updatedSettings.default_cli_agent = normalizeDefaultAgent(updatedSettings.default_cli_agent);
       await invoke('save_app_settings', { settings: updatedSettings });
       setSettings(updatedSettings);
-      console.log('✅ Settings updated and saved:', updatedSettings);
+      // Settings updated and saved
     } catch (error) {
       console.error('❌ Failed to save settings:', error);
       throw error;

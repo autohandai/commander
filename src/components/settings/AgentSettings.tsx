@@ -20,18 +20,11 @@ const SafeAgentSettings = ({
   onUpdateAgentSetting,
   onFetchAgentModels
 }: AgentSettingsProps) => {
-  console.log('🔍 DEBUG: SafeAgentSettings called')
-  console.log('📊 State values:', {
-    agentSettingsLoading,
-    agentSettingsError,
-    hasTempAllAgentSettings: !!tempAllAgentSettings,
-    tempAgentSettings,
-    agentModelsCount: Object.keys(agentModels).length
-  })
+  // settings diagnostics removed
 
   // Show loading state while agent settings are being loaded
   if (agentSettingsLoading) {
-    console.log('🔄 Showing loading state')
+    // loading state
     return (
       <div className="flex items-center justify-center py-8">
         <Loader2 className="h-6 w-6 animate-spin mr-2" />
@@ -42,7 +35,7 @@ const SafeAgentSettings = ({
 
   // Show error state if there was an error loading settings
   if (agentSettingsError && !tempAllAgentSettings) {
-    console.log('❌ Showing error state:', agentSettingsError)
+    // error state
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4">
         <XCircle className="h-8 w-8 text-destructive" />
@@ -64,7 +57,7 @@ const SafeAgentSettings = ({
 
   // Ensure we have valid settings before rendering
   if (!tempAllAgentSettings || typeof tempAllAgentSettings !== 'object') {
-    console.log('⚠️ No agent settings available or invalid settings:', tempAllAgentSettings)
+    // no agent settings available
     return (
       <div className="flex items-center justify-center py-8">
         <AlertCircle className="h-6 w-6 text-muted-foreground mr-2" />
@@ -75,7 +68,7 @@ const SafeAgentSettings = ({
 
   // Ensure tempAgentSettings is valid
   if (!tempAgentSettings || typeof tempAgentSettings !== 'object') {
-    console.log('⚠️ Invalid tempAgentSettings:', tempAgentSettings)
+    // invalid tempAgentSettings
     return (
       <div className="flex items-center justify-center py-8">
         <AlertCircle className="h-6 w-6 text-muted-foreground mr-2" />
@@ -84,7 +77,7 @@ const SafeAgentSettings = ({
     )
   }
 
-  console.log('✅ Proceeding with full agent settings render')
+  // proceed with render
 
   // Define constants and functions outside JSX
   const agents: AgentInfo[] = [
@@ -129,7 +122,7 @@ const SafeAgentSettings = ({
       {/* Agent-Specific Settings */}
       {agents.map((agent) => {
         try {
-          console.log(`🔍 Processing agent: ${agent.id}`)
+          // processing agent
           
           // Safely access agent settings with fallbacks
           const agentSettings = tempAllAgentSettings?.[agent.id] || {
@@ -159,12 +152,7 @@ const SafeAgentSettings = ({
           const agentModelsArray = agentModels[agent.id] || []
           const isFetchingModels = fetchingAgentModels[agent.id] || false
           
-          console.log(`📊 Agent ${agent.id} state:`, {
-            isEnabled,
-            agentSettings: safeAgentSettings,
-            modelsCount: agentModelsArray.length,
-            isFetching: isFetchingModels
-          })
+          // agent state
 
           return (
             <div key={agent.id} className="space-y-4">
@@ -179,7 +167,7 @@ const SafeAgentSettings = ({
                   checked={isEnabled}
                   onCheckedChange={(checked) => {
                     try {
-                      console.log(`🔄 Toggling agent ${agent.id}: ${checked}`)
+                      // toggling agent
                       onToggleAgent(agent.id, checked)
                     } catch (error) {
                       console.error(`❌ Failed to toggle agent ${agent.id}:`, error)

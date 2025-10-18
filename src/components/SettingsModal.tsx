@@ -50,9 +50,7 @@ if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof El
 }
 
 export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
-  console.log('🏗️ SettingsModal render - isOpen:', isOpen)
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
-  console.log('📋 Current activeTab:', activeTab)
   
   const {
     settings,
@@ -99,7 +97,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [fetchingAgentModels, setFetchingAgentModels] = useState<Record<string, boolean>>({})
   const [agentSettingsLoading, setAgentSettingsLoading] = useState(true)
   const [agentSettingsError, setAgentSettingsError] = useState<string | null>(null)
-  const { updateSettings: updateAppSettings, settings: appSettingsContext } = useAppSettingsContext()
+  const [settingsHydrated, setSettingsHydrated] = useState(false)
+  const { updateSettings: updateAppSettings, settings: appSettingsContext, isLoading: appSettingsLoading } = useAppSettingsContext()
 
   // Code settings
   const [codeTheme, setCodeTheme] = useState<string>('github')
@@ -126,12 +125,11 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   useEffect(() => {
     const loadAppSettings = async () => {
       try {
-        console.log('🔄 Loading app settings...')
+        // Load app settings
         
         // Load app settings with error handling
         try {
           const appSettings = await invoke<{ show_console_output: boolean, projects_folder: string, file_mentions_enabled: boolean, ui_theme?: string, code_settings?: { theme: string, font_size: number, auto_collapse_sidebar?: boolean }, chat_send_shortcut?: 'enter' | 'mod+enter', show_welcome_recent_projects?: boolean, max_chat_history?: number, default_cli_agent?: string }>('load_app_settings')
-          console.log('✅ App settings loaded:', appSettings)
           if (appSettings) {
             setShowConsoleOutput(appSettings.show_console_output)
             setTempShowConsoleOutput(appSettings.show_console_output)
@@ -174,7 +172,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         if (!defaultProjectsFolder) {
           try {
             const folder = await invoke<string>('get_default_projects_folder')
-            console.log('✅ Default projects folder loaded:', folder)
+            // Set default projects folder if available
             if (folder) {
               setDefaultProjectsFolder(folder)
               setTempDefaultProjectsFolder(folder)
@@ -187,7 +185,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         // Load agent settings
         try {
           const agents = await invoke<Record<string, boolean> | null>('load_agent_settings')
-          console.log('🤖 Agent settings loaded:', agents)
+          // Load agent enablement flags if present
           if (agents) {
             setAgentSettings(agents)
             setTempAgentSettings({...agents})
@@ -205,6 +203,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
 
         // Load full agent configuration (for advanced settings)
         loadAllAgentSettings()
+        // Mark hydration complete to enable autosave effects safely
+        setSettingsHydrated(true)
         
         } catch (error) {
           console.error('❌ Error loading settings:', error)
@@ -215,16 +215,15 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       try {
         setAgentSettingsLoading(true)
         setAgentSettingsError(null)
-        console.log('🔄 Loading all agent settings...')
+        // Load all agent settings
         
         const allSettings = await invoke<any>('load_all_agent_settings')
-        console.log('🤖 All agent settings loaded:', allSettings)
         
         if (allSettings && typeof allSettings === 'object') {
           setAllAgentSettings(allSettings)
           setTempAllAgentSettings({ ...allSettings })
         } else {
-          console.log('🤖 No agent settings found, using defaults')
+          // No agent settings found; use defaults
           // Set sensible defaults
           const defaultAllSettings = {
             max_concurrent_sessions: 10,
@@ -262,7 +261,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     setGitConfigError(null)
     
     try {
-      console.log('🔄 Loading git configuration...')
+      // Load git configuration
       
       const [globalConfig, localConfig, aliases, worktreePref, worktreeSupported] = await Promise.all([
         invoke<Record<string, string>>('get_git_global_config').catch(() => ({})),
@@ -272,7 +271,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         invoke<boolean>('get_git_worktree_enabled').catch(() => false),
       ])
 
-      console.log('✅ Git config loaded:', { globalConfig, localConfig, aliases, worktreePref, worktreeSupported })
+      // Git config loaded
       
       setGitConfig({
         global: globalConfig,
@@ -352,19 +351,11 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
 
     // Persist theme selection immediately without affecting other unsaved changes
     const saveTheme = async () => {
+      // Avoid autosaving before hydration or when unchanged
+      if (!settingsHydrated) return
+      if (tempUiTheme === uiTheme) return
       try {
-          const appSettings = {
-            show_console_output: showConsoleOutput,
-            projects_folder: defaultProjectsFolder,
-            file_mentions_enabled: fileMentionsEnabled,
-            ui_theme: tempUiTheme,
-            max_chat_history: tempMaxChatHistory,
-            chat_send_shortcut: tempChatSendShortcut,
-            show_welcome_recent_projects: tempShowWelcomeRecentProjects,
-            default_cli_agent: tempDefaultCliAgent,
-            code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar }
-          }
-        await updateAppSettings(appSettings)
+        await updateAppSettings({ ui_theme: tempUiTheme })
         // Also update native window theme
         await invoke('set_window_theme', { theme: tempUiTheme })
         setUiTheme(tempUiTheme)
@@ -373,78 +364,51 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       }
     }
     saveTheme()
-  }, [tempUiTheme])
+  }, [tempUiTheme, settingsHydrated, uiTheme])
 
   // Auto-save chat send shortcut when changed
   useEffect(() => {
     const saveShortcut = async () => {
+      if (!settingsHydrated) return
+      if (tempChatSendShortcut === chatSendShortcut) return
       try {
-        const appSettings = {
-          show_console_output: showConsoleOutput,
-          projects_folder: defaultProjectsFolder,
-          file_mentions_enabled: fileMentionsEnabled,
-          ui_theme: tempUiTheme,
-          max_chat_history: tempMaxChatHistory,
-          chat_send_shortcut: tempChatSendShortcut,
-          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
-          default_cli_agent: tempDefaultCliAgent,
-          code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
-        }
-        await updateAppSettings(appSettings)
+        await updateAppSettings({ chat_send_shortcut: tempChatSendShortcut })
         setChatSendShortcut(tempChatSendShortcut)
       } catch (e) {
         console.error('Failed to auto-save chat_send_shortcut:', e)
       }
     }
     saveShortcut()
-  }, [tempChatSendShortcut])
+  }, [tempChatSendShortcut, settingsHydrated, chatSendShortcut])
 
   useEffect(() => {
     const saveHistoryLimit = async () => {
+      if (!settingsHydrated) return
+      if (tempMaxChatHistory === maxChatHistory) return
       try {
-        const appSettings = {
-          show_console_output: showConsoleOutput,
-          projects_folder: defaultProjectsFolder,
-          file_mentions_enabled: fileMentionsEnabled,
-          ui_theme: tempUiTheme,
-          max_chat_history: tempMaxChatHistory,
-          chat_send_shortcut: tempChatSendShortcut,
-          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
-          default_cli_agent: tempDefaultCliAgent,
-          code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
-        }
-        await updateAppSettings(appSettings)
+        await updateAppSettings({ max_chat_history: tempMaxChatHistory })
         setMaxChatHistory(tempMaxChatHistory)
       } catch (e) {
         console.error('Failed to auto-save max_chat_history:', e)
       }
     }
     saveHistoryLimit()
-  }, [tempMaxChatHistory])
+  }, [tempMaxChatHistory, settingsHydrated, maxChatHistory])
 
   // Auto-save Welcome Screen recents toggle for immediate reflection on Welcome screen
   useEffect(() => {
     const saveWelcomeToggle = async () => {
+      if (!settingsHydrated) return
+      if (tempShowWelcomeRecentProjects === showWelcomeRecentProjects) return
       try {
-        const appSettings = {
-          show_console_output: showConsoleOutput,
-          projects_folder: defaultProjectsFolder,
-          file_mentions_enabled: fileMentionsEnabled,
-          ui_theme: tempUiTheme,
-          max_chat_history: tempMaxChatHistory,
-          chat_send_shortcut: tempChatSendShortcut,
-          show_welcome_recent_projects: tempShowWelcomeRecentProjects,
-          default_cli_agent: tempDefaultCliAgent,
-          code_settings: { theme: codeTheme, font_size: codeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
-        }
-        await updateAppSettings(appSettings)
+        await updateAppSettings({ show_welcome_recent_projects: tempShowWelcomeRecentProjects })
         setShowWelcomeRecentProjects(tempShowWelcomeRecentProjects)
       } catch (e) {
         console.error('Failed to auto-save show_welcome_recent_projects:', e)
       }
     }
     saveWelcomeToggle()
-  }, [tempShowWelcomeRecentProjects])
+  }, [tempShowWelcomeRecentProjects, settingsHydrated, showWelcomeRecentProjects])
 
   // Default CLI agent changes are persisted via explicit Save action to respect unsaved-changes workflow.
 
@@ -473,7 +437,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const handleClearRecentProjects = async () => {
     try {
       await invoke('clear_recent_projects')
-      console.log('✅ Recent projects cleared')
+      // Recent projects cleared
     } catch (error) {
       console.error('❌ Error clearing recent projects:', error)
     }
@@ -536,9 +500,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     setFetchingAgentModels(prev => ({ ...prev, [agentId]: true }))
     
     try {
-      console.log(`🔄 Fetching models for ${agentId}...`)
+      // Fetching models for agent
       const models = await invoke<string[]>('fetch_agent_models', { agent: agentId })
-      console.log(`✅ Models for ${agentId}:`, models)
+      // Models loaded for agent
       setAgentModels(prev => ({ ...prev, [agentId]: models }))
     } catch (error) {
       console.error(`❌ Error fetching models for ${agentId}:`, error)
@@ -597,7 +561,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
 
   const handleSaveChanges = async () => {
     try {
-      console.log('💾 Saving settings changes...')
+      // Saving settings changes
 
       // Save app settings
       const appSettings = {
@@ -639,7 +603,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       // Apply theme immediately
       applyUiTheme(tempUiTheme)
       
-      console.log('✅ Settings saved successfully')
+      // Settings saved successfully
     } catch (error) {
       console.error('❌ Error saving settings:', error)
     }
