@@ -103,6 +103,8 @@ pub struct CodeSettings {
     pub font_size: u16, // in px
     #[serde(default = "default_auto_collapse_sidebar")]
     pub auto_collapse_sidebar: bool,
+    #[serde(default = "default_show_file_explorer")]
+    pub show_file_explorer: bool,
 }
 
 fn default_code_theme() -> String {
@@ -114,6 +116,7 @@ fn default_font_size() -> u16 {
 fn default_auto_collapse_sidebar() -> bool {
     false
 }
+fn default_show_file_explorer() -> bool { true }
 
 impl Default for CodeSettings {
     fn default() -> Self {
@@ -121,6 +124,7 @@ impl Default for CodeSettings {
             theme: default_code_theme(),
             font_size: default_font_size(),
             auto_collapse_sidebar: default_auto_collapse_sidebar(),
+            show_file_explorer: default_show_file_explorer(),
         }
     }
 }

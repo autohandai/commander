@@ -16,6 +16,7 @@ interface CodeSettings {
   theme: string;
   font_size: number;
   auto_collapse_sidebar: boolean;
+  show_file_explorer: boolean;
 }
 
 interface AppSettings {
@@ -48,6 +49,7 @@ const defaultSettings: AppSettings = {
     theme: 'github',
     font_size: 14,
     auto_collapse_sidebar: false,
+    show_file_explorer: true,
   },
   default_cli_agent: FALLBACK_AGENT,
 };

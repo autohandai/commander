@@ -16,6 +16,7 @@ const baseSettings = {
     theme: 'github',
     font_size: 14,
     auto_collapse_sidebar: false,
+    show_file_explorer: true,
   },
 }
 
@@ -26,19 +27,19 @@ vi.mock('@/contexts/settings-context', () => ({
   }),
 }))
 
-if (typeof document !== 'undefined') describe('CodeSettings auto-collapse preference', () => {
+if (typeof document !== 'undefined') describe('CodeSettings Show File Explorer toggle', () => {
   beforeEach(() => {
     updateSettings.mockReset()
   })
 
-  it('saves updated auto-collapse flag when toggled', async () => {
+  it('saves updated show_file_explorer flag when toggled', async () => {
     render(<CodeSettings />)
 
-    const toggle = screen.getByRole('switch', { name: /auto-collapse app sidebar/i })
-    expect(toggle).toHaveAttribute('data-state', 'unchecked')
+    const toggle = screen.getByRole('switch', { name: /show file explorer/i })
+    expect(toggle).toHaveAttribute('data-state', 'checked')
 
     fireEvent.click(toggle)
-    await waitFor(() => expect(toggle).toHaveAttribute('data-state', 'checked'))
+    await waitFor(() => expect(toggle).toHaveAttribute('data-state', 'unchecked'))
 
     const saveButton = screen.getByRole('button', { name: /save changes/i })
     fireEvent.click(saveButton)
@@ -48,10 +49,11 @@ if (typeof document !== 'undefined') describe('CodeSettings auto-collapse prefer
         code_settings: {
           theme: 'github',
           font_size: 14,
-          auto_collapse_sidebar: true,
-          show_file_explorer: true,
+          auto_collapse_sidebar: false,
+          show_file_explorer: false,
         },
       })
     })
   })
 })
+

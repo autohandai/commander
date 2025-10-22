@@ -438,13 +438,13 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
   }, [])
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
-  const [isExplorerOpen, setIsExplorerOpen] = useState(
-    () => !settings.code_settings?.auto_collapse_sidebar
+  const [isExplorerOpen, setIsExplorerOpen] = useState<boolean>(
+    () => settings.code_settings?.show_file_explorer ?? true
   );
 
   useEffect(() => {
-    setIsExplorerOpen(!settings.code_settings?.auto_collapse_sidebar);
-  }, [settings.code_settings?.auto_collapse_sidebar]);
+    setIsExplorerOpen(settings.code_settings?.show_file_explorer ?? true);
+  }, [settings.code_settings?.show_file_explorer]);
 
   // Discover a workspace worktree under .commander if available
   useEffect(() => {
@@ -484,15 +484,6 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
   return (
     <>
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex justify-end px-2 pb-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setIsExplorerOpen((prev) => !prev)}
-        >
-          {isExplorerOpen ? 'Hide File Explorer' : 'Show File Explorer'}
-        </Button>
-      </div>
       <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
         {isExplorerOpen && (
           <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
