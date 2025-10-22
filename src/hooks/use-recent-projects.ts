@@ -15,12 +15,25 @@ export function useRecentProjects() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Deduplicate by path while preserving order
+  const dedupByPath = (items: RecentProject[]): RecentProject[] => {
+    const seen = new Set<string>()
+    const out: RecentProject[] = []
+    for (const p of items) {
+      if (!seen.has(p.path)) {
+        seen.add(p.path)
+        out.push(p)
+      }
+    }
+    return out
+  }
+
   const loadProjects = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const projectsData = await invoke<RecentProject[]>('list_recent_projects')
-      setProjects(projectsData)
+      setProjects(dedupByPath(projectsData))
     } catch (err) {
       console.error('Failed to load recent projects:', err)
       setError(err instanceof Error ? err.message : 'Failed to load projects')
@@ -34,7 +47,7 @@ export function useRecentProjects() {
     try {
       setError(null)
       const projectsData = await invoke<RecentProject[]>('refresh_recent_projects')
-      setProjects(projectsData)
+      setProjects(dedupByPath(projectsData))
     } catch (err) {
       console.error('Failed to refresh recent projects:', err)
       setError(err instanceof Error ? err.message : 'Failed to refresh projects')
