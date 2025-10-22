@@ -51,4 +51,24 @@ mod tests {
             "Oldest item should be dropped"
         );
     }
+
+    #[test]
+    fn test_dedup_recent_projects_by_path_preserves_mru() {
+        // Two entries with the same path but different timestamps
+        let p_old = rp("Repo", "/w/repo", 100);
+        let p_new = rp("Repo", "/w/repo", 200);
+        // Another distinct project
+        let q = rp("Other", "/w/other", 150);
+
+        // Input already sorted by last_accessed desc as list_recent_projects ensures
+        let input = vec![p_new.clone(), q.clone(), p_old.clone()];
+
+        // Expect only first occurrence of each unique path to be kept
+        // -> keeps p_new then q, drops p_old
+        let out = project_service::dedup_recent_projects_by_path(input);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].path, "/w/repo");
+        assert_eq!(out[0].last_accessed, 200);
+        assert_eq!(out[1].path, "/w/other");
+    }
 }

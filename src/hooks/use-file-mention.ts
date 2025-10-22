@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { FileInfo, DirectoryListing, FileMentionOptions } from '@/types/file-mention';
 
@@ -25,6 +25,8 @@ export const useFileMention = (): UseFileMentionReturn => {
   const [currentDirectory, setCurrentDirectoryState] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Prevent out-of-order async responses from overwriting newer state
+  const requestIdRef = useRef(0);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -71,12 +73,16 @@ export const useFileMention = (): UseFileMentionReturn => {
     try {
       setLoading(true);
       clearError();
+      const reqId = ++requestIdRef.current;
       
       const listing = await invoke<DirectoryListing>('list_files_in_directory', {
         directoryPath: options?.directory_path,
         extensions: options?.extensions,
         maxDepth: options?.max_depth,
       });
+
+      // If a newer request has been issued, ignore this outdated response
+      if (requestIdRef.current !== reqId) return;
 
       // Ensure extension is populated for UI consumers
       const filesWithExt = listing.files.map((f) => ({
@@ -106,6 +112,7 @@ export const useFileMention = (): UseFileMentionReturn => {
     try {
       setLoading(true);
       clearError();
+      const reqId = ++requestIdRef.current;
 
       const listing = await invoke<DirectoryListing>('search_files_by_name', {
         directoryPath: options?.directory_path,
@@ -113,6 +120,8 @@ export const useFileMention = (): UseFileMentionReturn => {
         extensions: options?.extensions,
         maxDepth: options?.max_depth,
       });
+
+      if (requestIdRef.current !== reqId) return;
 
       const filesWithExt = listing.files.map((f) => ({
         ...f,

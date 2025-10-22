@@ -272,22 +272,20 @@ pub async fn list_recent_projects(app: tauri::AppHandle) -> Result<Vec<RecentPro
                 }
             }
 
-            // Sort by last accessed time (most recent first)
+            // Sort by last accessed time (most recent first) and deduplicate by path
             valid_projects.sort_by(|a, b| b.last_accessed.cmp(&a.last_accessed));
+            let mut deduped = crate::services::project_service::dedup_recent_projects_by_path(valid_projects);
 
-            // Limit to 20 most recent projects
-            valid_projects.truncate(20);
+            // Limit to 20 most recent projects after deduplication
+            deduped.truncate(20);
 
             // Update the store with the cleaned list
-            if valid_projects.len() != original_count {
-                let _ = store.set(
-                    "projects",
-                    serde_json::to_value(&valid_projects).unwrap_or_default(),
-                );
+            if deduped.len() != original_count {
+                let _ = store.set("projects", serde_json::to_value(&deduped).unwrap_or_default());
                 let _ = store.save();
             }
 
-            Ok(valid_projects)
+            Ok(deduped)
         }
         None => {
             // If no recent projects exist, scan current projects folder as fallback

@@ -103,17 +103,23 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
   selectedFile: string | null;
   rootPath: string;
 }) {
-  const { files, listFiles, loading } = useFileMention();
+  const fileMention = useFileMention();
+  const { files, listFiles, loading } = fileMention;
   const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
 
   useEffect(() => {
+    // Reset existing view immediately to avoid showing stale data during project switch
+    if (typeof (fileMention as any).clearFiles === 'function') {
+      (fileMention as any).clearFiles();
+    }
+    setFileTree([]);
     // Load all files from the project directory
     listFiles({
       directory_path: rootPath || project.path,
       max_depth: 10, // Deep traversal for complete file tree
       extensions: [], // show all files in CodeView (no filter)
     });
-  }, [project.path, rootPath, listFiles]);
+  }, [project.path, rootPath]);
 
   // Auto-refresh when CLI sessions stream finishes, and periodic polling as fallback
   useEffect(() => {
@@ -460,6 +466,11 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
         setViewScope('main');
       }
     })();
+  }, [project.path]);
+
+  // Clear selected file when switching projects to avoid showing previous content
+  useEffect(() => {
+    setSelectedFile(null);
   }, [project.path]);
 
   useEffect(() => {

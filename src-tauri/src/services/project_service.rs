@@ -2,6 +2,7 @@ use crate::models::*;
 use crate::services::git_service::*;
 use std::path::Path;
 use tauri_plugin_store::StoreExt;
+use std::collections::HashSet;
 
 /// Pure helper: upsert a recent project into list with MRU ordering and cap
 pub fn upsert_recent_projects(
@@ -20,6 +21,20 @@ pub fn upsert_recent_projects(
         projects.truncate(cap);
     }
     projects
+}
+
+/// Deduplicate a list of recent projects by `path` while preserving order.
+/// Assumes input is already ordered by MRU (e.g., sorted by last_accessed desc),
+/// and keeps the first occurrence of each unique path.
+pub fn dedup_recent_projects_by_path(projects: Vec<RecentProject>) -> Vec<RecentProject> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<RecentProject> = Vec::with_capacity(projects.len());
+    for p in projects.into_iter() {
+        if seen.insert(p.path.clone()) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// Check if project name conflicts with existing directories
