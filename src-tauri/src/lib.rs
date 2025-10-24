@@ -220,6 +220,8 @@ pub fn run() {
             search_files_by_name,
             get_file_info,
             read_file_content,
+            write_file_content,
+            create_default_agents_docs,
             menu_new_project,
             menu_clone_project,
             menu_open_project,

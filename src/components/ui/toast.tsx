@@ -9,6 +9,8 @@ interface ToastProps {
   type?: 'success' | 'error' | 'warning' | 'info'
   duration?: number
   onRemove: (id: string) => void
+  actionLabel?: string
+  onAction?: () => void
 }
 
 export function Toast({ 
@@ -17,7 +19,9 @@ export function Toast({
   message, 
   type = 'info', 
   duration = 5000, 
-  onRemove 
+  onRemove,
+  actionLabel,
+  onAction,
 }: ToastProps) {
   const [isVisible, setIsVisible] = useState(true)
 
@@ -83,6 +87,14 @@ export function Toast({
         )}
         <p className="text-sm text-gray-700">{message}</p>
       </div>
+      {actionLabel && (
+        <button
+          onClick={() => { onAction?.(); handleClose(); }}
+          className="flex-shrink-0 ml-2 px-2 py-1 rounded-md bg-blue-600 text-white text-xs hover:bg-blue-700 transition-colors"
+        >
+          {actionLabel}
+        </button>
+      )}
       
       <button
         onClick={handleClose}

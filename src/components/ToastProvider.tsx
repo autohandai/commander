@@ -7,6 +7,8 @@ interface ToastData {
   message: string
   type?: 'success' | 'error' | 'warning' | 'info'
   duration?: number
+  actionLabel?: string
+  onAction?: () => void
 }
 
 interface ToastContextValue {
@@ -81,6 +83,8 @@ export function ToastProvider({ children }: ToastProviderProps) {
             message={toast.message}
             type={toast.type}
             duration={toast.duration}
+            actionLabel={toast.actionLabel}
+            onAction={toast.onAction}
             onRemove={removeToast}
           />
         ))}

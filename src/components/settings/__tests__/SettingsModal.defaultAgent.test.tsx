@@ -53,6 +53,8 @@ if (typeof document !== 'undefined') describe('SettingsModal default CLI agent c
 
     const trigger = await screen.findByRole('combobox', { name: /Default CLI agent/i })
     expect(trigger).toHaveTextContent(/Gemini/i)
+    // Ensure the trigger takes advantage of available width (layout improvement)
+    expect(trigger).toHaveClass('max-w-lg')
 
     fireEvent.click(trigger)
     const codexOption = await screen.findByRole('option', { name: /Codex/i })

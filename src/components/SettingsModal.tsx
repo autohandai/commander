@@ -87,6 +87,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   // Welcome screen recent projects toggle
   const [showWelcomeRecentProjects, setShowWelcomeRecentProjects] = useState<boolean>(true)
   const [tempShowWelcomeRecentProjects, setTempShowWelcomeRecentProjects] = useState<boolean>(true)
+  const [suggestCreateAgentsMd, setSuggestCreateAgentsMd] = useState<boolean>(true)
+  const [tempSuggestCreateAgentsMd, setTempSuggestCreateAgentsMd] = useState<boolean>(true)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false)
   const [agentSettings, setAgentSettings] = useState<Record<string, boolean>>({})
@@ -120,6 +122,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [gitWorktreeSupported, setGitWorktreeSupported] = useState(false)
   const [gitConfigLoading, setGitConfigLoading] = useState(false)
   const [gitConfigError, setGitConfigError] = useState<string | null>(null)
+  // Debounced system prompt editing state
+  const [tempSystemPromptText, setTempSystemPromptText] = useState<string>('')
   
   // Load app settings and projects folder on mount
   useEffect(() => {
@@ -162,6 +166,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
             const themePref = appSettings.ui_theme || 'auto'
             setUiTheme(themePref)
             setTempUiTheme(themePref)
+            const suggest = (appSettings as any).suggest_create_agents_md ?? true
+            setSuggestCreateAgentsMd(Boolean(suggest))
+            setTempSuggestCreateAgentsMd(Boolean(suggest))
           }
         } catch (appError) {
           console.warn('⚠️ Failed to load app settings (using defaults):', appError)
@@ -301,6 +308,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       tempShowWelcomeRecentProjects !== showWelcomeRecentProjects ||
       tempCodeTheme !== codeTheme ||
       tempCodeFontSize !== codeFontSize ||
+      tempSuggestCreateAgentsMd !== suggestCreateAgentsMd ||
       JSON.stringify(tempAgentSettings) !== JSON.stringify(agentSettings) ||
       (tempAllAgentSettings && allAgentSettings && JSON.stringify(tempAllAgentSettings) !== JSON.stringify(allAgentSettings))
     
@@ -326,6 +334,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     codeTheme,
     tempCodeFontSize,
     codeFontSize,
+    tempSuggestCreateAgentsMd,
+    suggestCreateAgentsMd,
     tempAgentSettings,
     agentSettings,
     tempAllAgentSettings,
@@ -410,6 +420,21 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     saveWelcomeToggle()
   }, [tempShowWelcomeRecentProjects, settingsHydrated, showWelcomeRecentProjects])
 
+  // Auto-save suggest create AGENTS.md toggle
+  useEffect(() => {
+    const saveSuggest = async () => {
+      if (!settingsHydrated) return
+      if (tempSuggestCreateAgentsMd === suggestCreateAgentsMd) return
+      try {
+        await updateAppSettings({ suggest_create_agents_md: tempSuggestCreateAgentsMd })
+        setSuggestCreateAgentsMd(tempSuggestCreateAgentsMd)
+      } catch (e) {
+        console.error('Failed to auto-save suggest_create_agents_md:', e)
+      }
+    }
+    saveSuggest()
+  }, [tempSuggestCreateAgentsMd, settingsHydrated, suggestCreateAgentsMd])
+
   // Default CLI agent changes are persisted via explicit Save action to respect unsaved-changes workflow.
 
   // Load git config when tab is activated
@@ -430,9 +455,28 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     }
   }
 
+  // Keep local system prompt text in sync when settings load/change
+  useEffect(() => {
+    if (isOpen) {
+      setTempSystemPromptText(settings?.system_prompt || '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, settings?.system_prompt])
+
   const handleSystemPromptChange = (prompt: string) => {
-    updateSystemPrompt(prompt)
+    setTempSystemPromptText(prompt)
   }
+
+  // Debounce persist of system prompt to avoid losing focus on each keystroke
+  useEffect(() => {
+    if (!isOpen) return
+    const id = setTimeout(() => {
+      if (tempSystemPromptText !== (settings?.system_prompt || '')) {
+        updateSystemPrompt(tempSystemPromptText).catch(() => {})
+      }
+    }, 500)
+    return () => clearTimeout(id)
+  }, [tempSystemPromptText, isOpen])
 
   const handleClearRecentProjects = async () => {
     try {
@@ -754,10 +798,11 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 <GeneralSettings
                   tempDefaultProjectsFolder={tempDefaultProjectsFolder}
                   tempShowConsoleOutput={tempShowConsoleOutput}
-                  systemPrompt={settings?.system_prompt}
+                  systemPrompt={tempSystemPromptText}
                   saving={saving}
                   tempUiTheme={tempUiTheme}
                   tempShowWelcomeRecentProjects={tempShowWelcomeRecentProjects}
+                  tempSuggestCreateAgentsMd={tempSuggestCreateAgentsMd}
                   gitConfig={gitConfig}
                   gitWorktreeEnabled={gitWorktreeEnabled}
                   gitConfigLoading={gitConfigLoading}
@@ -771,6 +816,7 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   onToggleGitWorktree={handleGitWorktreeToggle}
                   onUiThemeChange={setTempUiTheme}
                   onShowWelcomeRecentProjectsChange={setTempShowWelcomeRecentProjects}
+                  onSuggestCreateAgentsMdChange={setTempSuggestCreateAgentsMd}
                 />
               )}
               {activeTab === 'git' && (

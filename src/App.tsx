@@ -124,7 +124,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<string>('chat')
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>(undefined)
   const [welcomePhrase, setWelcomePhrase] = useState<string>("")
-  const { showSuccess, showError } = useToast()
+  const { showSuccess, showError, showToast } = useToast()
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
   const { projects: allRecentProjects } = useRecentProjects()
   const [homeDir, setHomeDir] = useState<string>("")
@@ -295,6 +295,39 @@ function AppContent() {
       invoke<string>('get_user_home_directory').then(setHomeDir).catch(() => {})
     }).catch(() => {})
   }, [])
+
+  // Suggest creating AGENTS.md when missing
+  useEffect(() => {
+    const run = async () => {
+      if (!currentProject) return
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const base = currentProject.path
+        const agents = await invoke<any>('get_file_info', { filePath: `${base}/AGENTS.md` }).catch(() => null)
+        const claude = await invoke<any>('get_file_info', { filePath: `${base}/CLAUDE.md` }).catch(() => null)
+        const gemini = await invoke<any>('get_file_info', { filePath: `${base}/GEMINI.md` }).catch(() => null)
+        const shouldSuggest = settings.suggest_create_agents_md ?? true
+        if (!agents && !claude && !gemini && shouldSuggest) {
+          showToast({
+            title: 'Project Prompt Files Missing',
+            message: 'We couldn\'t find AGENTS.md, CLAUDE.md, or GEMINI.md. Create an AGENTS.md with a recommended software engineer prompt?',
+            type: 'info',
+            actionLabel: 'Create',
+            onAction: async () => {
+              try {
+                const created = await invoke<string>('create_default_agents_docs', { projectPath: base })
+                showSuccess('AGENTS.md created successfully', 'Created')
+              } catch (e) {
+                console.error(e)
+                showError('Failed to create AGENTS.md', 'Error')
+              }
+            }
+          })
+        }
+      } catch {}
+    }
+    run()
+  }, [currentProject, settings.suggest_create_agents_md])
 
   const shortPath = (p: string) => {
     if (!homeDir) return p

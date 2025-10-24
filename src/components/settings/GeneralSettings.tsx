@@ -26,6 +26,7 @@ export function GeneralSettings({
   saving,
   tempUiTheme = 'auto',
   tempShowWelcomeRecentProjects = true,
+  tempSuggestCreateAgentsMd = true,
   gitConfig: _gitConfig,
   gitWorktreeEnabled: _gitWorktreeEnabled,
   gitConfigLoading: _gitConfigLoading,
@@ -39,6 +40,7 @@ export function GeneralSettings({
   onRefreshGitConfig: _onRefreshGitConfig,
   onToggleGitWorktree: _onToggleGitWorktree,
   onShowWelcomeRecentProjectsChange,
+  onSuggestCreateAgentsMdChange,
 }: GeneralSettingsProps) {
   const { showSuccess, showError } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -141,13 +143,28 @@ export function GeneralSettings({
               placeholder="Enter a global system prompt that will be used across all LLM providers..."
               value={systemPrompt || ''}
               onChange={(e) => onSystemPromptChange(e.target.value)}
-              disabled={saving}
               rows={4}
               className="resize-vertical"
             />
             <p className="text-xs text-muted-foreground">
-              This prompt will be sent to all LLM providers as the system message for conversations.
+              This prompt is sent to all LLM providers as the system message. When opening a project, Commander tries to seed this from the repository:
+              AGENTS.md if present; otherwise CLAUDE.md or GEMINI.md. If none exist, you can auto-create an AGENTS.md with a recommended software engineer prompt.
             </p>
+          </div>
+          {/* Suggest create AGENTS.md toggle */}
+          <div className="flex items-center justify-between rounded-md border border-border/60 p-4">
+            <div>
+              <Label htmlFor="suggest-create-agents-md">Suggest creating AGENTS.md</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                When a project lacks AGENTS.md/CLAUDE.md/GEMINI.md, show a suggestion to create one automatically.
+              </p>
+            </div>
+            <Switch
+              id="suggest-create-agents-md"
+              checked={!!tempSuggestCreateAgentsMd}
+              onCheckedChange={(v) => onSuggestCreateAgentsMdChange?.(v)}
+              aria-label="Suggest creating AGENTS.md"
+            />
           </div>
           <div className="space-y-4">
             <h4 className="text-sm font-medium">Console Output</h4>

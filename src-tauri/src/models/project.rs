@@ -46,6 +46,9 @@ pub struct AppSettings {
     pub default_cli_agent: String,
     #[serde(default)]
     pub code_settings: CodeSettings,
+    #[serde(default = "default_suggest_create_agents_md")]
+    /// Whether to suggest creating AGENTS.md (or CLAUDE.md/GEMINI.md) when missing
+    pub suggest_create_agents_md: bool,
 }
 
 fn default_show_console_output() -> bool {
@@ -117,6 +120,7 @@ fn default_auto_collapse_sidebar() -> bool {
     false
 }
 fn default_show_file_explorer() -> bool { true }
+fn default_suggest_create_agents_md() -> bool { true }
 
 impl Default for CodeSettings {
     fn default() -> Self {
@@ -141,6 +145,7 @@ impl Default for AppSettings {
             max_chat_history: default_max_chat_history(),
             default_cli_agent: default_default_cli_agent(),
             code_settings: CodeSettings::default(),
+            suggest_create_agents_md: default_suggest_create_agents_md(),
         }
     }
 }

@@ -45,6 +45,15 @@ npm install -g @google/gemini-cli@latest
 ```
 Commander detects installed CLIs on launch and surfaces their status in **Settings → LLM Providers**. Disabled agents can be toggled per-session; missing installs display remediation tips.
 
+### Settings Schema Updates
+The app auto-migrates settings on load. Recent changes introduced the following keys and behaviors:
+
+- `app_settings.code_settings.show_file_explorer` (boolean, default: `true`)
+  - Controls visibility of the Code view File Explorer panel. If missing, the app assumes `true` and persists it on next save.
+- Recent Projects are deduplicated by `path` during load; the cleaned list is written back to `recent-projects.json`.
+
+No manual action required — existing `~/.commander/settings.json` is upgraded automatically when the app runs.
+
 ## Workspaces & Git Automation
 - When workspace mode is enabled, Commander creates worktrees under `<project>/.commander/<workspace-name>` and routes all CLI commands there.
 - Workspaces can be selected or created from the chat header; automatic naming uses the first words of your prompt, while manual creation offers curated name suggestions.

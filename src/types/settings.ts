@@ -156,6 +156,8 @@ export interface GeneralSettingsProps {
   tempUiTheme?: string;
   // Welcome screen recent projects toggle (temporary for unsaved changes)
   tempShowWelcomeRecentProjects?: boolean;
+  // Suggest AGENTS.md creation when missing (temporary for unsaved changes)
+  tempSuggestCreateAgentsMd?: boolean;
   gitConfig: GitConfig;
   gitWorktreeEnabled: boolean;
   gitConfigLoading: boolean;
@@ -171,6 +173,8 @@ export interface GeneralSettingsProps {
   onUiThemeChange?: (theme: string) => void;
   // Welcome screen toggle change handler
   onShowWelcomeRecentProjectsChange?: (enabled: boolean) => void;
+  // Suggest creation toggle change handler
+  onSuggestCreateAgentsMdChange?: (enabled: boolean) => void;
 }
 
 export interface GitSettingsProps {

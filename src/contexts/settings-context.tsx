@@ -29,6 +29,7 @@ interface AppSettings {
   show_welcome_recent_projects?: boolean;
   max_chat_history?: number;
   default_cli_agent?: DefaultCliAgent;
+  suggest_create_agents_md?: boolean;
 }
 
 interface SettingsContextType {
@@ -52,6 +53,7 @@ const defaultSettings: AppSettings = {
     show_file_explorer: true,
   },
   default_cli_agent: FALLBACK_AGENT,
+  suggest_create_agents_md: true,
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -74,6 +76,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         ...appSettings,
         code_settings: mergedCodeSettings,
         default_cli_agent: defaultCliAgent,
+        suggest_create_agents_md: appSettings.suggest_create_agents_md ?? true,
       });
     } catch (error) {
       console.warn('⚠️ Failed to load app settings (using defaults):', error);

@@ -2,7 +2,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
-import { DEFAULT_CLI_AGENT_OPTIONS } from "@/components/chat/agents"
+import { DEFAULT_CLI_AGENT_OPTIONS, AGENTS } from "@/components/chat/agents"
 import type { ChatSettingsProps } from "@/types/settings"
 
 export function ChatSettings({
@@ -61,18 +61,27 @@ export function ChatSettings({
                 </p>
               </div>
               <Select value={tempDefaultCliAgent} onValueChange={handleDefaultAgentChange}>
-                <SelectTrigger id="default-cli-agent" aria-label="Default CLI agent" className="w-64">
+                <SelectTrigger id="default-cli-agent" aria-label="Default CLI agent" className="w-full max-w-lg">
                   <SelectValue placeholder="Select an agent" />
                 </SelectTrigger>
-                <SelectContent>
-                  {DEFAULT_CLI_AGENT_OPTIONS.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      <div className="flex flex-col">
-                        <span>{option.label}</span>
-                        <span className="text-xs text-muted-foreground">{option.description}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
+                <SelectContent className="min-w-[24rem]">
+                  {DEFAULT_CLI_AGENT_OPTIONS.map((option) => {
+                    const agent = AGENTS.find(a => a.id === option.id)
+                    const Icon = agent?.icon as any
+                    return (
+                      <SelectItem key={option.id} value={option.id}>
+                        <div className="flex items-start gap-3">
+                          {Icon ? <Icon className="h-4 w-4 mt-0.5 text-muted-foreground" /> : null}
+                          <div className="flex flex-col">
+                            <span className="font-medium">{option.label}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {option.description}
+                            </span>
+                          </div>
+                        </div>
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>

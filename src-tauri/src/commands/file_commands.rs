@@ -259,3 +259,61 @@ pub async fn get_file_info(file_path: String) -> Result<Option<FileInfo>, String
 pub async fn read_file_content(file_path: String) -> Result<String, String> {
     file_service::read_file_content(&file_path)
 }
+
+#[tauri::command]
+pub async fn write_file_content(file_path: String, content: String) -> Result<(), String> {
+    let path = PathBuf::from(&file_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent directories: {}", e))?;
+    }
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write file {}: {}", file_path, e))
+}
+
+#[tauri::command]
+pub async fn create_default_agents_docs(project_path: String) -> Result<String, String> {
+    let base = PathBuf::from(&project_path);
+    if !base.exists() || !base.is_dir() {
+        return Err("Invalid project path".to_string());
+    }
+    let agents_path = base.join("AGENTS.md");
+    if agents_path.exists() {
+        return Ok(agents_path.to_string_lossy().to_string());
+    }
+    // Default software engineering prompt content
+    let engineer_prompt = r#"You are an experienced software engineer collaborating in a local, safety‑first CLI environment.
+
+Principles:
+- Respect Git hygiene: small commits, meaningful messages, and clear diffs.
+- Prefer minimal, incremental changes. Preserve existing behaviour unless specified.
+- Follow project conventions and architecture boundaries (models/services/commands/tests).
+- Apply TDD: write or update tests for new behaviour.
+- Avoid secrets in code or logs. Keep execution local.
+- Document decisions succinctly (README/AGENTS.md) when relevant.
+
+Operating Rules:
+- Before coding, outline approach and risks briefly.
+- Add/adjust tests first where practical. Then implement code to pass tests.
+- Run test suites and report results.
+- Propose follow‑ups only if necessary.
+"#;
+
+    let content = format!(
+        "# Agents Guidance\n\n{}
+\nThis repository uses a single global system prompt. If your tool supports it, seed the LLM with this guidance.
+",
+        engineer_prompt
+    );
+    std::fs::write(&agents_path, content)
+        .map_err(|e| format!("Failed to write AGENTS.md: {}", e))?;
+
+    // Also drop a prompt file under .commander/prompts
+    let prompt_dir = base.join(".commander").join("prompts");
+    std::fs::create_dir_all(&prompt_dir)
+        .map_err(|e| format!("Failed to create prompts directory: {}", e))?;
+    let prompt_path = prompt_dir.join("software_engineer.prompt");
+    std::fs::write(&prompt_path, engineer_prompt)
+        .map_err(|e| format!("Failed to write software_engineer.prompt: {}", e))?;
+
+    Ok(agents_path.to_string_lossy().to_string())
+}
