@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::CommanderError;
+use crate::models::ai_agent::StreamChunk;
 use crate::models::autohand::{
     AutohandConfig, AutohandMessagePayload, AutohandPermissionPayload, AutohandState,
     AutohandStatePayload, AutohandStatus, AutohandToolEventPayload, AutohandHookEventPayload,
@@ -286,6 +287,14 @@ impl AutohandRpcClient {
                     timestamp: now,
                 },
             );
+            let _ = app.emit(
+                "cli-stream",
+                StreamChunk {
+                    session_id: session_id.clone(),
+                    content: String::new(),
+                    finished: true,
+                },
+            );
         });
 
         Ok(())
@@ -312,14 +321,24 @@ async fn dispatch_rpc_notification(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            // Emit on both channels: autohand-specific and the shared cli-stream
+            // that ChatInterface already listens to.
             let _ = app.emit(
                 "autohand:message",
                 AutohandMessagePayload {
                     session_id: session_id.to_string(),
                     role: "assistant".to_string(),
+                    content: content.clone(),
+                    finished: false,
+                    timestamp: now.clone(),
+                },
+            );
+            let _ = app.emit(
+                "cli-stream",
+                StreamChunk {
+                    session_id: session_id.to_string(),
                     content,
                     finished: false,
-                    timestamp: now,
                 },
             );
         }
@@ -332,7 +351,15 @@ async fn dispatch_rpc_notification(
                     role: "assistant".to_string(),
                     content: String::new(),
                     finished: true,
-                    timestamp: now,
+                    timestamp: now.clone(),
+                },
+            );
+            let _ = app.emit(
+                "cli-stream",
+                StreamChunk {
+                    session_id: session_id.to_string(),
+                    content: String::new(),
+                    finished: true,
                 },
             );
         }

@@ -213,8 +213,8 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let wd = tmp.path().to_str().unwrap();
 
-        // Load defaults (no config file)
-        let config = load_autohand_config_internal(wd).unwrap();
+        // Load defaults (no config file, no global dir)
+        let config = load_autohand_config_with_global(wd, None).unwrap();
         assert_eq!(config.protocol, ProtocolMode::Rpc);
         assert_eq!(config.provider, "anthropic");
         assert!(config.model.is_none());
@@ -229,7 +229,7 @@ mod tests {
         .unwrap();
 
         // Reload
-        let config = load_autohand_config_internal(wd).unwrap();
+        let config = load_autohand_config_with_global(wd, None).unwrap();
         assert_eq!(config.protocol, ProtocolMode::Acp);
         assert_eq!(config.provider, "openrouter");
         assert_eq!(config.model, Some("gpt-4o".to_string()));

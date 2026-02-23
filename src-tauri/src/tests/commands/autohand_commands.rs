@@ -7,8 +7,10 @@ mod tests {
     #[test]
     fn test_autohand_config_load_defaults() {
         let tmp = TempDir::new().unwrap();
-        let config = crate::commands::autohand_commands::load_autohand_config_internal(
+        // Pass None for global dir so real ~/.autohand doesn't interfere
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
             tmp.path().to_str().unwrap(),
+            None,
         );
         assert!(config.is_ok());
         let config = config.unwrap();
@@ -28,14 +30,51 @@ mod tests {
         )
         .unwrap();
 
-        let config = crate::commands::autohand_commands::load_autohand_config_internal(
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
             tmp.path().to_str().unwrap(),
+            None,
         );
         assert!(config.is_ok());
         let config = config.unwrap();
         assert_eq!(config.protocol, ProtocolMode::Acp);
         assert_eq!(config.provider, "openrouter");
         assert_eq!(config.model, Some("gpt-4o".to_string()));
+    }
+
+    #[test]
+    fn test_autohand_config_merges_global_and_workspace() {
+        let global_tmp = TempDir::new().unwrap();
+        let ws_tmp = TempDir::new().unwrap();
+
+        // Global sets provider and model
+        let global_dir = global_tmp.path();
+        std::fs::write(
+            global_dir.join("config.json"),
+            r#"{"provider": "openrouter", "model": "gpt-4o", "permissions_mode": "auto"}"#,
+        )
+        .unwrap();
+
+        // Workspace overrides only model
+        let ws_config_dir = ws_tmp.path().join(".autohand");
+        std::fs::create_dir_all(&ws_config_dir).unwrap();
+        std::fs::write(
+            ws_config_dir.join("config.json"),
+            r#"{"model": "claude-3"}"#,
+        )
+        .unwrap();
+
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_tmp.path().to_str().unwrap(),
+            Some(global_dir),
+        )
+        .unwrap();
+
+        // provider comes from global
+        assert_eq!(config.provider, "openrouter");
+        // model overridden by workspace
+        assert_eq!(config.model, Some("claude-3".to_string()));
+        // permissions_mode from global (not overridden)
+        assert_eq!(config.permissions_mode, "auto");
     }
 
     #[test]

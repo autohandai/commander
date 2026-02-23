@@ -8,6 +8,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use crate::error::CommanderError;
+use crate::models::ai_agent::StreamChunk;
 use crate::models::autohand::{
     AutohandConfig, AutohandMessagePayload, AutohandPermissionPayload,
     AutohandState, AutohandStatePayload, AutohandStatus, AutohandToolEventPayload,
@@ -408,6 +409,14 @@ impl AutohandAcpClient {
                     timestamp: now,
                 },
             );
+            let _ = app.emit(
+                "cli-stream",
+                StreamChunk {
+                    session_id: session_id.clone(),
+                    content: String::new(),
+                    finished: true,
+                },
+            );
         });
 
         Ok(())
@@ -430,12 +439,23 @@ async fn dispatch_acp_message(
                 "autohand:message",
                 AutohandMessagePayload {
                     session_id: session_id.to_string(),
-                    role,
-                    content,
+                    role: role.clone(),
+                    content: content.clone(),
                     finished: false,
                     timestamp: now,
                 },
             );
+            // Also emit on cli-stream so ChatInterface renders it.
+            if role == "assistant" {
+                let _ = app.emit(
+                    "cli-stream",
+                    StreamChunk {
+                        session_id: session_id.to_string(),
+                        content,
+                        finished: false,
+                    },
+                );
+            }
         }
 
         AcpMessage::ToolStart { name, args } => {
