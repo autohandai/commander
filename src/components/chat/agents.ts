@@ -15,13 +15,14 @@ export interface AgentCapability {
   category: string
 }
 
-export const allowedAgentIds = ['claude', 'codex', 'gemini', 'ollama', 'test'] as const
+export const allowedAgentIds = ['autohand', 'claude', 'codex', 'gemini', 'ollama', 'test'] as const
 
 export type AllowedAgentId = typeof allowedAgentIds[number]
-export const DEFAULT_CLI_AGENT_IDS = ['claude', 'codex', 'gemini', 'ollama'] as const
+export const DEFAULT_CLI_AGENT_IDS = ['autohand', 'claude', 'codex', 'gemini', 'ollama'] as const
 export type DefaultCliAgentId = typeof DEFAULT_CLI_AGENT_IDS[number]
 
 export const DISPLAY_TO_ID: Record<string, string> = {
+  'Autohand Code': 'autohand',
   'Claude Code CLI': 'claude',
   'Codex': 'codex',
   'Gemini': 'gemini',
@@ -30,6 +31,13 @@ export const DISPLAY_TO_ID: Record<string, string> = {
 }
 
 export const AGENTS: Agent[] = [
+  {
+    id: 'autohand',
+    name: 'autohand',
+    displayName: 'Autohand Code',
+    icon: Bot,
+    description: 'Autonomous coding agent with hooks, tools, and multi-provider support',
+  },
   {
     id: 'claude',
     name: 'claude',
@@ -68,6 +76,12 @@ export const AGENTS: Agent[] = [
 ]
 
 export const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
+  autohand: [
+    { id: 'autonomous', name: 'Autonomous Coding', description: 'Full autonomous coding with tool use and file operations', category: 'Development' },
+    { id: 'hooks', name: 'Lifecycle Hooks', description: 'Pre/post tool hooks for automation workflows', category: 'Automation' },
+    { id: 'multiprovider', name: 'Multi-Provider', description: 'Supports Claude, GPT-4, Gemini, Ollama, and more via OpenRouter', category: 'Configuration' },
+    { id: 'skills', name: 'Skills System', description: 'Modular instruction packages for specialized tasks', category: 'Extensibility' },
+  ],
   claude: [
     { id: 'analysis', name: 'Code Analysis', description: 'Deep code analysis and review', category: 'Analysis' },
     { id: 'refactor', name: 'Refactoring', description: 'Intelligent code refactoring', category: 'Development' },
