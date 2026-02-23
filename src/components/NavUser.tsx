@@ -1,4 +1,5 @@
 import React from "react"
+import { useAuth } from "@/contexts/auth-context"
 import {
   BadgeCheck,
   ChevronsUpDown,
@@ -39,6 +40,7 @@ export function NavUser({
   setIsSettingsOpen?: (open: boolean) => void
 }) {
   const { isMobile } = useSidebar()
+  const { logout } = useAuth()
 
   // Derive a GitHub username if possible for robust fallbacks
   const githubUsername = React.useMemo(() => {
@@ -127,9 +129,9 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={logout}>
               <LogOut />
-              Logout
+              Sign Out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

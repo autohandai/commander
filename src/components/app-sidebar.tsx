@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Clock, GitBranch, Folder, FolderGit, Home } from "lucide-react"
 
+import { useAuth } from "@/contexts/auth-context"
 import { SearchForm } from "@/components/search-form"
 import { NavUser } from "@/components/NavUser"
 import { useRecentProjects, RecentProject } from "@/hooks/use-recent-projects"
@@ -19,14 +20,6 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 
-// Mock user data
-const userData = {
-  name: "Igor Costa",
-  email: "igor@autohand.ai",
-  // Use canonical GitHub avatar endpoint (handles redirects and size)
-  avatar: "https://github.com/igorcosta.png?size=128",
-}
-
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   isSettingsOpen?: boolean
   setIsSettingsOpen?: (open: boolean) => void
@@ -38,6 +31,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProjects, onProjectSelect, currentProject, onHomeClick, ...props }: AppSidebarProps) {
   const { projects, loading, error, refreshProjects } = useRecentProjects()
+  const { user } = useAuth()
 
   // Expose refresh function to parent component via ref
   React.useEffect(() => {
@@ -172,8 +166,12 @@ export function AppSidebar({ isSettingsOpen, setIsSettingsOpen, onRefreshProject
         </SidebarContent>
         
         <SidebarFooter>
-          <NavUser 
-            user={userData} 
+          <NavUser
+            user={{
+              name: user?.name ?? 'User',
+              email: user?.email ?? '',
+              avatar: user?.avatar_url ?? '',
+            }}
             setIsSettingsOpen={setIsSettingsOpen}
           />
         </SidebarFooter>
