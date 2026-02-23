@@ -65,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setVerificationUri(authData.verificationUri)
 
       try {
-        const { open } = await import('@tauri-apps/plugin-opener')
-        await open(authData.verificationUri)
+        const { openUrl } = await import('@tauri-apps/plugin-opener')
+        await openUrl(authData.verificationUri)
       } catch {
         // If opener fails, user can manually open
       }

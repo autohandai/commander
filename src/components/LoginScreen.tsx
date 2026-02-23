@@ -21,8 +21,8 @@ export function LoginScreen() {
   const handleOpenBrowser = async () => {
     if (!verificationUri) return
     try {
-      const { open } = await import('@tauri-apps/plugin-opener')
-      await open(verificationUri)
+      const { openUrl } = await import('@tauri-apps/plugin-opener')
+      await openUrl(verificationUri)
     } catch {
       // Fallback — user can open manually
     }
