@@ -1,5 +1,6 @@
 // Model exports
 pub mod ai_agent;
+pub mod autohand;
 pub mod chat_history;
 pub mod file;
 pub mod llm;
@@ -10,6 +11,7 @@ pub mod sub_agent;
 
 // Re-export all models for easy access
 pub use ai_agent::*;
+pub use autohand::*;
 pub use file::*;
 pub use llm::*;
 pub use project::*;

@@ -3,6 +3,7 @@ pub mod chat_history;
 pub mod commands;
 pub mod error_handling;
 pub mod integration;
+pub mod models;
 pub mod services;
 
 // Common test utilities and helpers
