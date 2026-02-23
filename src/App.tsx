@@ -632,10 +632,11 @@ function AppContent() {
       </SidebarInset>
       
       {isSettingsOpen && (
-        <SettingsModal 
-          isOpen={true} 
+        <SettingsModal
+          isOpen={true}
           onClose={() => setIsSettingsOpen(false)}
           initialTab={settingsInitialTab}
+          workingDir={currentProject?.path ?? null}
         />
       )}
       

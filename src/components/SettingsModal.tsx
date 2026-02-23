@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react"
-import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard, Code2, MessageSquare } from "lucide-react"
+import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard, Code2, MessageSquare, Terminal } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
-import { 
+import {
   ChatSettings,
   GeneralSettings,
   GitSettings,
@@ -11,7 +11,8 @@ import {
   ShortCutsUISettings,
   CodeSettings,
   SubAgentsSettings,
-  PromptsUISettings
+  PromptsUISettings,
+  AutohandSettingsTab
 } from "@/components/settings"
 import {
   Dialog,
@@ -49,7 +50,7 @@ if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof El
   }
 }
 
-export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   
   const {
@@ -727,6 +728,11 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       label: 'LLMs',
       icon: ExternalLink,
     },
+    {
+      id: 'autohand' as const,
+      label: 'Autohand',
+      icon: Terminal,
+    },
   ]
 
   return (
@@ -884,6 +890,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                   onTempApiKeyChange={handleTempApiKeyChange}
                   onUpdateSystemPrompt={updateSystemPrompt}
                 />
+              )}
+              {activeTab === 'autohand' && (
+                <AutohandSettingsTab workingDir={workingDir ?? null} />
               )}
             </div>
           </div>
