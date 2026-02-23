@@ -102,6 +102,7 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(not(test))]
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -138,6 +139,8 @@ pub fn run() {
             get_show_recent_projects_setting,
             set_show_recent_projects_setting,
             set_window_theme,
+            get_code_auto_collapse_sidebar_setting,
+            set_code_auto_collapse_sidebar_setting,
             fetch_openrouter_models,
             fetch_openai_models,
             check_ollama_installation,
@@ -232,7 +235,14 @@ pub fn run() {
             open_project_from_path,
             get_cli_project_path,
             clear_cli_project_path,
-            open_file_in_editor
+            open_file_in_editor,
+            get_autohand_config,
+            save_autohand_config,
+            get_autohand_hooks,
+            save_autohand_hook,
+            delete_autohand_hook,
+            toggle_autohand_hook,
+            respond_autohand_permission
         ])
         .setup(|app| {
             // Handle command line arguments for opening projects
@@ -240,7 +250,6 @@ pub fn run() {
             println!("🔍 Command line args received: {:?}", args);
             if args.len() > 1 {
                 let path_arg = args[1].clone(); // Clone the string to avoid borrowing issues
-                let app_handle = app.handle().clone();
 
                 // Spawn async task to handle project opening
                 tauri::async_runtime::spawn(async move {
@@ -388,9 +397,12 @@ pub fn run() {
             Ok(())
         });
 
-    // Only run the app loop in non-test builds to avoid duplicate context symbols
-    #[cfg(not(test))]
+    // Run the app loop
     builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+// In test builds, provide a no-op run() to avoid unused builder warnings
+#[cfg(test)]
+pub fn run() {}

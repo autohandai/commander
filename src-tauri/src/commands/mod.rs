@@ -1,4 +1,5 @@
 // Command modules
+pub mod autohand_commands;
 pub mod chat_history_commands;
 pub mod chat_migration_commands;
 pub mod cli_commands;
@@ -13,6 +14,7 @@ pub mod settings_commands;
 pub mod sub_agent_commands;
 
 // Re-export all command functions for easy access
+pub use autohand_commands::*;
 pub use chat_history_commands::*;
 pub use chat_migration_commands::*;
 pub use cli_commands::*;
