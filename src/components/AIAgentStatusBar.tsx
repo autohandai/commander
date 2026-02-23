@@ -183,6 +183,10 @@ interface AgentVersionCardProps {
 }
 
 const upgradeHints: Record<string, { command: string; packageName: string }> = {
+  autohand: {
+    command: 'npm install -g autohand-cli',
+    packageName: 'autohand-cli',
+  },
   claude: {
     command: 'npm install -g @anthropic-ai/claude-code',
     packageName: '@anthropic-ai/claude-code',

@@ -11,6 +11,12 @@ use crate::models::ai_agent::{AIAgent, AgentStatus};
 
 const AGENT_DEFINITIONS: &[AgentDefinition] = &[
     AgentDefinition {
+        id: "autohand",
+        command: "autohand",
+        display_name: "Autohand Code",
+        package: Some("autohand-cli"),
+    },
+    AgentDefinition {
         id: "claude",
         command: "claude",
         display_name: "Claude Code CLI",
@@ -51,6 +57,7 @@ impl AgentStatusService<SystemAgentProbe> {
 }
 
 impl<P: AgentProbe> AgentStatusService<P> {
+    #[cfg(test)]
     pub fn with_probe(probe: P) -> Self {
         Self { probe }
     }

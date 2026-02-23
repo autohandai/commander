@@ -35,13 +35,13 @@ import { useLLMSettings } from "@/hooks/use-llm-settings"
 import { useSettings as useAppSettingsContext } from "@/contexts/settings-context"
 import type { SettingsModalProps, SettingsTab } from "@/types/settings"
 
-const DEFAULT_CLI_AGENT_CHOICES = ['claude', 'codex', 'gemini', 'ollama'] as const
+const DEFAULT_CLI_AGENT_CHOICES = ['autohand', 'claude', 'codex', 'gemini', 'ollama'] as const
 type DefaultCliAgentChoice = typeof DEFAULT_CLI_AGENT_CHOICES[number]
 
 const normalizeDefaultCliAgent = (value?: string | null): DefaultCliAgentChoice => {
-  if (!value) return 'claude'
+  if (!value) return 'autohand'
   const normalized = value.toLowerCase() as DefaultCliAgentChoice
-  return DEFAULT_CLI_AGENT_CHOICES.includes(normalized) ? normalized : 'claude'
+  return DEFAULT_CLI_AGENT_CHOICES.includes(normalized) ? normalized : 'autohand'
 }
 
 if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
@@ -198,13 +198,13 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
             setAgentSettings(agents)
             setTempAgentSettings({...agents})
           } else {
-            const defaultAgents = { claude: false, codex: false, gemini: false }
+            const defaultAgents = { autohand: false, claude: false, codex: false, gemini: false }
             setAgentSettings(defaultAgents)
             setTempAgentSettings(defaultAgents)
           }
         } catch (agentError) {
           console.warn('⚠️ Failed to load basic agent settings:', agentError)
-          const defaultAgents = { claude: false, codex: false, gemini: false }
+          const defaultAgents = { autohand: false, claude: false, codex: false, gemini: false }
           setAgentSettings(defaultAgents)
           setTempAgentSettings(defaultAgents)
         }

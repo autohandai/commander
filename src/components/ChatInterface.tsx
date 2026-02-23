@@ -524,10 +524,11 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       const args = parts.slice(1).join(' ');
       
       // Map command to agent
-      if (['claude', 'codex', 'gemini', 'ollama', 'test'].includes(command)) {
-        const commandToAgent = {
+      if (['autohand', 'claude', 'codex', 'gemini', 'ollama', 'test'].includes(command)) {
+        const commandToAgent: Record<string, string> = {
+          'autohand': 'Autohand Code',
           'claude': 'Claude Code CLI',
-          'codex': 'Codex', 
+          'codex': 'Codex',
           'gemini': 'Gemini',
           'ollama': 'Ollama',
           'test': 'Test CLI',
