@@ -9,5 +9,6 @@ pub mod codex_sdk_service;
 pub mod execution_mode_service;
 pub mod file_service;
 pub mod git_service_enhanced;
+pub mod hooks_service;
 pub mod prompt_service;
 pub mod recent_projects;
