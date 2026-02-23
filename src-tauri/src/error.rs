@@ -72,6 +72,12 @@ pub enum CommanderError {
 
     /// Generic application errors
     Application { component: String, message: String },
+
+    /// Autohand CLI integration errors
+    Autohand {
+        operation: String,
+        message: String,
+    },
 }
 
 impl CommanderError {
@@ -211,6 +217,14 @@ impl CommanderError {
         }
     }
 
+    /// Create an Autohand error
+    pub fn autohand(operation: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Autohand {
+            operation: operation.into(),
+            message: message.into(),
+        }
+    }
+
     /// Get user-friendly error message
     pub fn user_message(&self) -> String {
         match self {
@@ -305,6 +319,9 @@ impl CommanderError {
             }
             CommanderError::Application { component, message } => {
                 format!("{}: {}", component, message)
+            }
+            CommanderError::Autohand { operation, message } => {
+                format!("Autohand {}: {}", operation, message)
             }
         }
     }

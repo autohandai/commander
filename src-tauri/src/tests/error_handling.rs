@@ -188,4 +188,16 @@ mod tests {
             _ => panic!("Deserialized error should be Project variant"),
         }
     }
+
+    #[test]
+    fn test_autohand_error_messages() {
+        let not_installed = CommanderError::autohand("not_installed", "Autohand CLI not found in PATH");
+        assert!(not_installed.user_message().contains("Autohand"));
+
+        let timeout = CommanderError::autohand("timeout", "No response within 30 seconds");
+        assert!(timeout.user_message().contains("Autohand"));
+
+        let protocol = CommanderError::autohand("protocol_error", "Invalid JSON-RPC response");
+        assert!(protocol.user_message().contains("Autohand"));
+    }
 }
