@@ -3,17 +3,20 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::CommanderError;
 use crate::models::autohand::{
-    AutohandConfig, AutohandState, JsonRpcId, JsonRpcRequest, JsonRpcResponse,
-    ProtocolMode,
+    AutohandConfig, AutohandMessagePayload, AutohandPermissionPayload, AutohandState,
+    AutohandStatePayload, AutohandStatus, AutohandToolEventPayload, AutohandHookEventPayload,
+    HookEvent, JsonRpcId, JsonRpcRequest, JsonRpcResponse, PermissionRequest, ProtocolMode,
+    ToolEvent, ToolPhase,
 };
 use crate::services::autohand::protocol::AutohandProtocol;
+use crate::services::autohand::types::rpc_notifications;
 
 // ---------------------------------------------------------------------------
 // RpcMessage enum -- distinguishes server responses from server notifications
@@ -158,6 +161,12 @@ pub struct AutohandRpcClient {
     child: Arc<Mutex<Option<Child>>>,
     /// Writer for the child process's stdin.
     stdin_writer: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    /// Stdout from the child process, taken after start() for the event reader.
+    stdout_handle: Arc<Mutex<Option<tokio::process::ChildStdout>>>,
+    /// Whether the child process is still alive (set to false when reader exits).
+    alive: Arc<std::sync::atomic::AtomicBool>,
+    /// Last known state from state_change notifications.
+    last_state: Arc<Mutex<AutohandState>>,
 }
 
 impl AutohandRpcClient {
@@ -166,7 +175,15 @@ impl AutohandRpcClient {
         Self {
             child: Arc::new(Mutex::new(None)),
             stdin_writer: Arc::new(Mutex::new(None)),
+            stdout_handle: Arc::new(Mutex::new(None)),
+            alive: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_state: Arc::new(Mutex::new(AutohandState::default())),
         }
+    }
+
+    /// Return the last known `AutohandState` captured from `agent/stateChange` notifications.
+    pub async fn current_state(&self) -> AutohandState {
+        self.last_state.lock().await.clone()
     }
 
     /// Write a serialized JSON-RPC line to the child process's stdin.
@@ -197,6 +214,355 @@ impl AutohandRpcClient {
         self.write_line(&line).await?;
         Ok(line)
     }
+
+    /// Spawn a background tokio task that reads stdout line-by-line, parses
+    /// each JSON-RPC notification, and emits the appropriate Tauri events.
+    ///
+    /// Must be called **after** `start()` -- it takes the stored stdout handle.
+    pub async fn start_with_event_dispatch(
+        &self,
+        app: tauri::AppHandle,
+        session_id: String,
+    ) -> Result<(), CommanderError> {
+        use tauri::Emitter;
+
+        let stdout = self
+            .stdout_handle
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| {
+                CommanderError::autohand(
+                    "start_with_event_dispatch",
+                    "stdout not available -- was start() called?",
+                )
+            })?;
+
+        let alive = Arc::clone(&self.alive);
+        let last_state = Arc::clone(&self.last_state);
+
+        tokio::spawn(async move {
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                match parse_rpc_line(&line) {
+                    Ok(RpcMessage::Notification(notif)) => {
+                        dispatch_rpc_notification(
+                            &app,
+                            &session_id,
+                            &notif,
+                            &last_state,
+                        )
+                        .await;
+                    }
+                    Ok(RpcMessage::Response(_resp)) => {
+                        // Responses to our requests (e.g. getState) -- we do
+                        // not currently correlate these; they could be used for
+                        // a response-future map in the future.
+                    }
+                    Err(_) => {
+                        // Unparsable line -- skip silently. Could be stderr
+                        // leaking into stdout or a partial write.
+                    }
+                }
+            }
+
+            // EOF or error -- process exited.
+            alive.store(false, std::sync::atomic::Ordering::SeqCst);
+
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = app.emit(
+                "autohand:message",
+                AutohandMessagePayload {
+                    session_id: session_id.clone(),
+                    role: "system".to_string(),
+                    content: String::new(),
+                    finished: true,
+                    timestamp: now,
+                },
+            );
+        });
+
+        Ok(())
+    }
+}
+
+/// Dispatch a single RPC notification to the frontend via Tauri events.
+async fn dispatch_rpc_notification(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    notif: &JsonRpcRequest,
+    last_state: &Arc<Mutex<AutohandState>>,
+) {
+    use tauri::Emitter;
+
+    let params = notif.params.clone().unwrap_or(Value::Null);
+    let now = chrono::Utc::now().to_rfc3339();
+
+    match notif.method.as_str() {
+        // ---- message streaming ----
+        rpc_notifications::MESSAGE_UPDATE => {
+            let content = params
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let _ = app.emit(
+                "autohand:message",
+                AutohandMessagePayload {
+                    session_id: session_id.to_string(),
+                    role: "assistant".to_string(),
+                    content,
+                    finished: false,
+                    timestamp: now,
+                },
+            );
+        }
+
+        rpc_notifications::TURN_END => {
+            let _ = app.emit(
+                "autohand:message",
+                AutohandMessagePayload {
+                    session_id: session_id.to_string(),
+                    role: "assistant".to_string(),
+                    content: String::new(),
+                    finished: true,
+                    timestamp: now,
+                },
+            );
+        }
+
+        // ---- tool lifecycle ----
+        rpc_notifications::TOOL_START => {
+            let tool_name = params
+                .get("toolName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let tool_id = params
+                .get("toolId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let args = params.get("args").cloned();
+            let _ = app.emit(
+                "autohand:tool-event",
+                AutohandToolEventPayload {
+                    session_id: session_id.to_string(),
+                    event: ToolEvent {
+                        tool_id,
+                        tool_name,
+                        phase: ToolPhase::Start,
+                        args,
+                        output: None,
+                        success: None,
+                        duration_ms: None,
+                    },
+                },
+            );
+        }
+
+        rpc_notifications::TOOL_UPDATE => {
+            let tool_name = params
+                .get("toolName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let tool_id = params
+                .get("toolId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let output = params
+                .get("output")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let _ = app.emit(
+                "autohand:tool-event",
+                AutohandToolEventPayload {
+                    session_id: session_id.to_string(),
+                    event: ToolEvent {
+                        tool_id,
+                        tool_name,
+                        phase: ToolPhase::Update,
+                        args: None,
+                        output,
+                        success: None,
+                        duration_ms: None,
+                    },
+                },
+            );
+        }
+
+        rpc_notifications::TOOL_END => {
+            let tool_name = params
+                .get("toolName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let tool_id = params
+                .get("toolId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let output = params
+                .get("output")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let success = params.get("success").and_then(|v| v.as_bool());
+            let duration_ms = params.get("duration_ms").and_then(|v| v.as_u64());
+            let _ = app.emit(
+                "autohand:tool-event",
+                AutohandToolEventPayload {
+                    session_id: session_id.to_string(),
+                    event: ToolEvent {
+                        tool_id,
+                        tool_name,
+                        phase: ToolPhase::End,
+                        args: None,
+                        output,
+                        success,
+                        duration_ms,
+                    },
+                },
+            );
+        }
+
+        // ---- permission requests ----
+        rpc_notifications::PERMISSION_REQUEST => {
+            let request_id = params
+                .get("requestId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let tool_name = params
+                .get("toolName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let description = params
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let file_path = params
+                .get("filePath")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let is_destructive = params
+                .get("isDestructive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let _ = app.emit(
+                "autohand:permission-request",
+                AutohandPermissionPayload {
+                    session_id: session_id.to_string(),
+                    request: PermissionRequest {
+                        request_id,
+                        tool_name,
+                        description,
+                        file_path,
+                        is_destructive,
+                    },
+                },
+            );
+        }
+
+        // ---- hook events ----
+        rpc_notifications::HOOK_PRE_TOOL
+        | rpc_notifications::HOOK_POST_TOOL
+        | rpc_notifications::HOOK_FILE_MODIFIED
+        | rpc_notifications::HOOK_PRE_PROMPT
+        | rpc_notifications::HOOK_POST_RESPONSE => {
+            let hook_id = params
+                .get("hookId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let output = params
+                .get("output")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let success = params
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
+            // Map the notification method to a HookEvent variant.
+            let event = match notif.method.as_str() {
+                rpc_notifications::HOOK_PRE_TOOL => HookEvent::PreTool,
+                rpc_notifications::HOOK_POST_TOOL => HookEvent::PostTool,
+                rpc_notifications::HOOK_FILE_MODIFIED => HookEvent::FileModified,
+                rpc_notifications::HOOK_PRE_PROMPT => HookEvent::PrePrompt,
+                rpc_notifications::HOOK_POST_RESPONSE => HookEvent::PostResponse,
+                _ => HookEvent::Notification,
+            };
+
+            let _ = app.emit(
+                "autohand:hook-event",
+                AutohandHookEventPayload {
+                    session_id: session_id.to_string(),
+                    hook_id,
+                    event,
+                    output,
+                    success,
+                },
+            );
+        }
+
+        // ---- state change ----
+        rpc_notifications::STATE_CHANGE => {
+            let status_str = params
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("idle");
+            let status = match status_str {
+                "processing" => AutohandStatus::Processing,
+                "waitingPermission" | "waiting_permission" => AutohandStatus::WaitingPermission,
+                _ => AutohandStatus::Idle,
+            };
+            let context_percent = params
+                .get("contextPercent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32;
+
+            let new_state = AutohandState {
+                status,
+                session_id: Some(session_id.to_string()),
+                model: params
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                context_percent,
+                message_count: params
+                    .get("messageCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+            };
+
+            // Cache it for get_state queries.
+            *last_state.lock().await = new_state.clone();
+
+            let _ = app.emit(
+                "autohand:state-change",
+                AutohandStatePayload { state: new_state },
+            );
+        }
+
+        // ---- agent lifecycle (no specific UI event, but could log) ----
+        rpc_notifications::AGENT_START | rpc_notifications::AGENT_END | rpc_notifications::TURN_START => {
+            // These are informational; no dedicated Tauri event needed.
+        }
+
+        _ => {
+            // Unknown notification method -- ignore.
+        }
+    }
 }
 
 #[async_trait]
@@ -222,8 +588,15 @@ impl AutohandProtocol for AutohandRpcClient {
             CommanderError::autohand("start", "failed to capture stdin")
         })?;
 
+        let stdout = child.stdout.take().ok_or_else(|| {
+            CommanderError::autohand("start", "failed to capture stdout")
+        })?;
+
         *self.stdin_writer.lock().await = Some(stdin);
+        *self.stdout_handle.lock().await = Some(stdout);
         *self.child.lock().await = Some(child);
+        self.alive
+            .store(true, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
     }
@@ -249,11 +622,9 @@ impl AutohandProtocol for AutohandRpcClient {
     }
 
     async fn get_state(&self) -> Result<AutohandState, CommanderError> {
-        self.send_request("getState", None).await?;
-        // In a full implementation we would read back the response from stdout.
-        // For now return a default state; the read-loop will be wired in a
-        // later task (event dispatcher).
-        Ok(AutohandState::default())
+        // Return the last known state captured from agent/stateChange notifications.
+        // This is updated in real-time by the event dispatch reader task.
+        Ok(self.last_state.lock().await.clone())
     }
 
     async fn respond_permission(
@@ -271,21 +642,17 @@ impl AutohandProtocol for AutohandRpcClient {
         // Send a graceful shutdown request, then kill if needed.
         let mut guard = self.child.lock().await;
         if let Some(ref mut child) = *guard {
-            // Try to kill the process
             let _ = child.kill().await;
         }
         *guard = None;
         *self.stdin_writer.lock().await = None;
+        *self.stdout_handle.lock().await = None;
+        self.alive
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     fn is_alive(&self) -> bool {
-        // We cannot do async in a sync fn, so we use try_lock.
-        if let Ok(guard) = self.child.try_lock() {
-            guard.is_some()
-        } else {
-            // Lock is held (process is being used) -- assume alive.
-            true
-        }
+        self.alive.load(std::sync::atomic::Ordering::SeqCst)
     }
 }

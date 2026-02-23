@@ -206,6 +206,7 @@ pub struct AutohandMessagePayload {
     pub session_id: String,
     pub role: String,
     pub content: String,
+    pub finished: bool,
     pub timestamp: String,
 }
 

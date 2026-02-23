@@ -242,7 +242,10 @@ pub fn run() {
             save_autohand_hook,
             delete_autohand_hook,
             toggle_autohand_hook,
-            respond_autohand_permission
+            respond_autohand_permission,
+            execute_autohand_command,
+            terminate_autohand_session,
+            get_autohand_state
         ])
         .setup(|app| {
             // Handle command line arguments for opening projects

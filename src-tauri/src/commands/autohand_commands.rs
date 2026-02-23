@@ -1,7 +1,39 @@
+use std::collections::HashMap;
 use std::path::Path;
+
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex;
 
 use crate::models::autohand::*;
 use crate::services::autohand::hooks_service;
+use crate::services::autohand::protocol::AutohandProtocol;
+use crate::services::autohand::{AutohandAcpClient, AutohandRpcClient};
+
+// ---------------------------------------------------------------------------
+// Session management
+// ---------------------------------------------------------------------------
+
+/// Wrapper enum so we can store either client type in one map.
+enum AutohandClient {
+    Rpc(AutohandRpcClient),
+    Acp(AutohandAcpClient),
+}
+
+/// An active autohand session tracked by the backend.
+struct AutohandSessionHandle {
+    client: AutohandClient,
+    #[allow(dead_code)] // Will be used by session listing in future tasks
+    working_dir: String,
+    #[allow(dead_code)] // Will be used by session cleanup/TTL in future tasks
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Global map of active autohand sessions keyed by session_id.
+///
+/// Uses `tokio::sync::Mutex` because some operations (respond_permission,
+/// get_state) need to hold the lock across `.await` boundaries.
+static AUTOHAND_SESSIONS: Lazy<Mutex<HashMap<String, AutohandSessionHandle>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Load autohand configuration from the workspace `.autohand/config.json`.
 ///
@@ -180,14 +212,140 @@ pub async fn toggle_autohand_hook(
 
 /// Respond to a permission request from the autohand CLI.
 ///
-/// This is a placeholder that will be wired to the active RPC/ACP session
-/// once the backend event dispatcher (Task 15) is implemented.
+/// Forwards the approval/rejection to the active RPC or ACP session.
 #[tauri::command]
 pub async fn respond_autohand_permission(
-    _session_id: String,
-    _request_id: String,
-    _approved: bool,
+    session_id: String,
+    request_id: String,
+    approved: bool,
 ) -> Result<(), String> {
-    // TODO: forward to the active RPC/ACP session once the event dispatcher exists.
-    Ok(())
+    let sessions = AUTOHAND_SESSIONS.lock().await;
+
+    let handle = sessions
+        .get(&session_id)
+        .ok_or_else(|| format!("No active session with id '{}'", session_id))?;
+
+    match &handle.client {
+        AutohandClient::Rpc(client) => {
+            client
+                .respond_permission(&request_id, approved)
+                .await
+                .map_err(|e| e.to_string())
+        }
+        AutohandClient::Acp(client) => {
+            client
+                .respond_permission(&request_id, approved)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session lifecycle commands
+// ---------------------------------------------------------------------------
+
+/// Spawn an autohand CLI process, start the event dispatcher, send the initial
+/// prompt, and return the session id.
+#[tauri::command]
+pub async fn execute_autohand_command(
+    app: tauri::AppHandle,
+    session_id: String,
+    message: String,
+    working_dir: String,
+) -> Result<String, String> {
+    let config = load_autohand_config_internal(&working_dir)?;
+
+    match config.protocol {
+        ProtocolMode::Rpc => {
+            let mut client = AutohandRpcClient::new();
+            client
+                .start(&working_dir, &config)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            client
+                .start_with_event_dispatch(app.clone(), session_id.clone())
+                .await
+                .map_err(|e| e.to_string())?;
+
+            client
+                .send_prompt(&message, None)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let handle = AutohandSessionHandle {
+                client: AutohandClient::Rpc(client),
+                working_dir: working_dir.clone(),
+                created_at: chrono::Utc::now(),
+            };
+
+            AUTOHAND_SESSIONS
+                .lock()
+                .await
+                .insert(session_id.clone(), handle);
+        }
+        ProtocolMode::Acp => {
+            let mut client = AutohandAcpClient::new();
+            client
+                .start(&working_dir, &config)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            client
+                .start_with_event_dispatch(app.clone(), session_id.clone())
+                .await
+                .map_err(|e| e.to_string())?;
+
+            client
+                .send_prompt(&message, None)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let handle = AutohandSessionHandle {
+                client: AutohandClient::Acp(client),
+                working_dir: working_dir.clone(),
+                created_at: chrono::Utc::now(),
+            };
+
+            AUTOHAND_SESSIONS
+                .lock()
+                .await
+                .insert(session_id.clone(), handle);
+        }
+    }
+
+    Ok(session_id)
+}
+
+/// Shut down an active autohand session and remove it from the session map.
+#[tauri::command]
+pub async fn terminate_autohand_session(session_id: String) -> Result<(), String> {
+    let handle = AUTOHAND_SESSIONS
+        .lock()
+        .await
+        .remove(&session_id);
+
+    match handle {
+        Some(h) => match h.client {
+            AutohandClient::Rpc(client) => client.shutdown().await.map_err(|e| e.to_string()),
+            AutohandClient::Acp(client) => client.shutdown().await.map_err(|e| e.to_string()),
+        },
+        None => Err(format!("No active session with id '{}'", session_id)),
+    }
+}
+
+/// Query the current state of an active autohand session.
+#[tauri::command]
+pub async fn get_autohand_state(session_id: String) -> Result<AutohandState, String> {
+    let sessions = AUTOHAND_SESSIONS.lock().await;
+
+    let handle = sessions
+        .get(&session_id)
+        .ok_or_else(|| format!("No active session with id '{}'", session_id))?;
+
+    match &handle.client {
+        AutohandClient::Rpc(client) => client.get_state().await.map_err(|e| e.to_string()),
+        AutohandClient::Acp(client) => client.get_state().await.map_err(|e| e.to_string()),
+    }
 }

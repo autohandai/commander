@@ -3,12 +3,16 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use crate::error::CommanderError;
-use crate::models::autohand::{AutohandConfig, AutohandState, AutohandStatus};
+use crate::models::autohand::{
+    AutohandConfig, AutohandMessagePayload, AutohandPermissionPayload,
+    AutohandState, AutohandStatePayload, AutohandStatus, AutohandToolEventPayload,
+    PermissionRequest, ToolEvent, ToolPhase,
+};
 use crate::services::autohand::protocol::AutohandProtocol;
 
 // ---------------------------------------------------------------------------
@@ -299,6 +303,12 @@ pub struct AutohandAcpClient {
     child: Arc<Mutex<Option<Child>>>,
     /// Writer for the child process's stdin.
     stdin_writer: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    /// Stdout from the child process, taken after start() for the event reader.
+    stdout_handle: Arc<Mutex<Option<tokio::process::ChildStdout>>>,
+    /// Whether the child process is still alive.
+    alive: Arc<std::sync::atomic::AtomicBool>,
+    /// Last known state from state_change messages.
+    last_state: Arc<Mutex<AutohandState>>,
 }
 
 impl AutohandAcpClient {
@@ -307,7 +317,15 @@ impl AutohandAcpClient {
         Self {
             child: Arc::new(Mutex::new(None)),
             stdin_writer: Arc::new(Mutex::new(None)),
+            stdout_handle: Arc::new(Mutex::new(None)),
+            alive: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_state: Arc::new(Mutex::new(AutohandState::default())),
         }
+    }
+
+    /// Return the last known `AutohandState` captured from `state_change` messages.
+    pub async fn current_state(&self) -> AutohandState {
+        self.last_state.lock().await.clone()
     }
 
     /// Write a serialized ndJSON line to the child process's stdin.
@@ -329,6 +347,205 @@ impl AutohandAcpClient {
                 CommanderError::autohand("write_line", format!("flush failed: {}", e))
             })?;
         Ok(())
+    }
+
+    /// Spawn a background tokio task that reads ACP ndJSON stdout line-by-line,
+    /// classifies each message, and emits the appropriate Tauri events.
+    ///
+    /// Must be called **after** `start()`.
+    pub async fn start_with_event_dispatch(
+        &self,
+        app: tauri::AppHandle,
+        session_id: String,
+    ) -> Result<(), CommanderError> {
+        use tauri::Emitter;
+
+        let stdout = self
+            .stdout_handle
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| {
+                CommanderError::autohand(
+                    "start_with_event_dispatch",
+                    "stdout not available -- was start() called?",
+                )
+            })?;
+
+        let alive = Arc::clone(&self.alive);
+        let last_state = Arc::clone(&self.last_state);
+
+        tokio::spawn(async move {
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+
+                match classify_acp_message(&line) {
+                    Ok(msg) => {
+                        dispatch_acp_message(&app, &session_id, msg, &last_state).await;
+                    }
+                    Err(_) => {
+                        // Unparsable line -- skip silently.
+                    }
+                }
+            }
+
+            // EOF or error -- process exited.
+            alive.store(false, std::sync::atomic::Ordering::SeqCst);
+
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = app.emit(
+                "autohand:message",
+                AutohandMessagePayload {
+                    session_id: session_id.clone(),
+                    role: "system".to_string(),
+                    content: String::new(),
+                    finished: true,
+                    timestamp: now,
+                },
+            );
+        });
+
+        Ok(())
+    }
+}
+
+/// Dispatch a classified ACP message to the frontend via Tauri events.
+async fn dispatch_acp_message(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    msg: AcpMessage,
+    last_state: &Arc<Mutex<AutohandState>>,
+) {
+    use tauri::Emitter;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    match msg {
+        AcpMessage::Message { role, content } => {
+            let _ = app.emit(
+                "autohand:message",
+                AutohandMessagePayload {
+                    session_id: session_id.to_string(),
+                    role,
+                    content,
+                    finished: false,
+                    timestamp: now,
+                },
+            );
+        }
+
+        AcpMessage::ToolStart { name, args } => {
+            let _ = app.emit(
+                "autohand:tool-event",
+                AutohandToolEventPayload {
+                    session_id: session_id.to_string(),
+                    event: ToolEvent {
+                        tool_id: String::new(),
+                        tool_name: name,
+                        phase: ToolPhase::Start,
+                        args,
+                        output: None,
+                        success: None,
+                        duration_ms: None,
+                    },
+                },
+            );
+        }
+
+        AcpMessage::ToolUpdate { name, output } => {
+            let _ = app.emit(
+                "autohand:tool-event",
+                AutohandToolEventPayload {
+                    session_id: session_id.to_string(),
+                    event: ToolEvent {
+                        tool_id: String::new(),
+                        tool_name: name,
+                        phase: ToolPhase::Update,
+                        args: None,
+                        output,
+                        success: None,
+                        duration_ms: None,
+                    },
+                },
+            );
+        }
+
+        AcpMessage::ToolEnd {
+            name,
+            output,
+            success,
+            duration_ms,
+        } => {
+            let _ = app.emit(
+                "autohand:tool-event",
+                AutohandToolEventPayload {
+                    session_id: session_id.to_string(),
+                    event: ToolEvent {
+                        tool_id: String::new(),
+                        tool_name: name,
+                        phase: ToolPhase::End,
+                        args: None,
+                        output,
+                        success: Some(success),
+                        duration_ms,
+                    },
+                },
+            );
+        }
+
+        AcpMessage::PermissionRequest {
+            request_id,
+            tool_name,
+            description,
+        } => {
+            let _ = app.emit(
+                "autohand:permission-request",
+                AutohandPermissionPayload {
+                    session_id: session_id.to_string(),
+                    request: PermissionRequest {
+                        request_id,
+                        tool_name,
+                        description,
+                        file_path: None,
+                        is_destructive: false,
+                    },
+                },
+            );
+        }
+
+        AcpMessage::StateChange {
+            status,
+            context_percent,
+        } => {
+            let parsed_status = match status.as_str() {
+                "processing" => AutohandStatus::Processing,
+                "waiting_permission" | "waitingPermission" => AutohandStatus::WaitingPermission,
+                _ => AutohandStatus::Idle,
+            };
+
+            let new_state = AutohandState {
+                status: parsed_status,
+                session_id: Some(session_id.to_string()),
+                model: None,
+                context_percent: context_percent.unwrap_or(0.0) as f32,
+                message_count: 0,
+            };
+
+            *last_state.lock().await = new_state.clone();
+
+            let _ = app.emit(
+                "autohand:state-change",
+                AutohandStatePayload { state: new_state },
+            );
+        }
+
+        AcpMessage::Unknown(_) => {
+            // Unknown message type -- ignore.
+        }
     }
 }
 
@@ -358,8 +575,15 @@ impl AutohandProtocol for AutohandAcpClient {
             CommanderError::autohand("start", "failed to capture stdin for ACP process")
         })?;
 
+        let stdout = child.stdout.take().ok_or_else(|| {
+            CommanderError::autohand("start", "failed to capture stdout for ACP process")
+        })?;
+
         *self.stdin_writer.lock().await = Some(stdin);
+        *self.stdout_handle.lock().await = Some(stdout);
         *self.child.lock().await = Some(child);
+        self.alive
+            .store(true, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
     }
@@ -384,16 +608,8 @@ impl AutohandProtocol for AutohandAcpClient {
     }
 
     async fn get_state(&self) -> Result<AutohandState, CommanderError> {
-        // In ACP mode, state is pushed via ndJSON state_change events rather
-        // than pull-based. Return a default state; the event dispatcher will
-        // maintain the real state from incoming state_change messages.
-        Ok(AutohandState {
-            status: AutohandStatus::Idle,
-            session_id: None,
-            model: None,
-            context_percent: 0.0,
-            message_count: 0,
-        })
+        // Return the last known state captured from state_change ndJSON messages.
+        Ok(self.last_state.lock().await.clone())
     }
 
     async fn respond_permission(
@@ -417,15 +633,13 @@ impl AutohandProtocol for AutohandAcpClient {
         }
         *guard = None;
         *self.stdin_writer.lock().await = None;
+        *self.stdout_handle.lock().await = None;
+        self.alive
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     fn is_alive(&self) -> bool {
-        if let Ok(guard) = self.child.try_lock() {
-            guard.is_some()
-        } else {
-            // Lock is held (process is being used) -- assume alive.
-            true
-        }
+        self.alive.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
