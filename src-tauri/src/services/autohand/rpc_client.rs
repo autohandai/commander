@@ -17,7 +17,7 @@ use crate::models::autohand::{
     ToolEvent, ToolPhase,
 };
 use crate::services::autohand::protocol::AutohandProtocol;
-use crate::services::autohand::types::rpc_notifications;
+use crate::services::autohand::types::{rpc_methods, rpc_notifications};
 
 // ---------------------------------------------------------------------------
 // RpcMessage enum -- distinguishes server responses from server notifications
@@ -315,9 +315,15 @@ async fn dispatch_rpc_notification(
 
     match notif.method.as_str() {
         // ---- message streaming ----
+        rpc_notifications::MESSAGE_START => {
+            // Message started -- no content yet, just acknowledge.
+        }
+
         rpc_notifications::MESSAGE_UPDATE => {
+            // The CLI sends streaming text in "delta", not "content"
             let content = params
-                .get("content")
+                .get("delta")
+                .or_else(|| params.get("content"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -343,7 +349,7 @@ async fn dispatch_rpc_notification(
             );
         }
 
-        rpc_notifications::TURN_END => {
+        rpc_notifications::MESSAGE_END | rpc_notifications::TURN_END => {
             let _ = app.emit(
                 "autohand:message",
                 AutohandMessagePayload {
@@ -359,6 +365,23 @@ async fn dispatch_rpc_notification(
                 StreamChunk {
                     session_id: session_id.to_string(),
                     content: String::new(),
+                    finished: true,
+                },
+            );
+        }
+
+        // ---- errors ----
+        rpc_notifications::ERROR => {
+            let message = params
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error")
+                .to_string();
+            let _ = app.emit(
+                "cli-stream",
+                StreamChunk {
+                    session_id: session_id.to_string(),
+                    content: format!("Error: {}", message),
                     finished: true,
                 },
             );
@@ -590,7 +613,8 @@ async fn dispatch_rpc_notification(
         }
 
         _ => {
-            // Unknown notification method -- ignore.
+            // Other notifications: changesBatchStart/End, hook.stop, etc.
+            // Silently ignored -- can be wired up as needed.
         }
     }
 }
@@ -637,22 +661,22 @@ impl AutohandProtocol for AutohandRpcClient {
         images: Option<Vec<String>>,
     ) -> Result<(), CommanderError> {
         let params = build_prompt_params(message, images);
-        self.send_request("prompt", Some(params)).await?;
+        self.send_request(rpc_methods::PROMPT, Some(params)).await?;
         Ok(())
     }
 
     async fn abort(&self) -> Result<(), CommanderError> {
-        self.send_request("abort", None).await?;
+        self.send_request(rpc_methods::ABORT, None).await?;
         Ok(())
     }
 
     async fn reset(&self) -> Result<(), CommanderError> {
-        self.send_request("reset", None).await?;
+        self.send_request(rpc_methods::RESET, None).await?;
         Ok(())
     }
 
     async fn get_state(&self) -> Result<AutohandState, CommanderError> {
-        // Return the last known state captured from agent/stateChange notifications.
+        // Return the last known state captured from stateChange notifications.
         // This is updated in real-time by the event dispatch reader task.
         Ok(self.last_state.lock().await.clone())
     }
@@ -663,14 +687,14 @@ impl AutohandProtocol for AutohandRpcClient {
         approved: bool,
     ) -> Result<(), CommanderError> {
         let params = build_permission_response_params(request_id, approved);
-        self.send_request("permissionResponse", Some(params))
+        self.send_request(rpc_methods::PERMISSION_RESPONSE, Some(params))
             .await?;
         Ok(())
     }
 
     async fn shutdown(&self) -> Result<(), CommanderError> {
         // Send a graceful shutdown RPC request before killing.
-        let _ = self.send_request("shutdown", None).await;
+        let _ = self.send_request(rpc_methods::SHUTDOWN, None).await;
 
         // Give the process a moment to exit gracefully.
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;

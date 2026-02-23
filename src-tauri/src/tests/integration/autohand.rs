@@ -12,23 +12,23 @@ mod tests {
 
     #[test]
     fn test_rpc_full_prompt_flow() {
-        // Build a prompt request
-        let req = build_rpc_request("prompt", Some(build_prompt_params("Fix the bug", None)));
+        // Build a prompt request using the correct autohand-prefixed method
+        let req = build_rpc_request("autohand.prompt", Some(build_prompt_params("Fix the bug", None)));
         let line = serialize_rpc_to_line(&req);
 
-        // Verify it's valid JSON
+        // Verify it's valid JSON with correct method name
         let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(parsed["jsonrpc"], "2.0");
-        assert_eq!(parsed["method"], "prompt");
+        assert_eq!(parsed["method"], "autohand.prompt");
         assert_eq!(parsed["params"]["message"], "Fix the bug");
 
         // Simulate a messageUpdate notification response
-        let response_line = r#"{"jsonrpc":"2.0","method":"agent/messageUpdate","params":{"content":"I'll fix that bug."}}"#;
+        let response_line = r#"{"jsonrpc":"2.0","method":"autohand.messageUpdate","params":{"content":"I'll fix that bug."}}"#;
         let parsed = parse_rpc_line(response_line).unwrap();
 
         match parsed {
             RpcMessage::Notification(notif) => {
-                assert_eq!(notif.method, "agent/messageUpdate");
+                assert_eq!(notif.method, "autohand.messageUpdate");
                 let params = notif.params.unwrap();
                 let content = params["content"].as_str().unwrap();
                 assert_eq!(content, "I'll fix that bug.");
@@ -40,12 +40,12 @@ mod tests {
     #[test]
     fn test_rpc_permission_flow() {
         // Simulate permission request notification from autohand
-        let perm_line = r#"{"jsonrpc":"2.0","method":"agent/permissionRequest","params":{"requestId":"req-1","toolName":"write_file","description":"Write to src/app.ts","filePath":"src/app.ts","isDestructive":false}}"#;
+        let perm_line = r#"{"jsonrpc":"2.0","method":"autohand.permissionRequest","params":{"requestId":"req-1","toolName":"write_file","description":"Write to src/app.ts","filePath":"src/app.ts","isDestructive":false}}"#;
         let parsed = parse_rpc_line(perm_line).unwrap();
 
         match parsed {
             RpcMessage::Notification(notif) => {
-                assert_eq!(notif.method, "agent/permissionRequest");
+                assert_eq!(notif.method, "autohand.permissionRequest");
                 let params = notif.params.unwrap();
                 assert_eq!(params["toolName"], "write_file");
                 assert_eq!(params["requestId"], "req-1");
@@ -56,11 +56,11 @@ mod tests {
 
         // Build permission response (approval)
         let resp_req = build_rpc_request(
-            "permissionResponse",
+            "autohand.permissionResponse",
             Some(build_permission_response_params("req-1", true)),
         );
         let line = serialize_rpc_to_line(&resp_req);
-        assert!(line.contains("permissionResponse"));
+        assert!(line.contains("autohand.permissionResponse"));
         assert!(line.contains("\"approved\":true"));
         assert!(line.contains("\"requestId\":\"req-1\""));
     }
@@ -68,19 +68,19 @@ mod tests {
     #[test]
     fn test_rpc_tool_lifecycle_flow() {
         // Simulate tool start
-        let start_line = r#"{"jsonrpc":"2.0","method":"agent/toolStart","params":{"toolId":"t-1","toolName":"read_file","args":{"path":"src/main.rs"},"timestamp":"2026-02-23T00:00:00Z"}}"#;
+        let start_line = r#"{"jsonrpc":"2.0","method":"autohand.toolStart","params":{"toolId":"t-1","toolName":"read_file","args":{"path":"src/main.rs"},"timestamp":"2026-02-23T00:00:00Z"}}"#;
         let parsed = parse_rpc_line(start_line).unwrap();
         match &parsed {
-            RpcMessage::Notification(n) => assert_eq!(n.method, "agent/toolStart"),
+            RpcMessage::Notification(n) => assert_eq!(n.method, "autohand.toolStart"),
             _ => panic!("Expected notification"),
         }
 
         // Simulate tool end
-        let end_line = r#"{"jsonrpc":"2.0","method":"agent/toolEnd","params":{"toolId":"t-1","toolName":"read_file","success":true,"duration":1200,"output":"file contents...","timestamp":"2026-02-23T00:00:01Z"}}"#;
+        let end_line = r#"{"jsonrpc":"2.0","method":"autohand.toolEnd","params":{"toolId":"t-1","toolName":"read_file","success":true,"duration":1200,"output":"file contents...","timestamp":"2026-02-23T00:00:01Z"}}"#;
         let parsed = parse_rpc_line(end_line).unwrap();
         match &parsed {
             RpcMessage::Notification(n) => {
-                assert_eq!(n.method, "agent/toolEnd");
+                assert_eq!(n.method, "autohand.toolEnd");
                 let params = n.params.as_ref().unwrap();
                 assert_eq!(params["success"], true);
             }
@@ -90,10 +90,10 @@ mod tests {
 
     #[test]
     fn test_rpc_abort_request() {
-        let req = build_rpc_request("abort", None);
+        let req = build_rpc_request("autohand.abort", None);
         let line = serialize_rpc_to_line(&req);
         let parsed: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-        assert_eq!(parsed["method"], "abort");
+        assert_eq!(parsed["method"], "autohand.abort");
         assert!(parsed["id"].is_string());
     }
 
