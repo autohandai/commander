@@ -10,7 +10,6 @@ interface Params {
   setExecutingSessions: React.Dispatch<React.SetStateAction<Set<string>>>
   loadSessionStatus: () => void | Promise<void>
   invoke?: (cmd: string, args?: any) => Promise<any>
-  invoke?: (cmd: string, args?: any) => Promise<any>
 }
 
 export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingSessions, loadSessionStatus, invoke = tauriInvoke }: Params) {

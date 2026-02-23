@@ -237,5 +237,6 @@ pub struct AutohandHookEventPayload {
 /// Payload for autohand session state changes forwarded to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutohandStatePayload {
+    pub session_id: String,
     pub state: AutohandState,
 }

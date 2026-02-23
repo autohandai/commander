@@ -27,7 +27,7 @@ export function ToolEventBadge({ event }: ToolEventBadgeProps) {
     >
       <span>{icon}</span>
       <span className="font-medium">{event.tool_name}</span>
-      {event.args?.path && (
+      {event.args?.path != null && (
         <span className="text-muted-foreground truncate max-w-[200px]">
           {String(event.args.path)}
         </span>

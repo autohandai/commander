@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
@@ -40,8 +40,8 @@ export interface AutohandHookEventPayload {
   session_id: string
   hook_id: string
   event: string
+  output?: string
   success: boolean
-  duration_ms?: number
 }
 
 export interface AutohandStatePayload {
@@ -49,7 +49,7 @@ export interface AutohandStatePayload {
   state: {
     status: 'idle' | 'processing' | 'waitingpermission'
     session_id?: string
-    model: string
+    model?: string
     context_percent: number
     message_count: number
   }
@@ -73,7 +73,19 @@ export function useAutohandSession({
   const [sessionId, setSessionId] = useState<string | null>(null)
   const listenersRef = useRef<UnlistenFn[]>([])
 
+  // Clean up listeners on unmount
+  useEffect(() => {
+    return () => {
+      listenersRef.current.forEach((unlisten) => unlisten())
+      listenersRef.current = []
+    }
+  }, [])
+
   const setupListeners = useCallback(async (sid: string) => {
+    // Clean up existing listeners before setting up new ones
+    listenersRef.current.forEach((unlisten) => unlisten())
+    listenersRef.current = []
+
     const unlisteners: UnlistenFn[] = []
 
     if (onMessage) {

@@ -550,7 +550,10 @@ async fn dispatch_rpc_notification(
 
             let _ = app.emit(
                 "autohand:state-change",
-                AutohandStatePayload { state: new_state },
+                AutohandStatePayload {
+                    session_id: session_id.to_string(),
+                    state: new_state,
+                },
             );
         }
 
@@ -639,7 +642,12 @@ impl AutohandProtocol for AutohandRpcClient {
     }
 
     async fn shutdown(&self) -> Result<(), CommanderError> {
-        // Send a graceful shutdown request, then kill if needed.
+        // Send a graceful shutdown RPC request before killing.
+        let _ = self.send_request("shutdown", None).await;
+
+        // Give the process a moment to exit gracefully.
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
         let mut guard = self.child.lock().await;
         if let Some(ref mut child) = *guard {
             let _ = child.kill().await;

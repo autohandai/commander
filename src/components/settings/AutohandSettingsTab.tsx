@@ -28,9 +28,14 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
   const updateConfig = async (updates: Partial<AutohandConfig>) => {
     if (!config || !workingDir) return
+    const previous = config
     const updated = { ...config, ...updates }
     setConfig(updated)
-    await invoke('save_autohand_config', { workingDir, config: updated })
+    try {
+      await invoke('save_autohand_config', { workingDir, config: updated })
+    } catch {
+      setConfig(previous)
+    }
   }
 
   if (!config) {

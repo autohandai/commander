@@ -539,7 +539,10 @@ async fn dispatch_acp_message(
 
             let _ = app.emit(
                 "autohand:state-change",
-                AutohandStatePayload { state: new_state },
+                AutohandStatePayload {
+                    session_id: session_id.to_string(),
+                    state: new_state,
+                },
             );
         }
 
