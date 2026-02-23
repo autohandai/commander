@@ -20,6 +20,8 @@ import { NewProjectModal } from "@/components/NewProjectModal"
 import { AboutDialog } from "@/components/AboutDialog"
 import { ToastProvider, useToast } from "@/components/ToastProvider"
 import { SettingsProvider } from "@/contexts/settings-context"
+import { AuthProvider, useAuth } from "@/contexts/auth-context"
+import { LoginScreen } from "@/components/LoginScreen"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
 import { ChatInterface } from "@/components/ChatInterface"
 import { CodeView } from "@/components/CodeView"
@@ -660,12 +662,24 @@ function AppContent() {
   )
 }
 
+function AuthGate() {
+  const { status } = useAuth()
+
+  if (status !== 'authenticated') {
+    return <LoginScreen />
+  }
+
+  return <AppContent />
+}
+
 function App() {
   return (
     <ToastProvider>
-      <SettingsProvider>
-        <AppContent />
-      </SettingsProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <AuthGate />
+        </SettingsProvider>
+      </AuthProvider>
     </ToastProvider>
   )
 }
