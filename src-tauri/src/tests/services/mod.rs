@@ -1,5 +1,6 @@
 // Service-specific tests
 pub mod agent_status_service;
+pub mod auth_service;
 pub mod app_settings;
 pub mod autohand_acp;
 pub mod autohand_rpc;

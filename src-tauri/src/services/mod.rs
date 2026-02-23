@@ -1,4 +1,5 @@
 pub mod agent_status_service;
+pub mod auth_service;
 pub mod chat_history_service;
 pub mod cli_command_builder;
 pub mod cli_output_service;
