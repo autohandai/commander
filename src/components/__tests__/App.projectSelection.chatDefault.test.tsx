@@ -17,6 +17,21 @@ const tauriCore = vi.hoisted(() => ({
 
 vi.mock('@tauri-apps/api/core', () => tauriCore)
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }))
+vi.mock('@/services/auth-service', () => ({
+  initiateDeviceAuth: vi.fn(),
+  pollForAuth: vi.fn(),
+  validateToken: vi.fn().mockResolvedValue({
+    id: '1', email: 'test@test.com', name: 'Test User', avatar_url: null,
+  }),
+  logoutFromApi: vi.fn(),
+  AUTH_CONFIG: {
+    apiBaseUrl: 'https://autohand.ai/api/auth',
+    verificationBaseUrl: 'https://autohand.ai/cli-auth',
+    pollInterval: 2000,
+    authTimeout: 300000,
+    sessionExpiryDays: 30,
+  },
+}))
 vi.mock('@/components/ChatInterface', () => ({ ChatInterface: () => <div data-testid="chat-interface" /> }))
 vi.mock('@/components/CodeView', () => ({ CodeView: () => <div data-testid="code-view" /> }))
 vi.mock('@/components/HistoryView', () => ({ HistoryView: () => <div data-testid="history-view" /> }))
@@ -115,6 +130,10 @@ if (typeof document !== 'undefined') describe('App project selection default tab
         case 'add_project_to_recent':
         case 'save_app_settings':
           return null
+        case 'get_auth_token':
+          return 'valid-token'
+        case 'get_auth_user':
+          return { id: '1', email: 'test@test.com', name: 'Test User', avatar_url: null }
         default:
           return null
       }

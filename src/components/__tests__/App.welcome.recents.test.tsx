@@ -34,6 +34,10 @@ const { RECENT_PROJECTS, defaultInvokeImplementation } = vi.hoisted(() => {
         return null
       case 'get_user_home_directory':
         return ''
+      case 'get_auth_token':
+        return 'valid-token'
+      case 'get_auth_user':
+        return { id: '1', email: 'test@test.com', name: 'Test User', avatar_url: null }
       default:
         return null
     }
@@ -52,6 +56,24 @@ vi.mock('@tauri-apps/api/core', () => {
 vi.mock('@tauri-apps/api/event', () => {
   return { listen: vi.fn(async () => () => {}) }
 })
+
+vi.mock('@/components/SettingsModal', () => ({ SettingsModal: () => null }))
+
+vi.mock('@/services/auth-service', () => ({
+  initiateDeviceAuth: vi.fn(),
+  pollForAuth: vi.fn(),
+  validateToken: vi.fn().mockResolvedValue({
+    id: '1', email: 'test@test.com', name: 'Test User', avatar_url: null,
+  }),
+  logoutFromApi: vi.fn(),
+  AUTH_CONFIG: {
+    apiBaseUrl: 'https://autohand.ai/api/auth',
+    verificationBaseUrl: 'https://autohand.ai/cli-auth',
+    pollInterval: 2000,
+    authTimeout: 300000,
+    sessionExpiryDays: 30,
+  },
+}))
 
 vi.mock('@/components/ui/tabs', () => {
   const React = require('react')
@@ -178,6 +200,10 @@ if (typeof document !== 'undefined') describe('App welcome screen recent project
           return null
         case 'get_user_home_directory':
           return ''
+        case 'get_auth_token':
+          return 'valid-token'
+        case 'get_auth_user':
+          return { id: '1', email: 'test@test.com', name: 'Test User', avatar_url: null }
         default:
           return null
       }
