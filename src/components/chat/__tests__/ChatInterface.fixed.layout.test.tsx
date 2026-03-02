@@ -99,20 +99,25 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     // Verify layout structure matches requirements
     const breadcrumbHeader = screen.getByTestId('breadcrumb-header')
     const chatRoot = screen.getByTestId('chat-root')
+    const scrollWrapper = screen.getByTestId('chat-scroll-wrapper')
     const chatScrollArea = screen.getByTestId('chat-scrollarea')
     
     // RED AREA: Breadcrumb should be fixed at top with shrink-0
     expect(breadcrumbHeader).toBeVisible()
     expect(breadcrumbHeader).toHaveClass('shrink-0')
     
-    // Chat root should have relative positioning for absolute input
+    // Chat root should keep constrained flex layout
     expect(chatRoot).toHaveClass('relative', 'flex', 'flex-col', 'flex-1', 'min-h-0', 'overflow-hidden')
+
+    // Scroll area wrapper reserves vertical space below top banners
+    expect(scrollWrapper).toHaveClass('relative', 'flex-1', 'min-h-0')
+    expect(scrollWrapper).toContainElement(chatScrollArea)
     
-    // Scroll area should fill the chat area absolutely
-    expect(chatScrollArea).toHaveClass('absolute', 'inset-0', 'p-6')
+    // Scroll area should occupy full wrapper height
+    expect(chatScrollArea).toHaveClass('h-full', 'p-6')
     
-    // Content should reserve space for fixed input (bottom padding)
-    const paddedContent = chatScrollArea.querySelector('.pb-32')
+    // Content keeps a small breathing room at the bottom
+    const paddedContent = chatScrollArea.querySelector('.pb-6')
     expect(paddedContent).toBeTruthy()
 
     // Get input and verify it exists (will be absolutely positioned)
@@ -146,9 +151,9 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     // Input should be accessible and not covered
     expect(input).toBeVisible()
     
-    // Verify the input area is absolutely positioned at bottom of ChatInterface
-    const chatInputArea = input.closest('div.absolute')
-    expect(chatInputArea).toHaveClass('absolute', 'bottom-0', 'left-0', 'right-0')
+    // Verify the input area stays visible as a bottom footer in normal flow
+    const chatInputArea = screen.getByTestId('chat-input-area')
+    expect(chatInputArea).toHaveClass('shrink-0', 'border-t', 'bg-background', 'p-4')
   })
 
   it('maintains correct scroll behavior within the constrained messages area', async () => {
@@ -175,12 +180,12 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
 
     const scrollArea = screen.getByTestId('chat-scrollarea')
     
-    // Verify content reserves space for fixed input via bottom padding
-    const paddedContent = scrollArea.querySelector('.pb-32')
+    // Verify content has small bottom breathing room
+    const paddedContent = scrollArea.querySelector('.pb-6')
     expect(paddedContent).toBeTruthy()
     
-    // Verify scroll area fills the container absolutely
-    expect(scrollArea).toHaveClass('absolute', 'inset-0')
+    // Verify scroll area fills wrapper height
+    expect(scrollArea).toHaveClass('h-full')
     
     // Messages should scroll within this constrained area
     const input = screen.getByRole('textbox')
@@ -213,18 +218,14 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     )
 
     const input = screen.getByRole('textbox')
-    const inputContainer = input.closest('div.absolute')
+    const inputContainer = screen.getByTestId('chat-input-area')
     
-    // Input should be absolutely positioned at bottom
+    // Input should be a fixed footer in normal flow
     expect(inputContainer).toHaveClass(
-      'absolute', 
-      'bottom-0', 
-      'left-0', 
-      'right-0', 
+      'shrink-0',
       'border-t', 
       'bg-background', 
-      'p-4', 
-      'pb-8'
+      'p-4'
     )
     
     // Verify input remains accessible after messages are added
@@ -237,6 +238,6 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     
     // Input should still be visible and positioned correctly
     expect(input).toBeVisible()
-    expect(inputContainer).toHaveClass('absolute', 'bottom-0')
+    expect(inputContainer).toHaveClass('shrink-0')
   })
 })

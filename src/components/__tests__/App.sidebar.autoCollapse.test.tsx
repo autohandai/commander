@@ -95,6 +95,7 @@ const buildSettings = () => ({
   chat_send_shortcut: 'mod+enter' as const,
   ui_theme: 'auto',
   default_cli_agent: 'claude' as const,
+  has_completed_onboarding: true,
   code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: autoCollapse },
 })
 

@@ -23,8 +23,6 @@ export interface LLMSettings {
   system_prompt: string;
 }
 
-export type ProviderType = 'openai' | 'openrouter' | 'ollama';
-
 export interface ProviderStatus {
   id: string;
   name: string;

@@ -11,18 +11,12 @@ if (typeof document !== 'undefined') describe('GeneralSettings welcome recent pr
     saving: false,
     tempUiTheme: 'auto',
     tempShowWelcomeRecentProjects: true,
-    gitConfig: { global: {}, local: {}, aliases: {}},
-    gitWorktreeEnabled: false,
-    gitConfigLoading: false,
-    gitConfigError: null as string | null,
     onFolderChange: vi.fn(),
     onSelectFolder: vi.fn(),
     onConsoleOutputChange: vi.fn(),
     onSystemPromptChange: vi.fn(),
     onClearRecentProjects: vi.fn(),
     onUiThemeChange: vi.fn(),
-    onRefreshGitConfig: vi.fn(),
-    onToggleGitWorktree: vi.fn(),
   }
 
   it('prompts for confirmation and calls change handler on confirm', async () => {

@@ -121,10 +121,9 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
     });
   }, [project.path, rootPath]);
 
-  // Auto-refresh when CLI sessions stream finishes, and periodic polling as fallback
+  // Auto-refresh when CLI sessions stream finishes.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
-    let interval: any = null;
     (async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event');
@@ -136,14 +135,9 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
       } catch {
         // ignore if tauri events are unavailable in tests
       }
-      // Periodic refresh as a safety net
-      interval = setInterval(() => {
-        listFiles({ directory_path: rootPath || project.path, max_depth: 10, extensions: [] });
-      }, 5000);
     })();
     return () => {
       try { unlisten?.() } catch {}
-      if (interval) clearInterval(interval);
     };
   }, [project.path, rootPath, listFiles]);
 
@@ -207,7 +201,7 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
   }
 
   return (
-    <ScrollArea className="h-full">
+    <ScrollArea className="flex-1 min-h-0" data-testid="code-file-explorer-root">
       <div className="p-2">
         <div className="mb-2 px-2">
           <h3 className="font-semibold text-sm">{project.name}</h3>
@@ -364,7 +358,7 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
             <p className="text-sm text-muted-foreground">Loading file content...</p>
           </div>
         ) : (
-          <div className="h-full overflow-auto min-w-0 with-scrollbars">
+          <ScrollArea className="h-full min-w-0">
             <div className="p-4">
               {language ? (
                 <Highlight theme={themeName === 'dracula' ? themes.dracula : themes.github} code={content} language={language}>
@@ -410,7 +404,7 @@ function CodeEditor({ file }: { file: FileInfo | null }) {
                 </pre>
               )}
             </div>
-          </div>
+          </ScrollArea>
         )}
       </div>
     </div>
@@ -484,9 +478,9 @@ export function CodeView({ project, tauriInvoke }: CodeViewProps) {
   return (
     <>
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden h-full">
+      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
         {isExplorerOpen && (
-          <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0 h-full">
+          <div className="w-80 border-r bg-muted/30 flex flex-col min-h-0">
             <div className="p-2 border-b bg-muted/20 space-y-2">
               {viewScope !== 'workspace' && (
                 <Button size="sm" className="w-full" disabled={creatingWs} onClick={() => setIsCreateOpen(true)}>

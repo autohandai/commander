@@ -1,13 +1,16 @@
-import { Loader2, Copy, Expand, Shrink } from 'lucide-react'
+import { Copy, Expand, Shrink } from 'lucide-react'
 import { getAgentId } from '@/components/chat/agents'
 import { PlanBreakdown } from '@/components/PlanBreakdown'
-import { AgentResponse } from './AgentResponse'
-import { CodexRenderer } from './codex/CodexRenderer'
+import { UnifiedContent } from './unified/UnifiedContent'
+import { getNormalizer } from './unified/normalizers'
+import { AgentAvatar, getAgentLabel } from './unified/AgentAvatar'
+import {
+  Message,
+  MessageContent,
+  MessageActions,
+  MessageAction,
+} from '@/components/ai-elements/message'
 import { useToast } from '@/components/ToastProvider'
-import { getStepIconMeta } from '@/components/chat/utils/stepIcons'
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export interface ChatMessageLike {
@@ -34,6 +37,15 @@ export interface ChatMessageLike {
     finishedAt?: number
   }[]
   status?: 'thinking' | 'running' | 'completed' | 'failed'
+  toolEvents?: {
+    tool_id: string
+    tool_name: string
+    phase: 'start' | 'update' | 'end'
+    args?: Record<string, unknown>
+    output?: string
+    success?: boolean
+    duration_ms?: number
+  }[]
 }
 
 interface MessagesListProps {
@@ -85,121 +97,91 @@ export function MessagesList(props: MessagesListProps) {
     return parts.join('\n\n').trim() || (message.conversationId ?? '')
   }
 
-  const renderSteps = (message: ChatMessageLike) => {
-    if (!message.steps || message.steps.length === 0) return null
-    return (
-      <Accordion type="multiple" className="w-full">
-        {message.steps.map((step) => (
-          <AccordionItem value={step.id} key={step.id}>
-            <AccordionTrigger className="text-sm font-medium">
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const { icon: IconComp, className } = getStepIconMeta({ status: step.status, label: step.label })
-                  return (
-                    <span
-                      className={cn(
-                        'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border bg-background',
-                        className
-                      )}
-                    >
-                      <IconComp className="h-3 w-3" strokeWidth={2} />
-                    </span>
-                  )
-                })()}
-                <span>{step.label}</span>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="text-sm text-muted-foreground space-y-2">
-              {step.detail && <p className="whitespace-pre-wrap">{step.detail}</p>}
-              <div className="flex flex-wrap gap-3 text-[11px]">
-                {step.startedAt && (
-                  <span>
-                    started {new Date(step.startedAt).toLocaleTimeString()}
-                  </span>
-                )}
-                {step.finishedAt && (
-                  <span>
-                    finished {new Date(step.finishedAt).toLocaleTimeString()}
-                  </span>
-                )}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        ))}
-      </Accordion>
-    )
-  }
-
   return (
-    <div className="space-y-4">
-      {messages.map((message, index) => {
+    <div className="space-y-6 px-1">
+      {messages.map((message) => {
         const agentId = getAgentId(message.agent)
         const isAssistant = message.role === 'assistant'
         const long = isLongMessage(message.content)
         const expanded = expandedMessages.has(message.id)
         const compact = long && !expanded
-        const timestamp = new Date(message.timestamp).toLocaleTimeString()
-        const timelineAccent = isAssistant ? 'bg-primary' : 'bg-muted-foreground'
-        const label =
-          message.role === 'user'
-            ? 'User'
-            : agentId === 'claude'
-              ? 'Claude'
-              : agentId === 'codex'
-                ? 'Codex'
-                : agentId === 'gemini'
-                  ? 'Gemini'
-                  : message.agent || 'Assistant'
+        const timestamp = new Date(message.timestamp).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+        const label = isAssistant ? getAgentLabel(agentId) : 'You'
 
-        return (
-          <div key={message.id} className="flex gap-3" data-testid="chat-message">
-            <div className="flex flex-col items-center pt-2">
-              <span className={cn('h-2 w-2 rounded-full', timelineAccent)} />
-              {index < messages.length - 1 && (
-                <span className="flex-1 w-px bg-muted-foreground/30" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="rounded-md border border-border/60 bg-background px-4 py-3 shadow-sm space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-[11px] uppercase tracking-wide">
-                      {label}
-                    </Badge>
-                    {message.status && (
-                      <Badge variant="outline" className="capitalize text-[11px]">
-                        {message.status.replace('_', ' ')}
-                      </Badge>
-                    )}
-                    {message.isStreaming && (
-                      <Loader2
-                        data-testid="chat-message-loader"
-                        className="h-4 w-4 animate-spin text-primary"
-                      />
-                    )}
+        if (!isAssistant) {
+          return (
+            <div key={message.id} data-testid="chat-message" className="flex justify-end">
+              <Message from="user" className="max-w-[85%]">
+                <MessageContent>
+                  <div className="whitespace-pre-wrap text-sm">
+                    {message.content || ''}
                   </div>
+                </MessageContent>
+                <div className="flex items-center justify-end gap-2 text-[11px] text-muted-foreground">
                   <time dateTime={new Date(message.timestamp).toISOString()}>{timestamp}</time>
                 </div>
+              </Message>
+            </div>
+          )
+        }
 
+        const content = message.content || ''
+        const normalizer = getNormalizer(agentId)
+        const normalized = normalizer(content, message)
+
+        return (
+          <div key={message.id} data-testid="chat-message" className="flex gap-3 items-start">
+            <AgentAvatar agentId={agentId} size="md" className="mt-1 shrink-0" />
+
+            <Message from="assistant" className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-semibold text-foreground">{label}</span>
+                <time
+                  className="text-[11px] text-muted-foreground"
+                  dateTime={new Date(message.timestamp).toISOString()}
+                >
+                  {timestamp}
+                </time>
+                {message.isStreaming && (
+                  <span
+                    data-testid="chat-message-loader"
+                    className="h-2 w-2 rounded-full bg-primary animate-pulse"
+                  />
+                )}
+                {message.status && message.status !== 'completed' && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] capitalize text-muted-foreground">
+                    {message.status.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+
+              <MessageContent>
                 <div
                   className={cn(
-                    'prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed',
-                    compact && 'relative max-h-[220px] overflow-hidden'
+                    'min-w-0',
+                    compact && 'relative max-h-[600px] overflow-hidden'
                   )}
                   data-testid={compact ? 'message-compact' : undefined}
                 >
-                  {(() => {
-                    const content = message.content || ''
-                    if (!content && message.isStreaming) return 'Thinking…'
-                    if (isAssistant && agentId === 'codex') {
-                      return <CodexRenderer content={content} isStreaming={message.isStreaming} />
-                    }
-                    return <AgentResponse raw={content} isStreaming={message.isStreaming} />
-                  })()}
+                  {!content && message.isStreaming
+                    ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                          Thinking…
+                        </div>
+                      )
+                    : <UnifiedContent content={normalized} />}
                 </div>
 
+                {compact && (
+                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                )}
+
                 {message.plan && (
-                  <div className="rounded-md border border-dashed border-border/60 p-3">
+                  <div className="mt-3 rounded-lg border border-dashed border-border/60 p-3">
                     <PlanBreakdown
                       title={message.plan.title}
                       description={message.plan.description}
@@ -211,40 +193,37 @@ export function MessagesList(props: MessagesListProps) {
                     />
                   </div>
                 )}
+              </MessageContent>
 
-                {renderSteps(message)}
-
-                <div className="flex flex-wrap items-center gap-3 justify-between text-[11px] text-muted-foreground">
-                  {message.conversationId && (
-                    <span data-testid="conversation-id">
-                      Conversation ID: {message.conversationId}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1 ml-auto">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      title="Copy"
-                      onClick={() => copyValue(buildCopyPayload(message), 'Message copied')}
+              <div className="mt-1 flex items-center justify-between">
+                <MessageActions className="opacity-0 transition-opacity group-hover:opacity-100">
+                  <MessageAction
+                    tooltip="Copy message"
+                    label="Copy"
+                    onClick={() => copyValue(buildCopyPayload(message), 'Message copied')}
+                  >
+                    <Copy className="size-3" />
+                  </MessageAction>
+                  {long && (
+                    <MessageAction
+                      tooltip={expanded ? 'Shrink' : 'Expand'}
+                      label={expanded ? 'Shrink' : 'Expand'}
+                      onClick={() => onToggleExpand(message.id)}
                     >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                    {long && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title={expanded ? 'Compact message' : 'Expand message'}
-                        onClick={() => onToggleExpand(message.id)}
-                      >
-                        {expanded ? <Shrink className="h-3 w-3" /> : <Expand className="h-3 w-3" />}
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                      {expanded ? <Shrink className="size-3" /> : <Expand className="size-3" />}
+                    </MessageAction>
+                  )}
+                </MessageActions>
+                {message.conversationId && (
+                  <span
+                    data-testid="conversation-id"
+                    className="text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    Conversation ID: {message.conversationId}
+                  </span>
+                )}
               </div>
-            </div>
+            </Message>
           </div>
         )
       })}

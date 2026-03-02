@@ -2,6 +2,7 @@
 mod tests {
     use crate::models::autohand::*;
     use crate::services::autohand::hooks_service;
+    use std::collections::HashMap;
     use tempfile::TempDir;
 
     #[test]
@@ -17,6 +18,12 @@ mod tests {
         assert_eq!(config.protocol, ProtocolMode::Rpc);
         assert_eq!(config.provider, "anthropic");
         assert_eq!(config.permissions_mode, "interactive");
+        // New sections should default to None
+        assert!(config.mcp.is_none());
+        assert!(config.provider_details.is_none());
+        assert!(config.permissions.is_none());
+        assert!(config.agent.is_none());
+        assert!(config.network.is_none());
     }
 
     #[test]
@@ -108,5 +115,281 @@ mod tests {
         hooks_service::delete_hook_from_config(tmp.path(), "test-hook").unwrap();
         let hooks = hooks_service::load_hooks_from_config(tmp.path()).unwrap();
         assert!(hooks.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // New config section tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_autohand_config_roundtrip_all_sections() {
+        let config = AutohandConfig {
+            protocol: ProtocolMode::Acp,
+            provider: "openrouter".to_string(),
+            model: Some("gpt-4o".to_string()),
+            permissions_mode: "auto".to_string(),
+            hooks: Vec::new(),
+            mcp: Some(McpConfig {
+                servers: vec![McpServerConfig {
+                    name: "test-server".to_string(),
+                    transport: "stdio".to_string(),
+                    command: Some("/usr/bin/test".to_string()),
+                    args: vec!["--flag".to_string()],
+                    url: None,
+                    env: HashMap::from([("API_KEY".to_string(), "secret".to_string())]),
+                    source: Some("manual".to_string()),
+                    auto_connect: true,
+                }],
+            }),
+            provider_details: Some(ProviderDetails {
+                api_key: Some("sk-test-key".to_string()),
+                model: Some("gpt-4o".to_string()),
+                base_url: Some("https://api.example.com".to_string()),
+            }),
+            permissions: Some(PermissionsConfig {
+                mode: "restricted".to_string(),
+                whitelist: vec!["read_file".to_string()],
+                blacklist: vec!["rm".to_string()],
+                rules: vec![],
+                remember_session: true,
+            }),
+            agent: Some(AgentBehaviorConfig {
+                max_iterations: 20,
+                enable_request_queue: true,
+            }),
+            network: Some(NetworkConfig {
+                timeout: 60000,
+                max_retries: 5,
+                retry_delay: 2000,
+            }),
+        };
+
+        // Serialize, then deserialize (hooks are skipped)
+        let json = serde_json::to_value(&config).unwrap();
+        let roundtripped: AutohandConfig = serde_json::from_value(json).unwrap();
+
+        assert_eq!(roundtripped.protocol, ProtocolMode::Acp);
+        assert_eq!(roundtripped.provider, "openrouter");
+        assert_eq!(roundtripped.model, Some("gpt-4o".to_string()));
+        assert_eq!(roundtripped.permissions_mode, "auto");
+
+        let mcp = roundtripped.mcp.unwrap();
+        assert_eq!(mcp.servers.len(), 1);
+        assert_eq!(mcp.servers[0].name, "test-server");
+        assert_eq!(mcp.servers[0].transport, "stdio");
+        assert_eq!(mcp.servers[0].env.get("API_KEY").unwrap(), "secret");
+
+        let pd = roundtripped.provider_details.unwrap();
+        assert_eq!(pd.api_key, Some("sk-test-key".to_string()));
+
+        let perm = roundtripped.permissions.unwrap();
+        assert_eq!(perm.mode, "restricted");
+        assert!(perm.remember_session);
+        assert_eq!(perm.whitelist, vec!["read_file"]);
+
+        let agent = roundtripped.agent.unwrap();
+        assert_eq!(agent.max_iterations, 20);
+        assert!(agent.enable_request_queue);
+
+        let net = roundtripped.network.unwrap();
+        assert_eq!(net.timeout, 60000);
+        assert_eq!(net.max_retries, 5);
+    }
+
+    #[test]
+    fn test_autohand_config_load_with_mcp_servers() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join(".autohand");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.json"),
+            r#"{
+                "provider": "anthropic",
+                "mcp": {
+                    "servers": [
+                        {
+                            "name": "filesystem",
+                            "transport": "stdio",
+                            "command": "npx",
+                            "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                            "auto_connect": true
+                        },
+                        {
+                            "name": "web-search",
+                            "transport": "http",
+                            "url": "http://localhost:3001",
+                            "auto_connect": false
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            tmp.path().to_str().unwrap(),
+            None,
+        )
+        .unwrap();
+
+        let mcp = config.mcp.unwrap();
+        assert_eq!(mcp.servers.len(), 2);
+        assert_eq!(mcp.servers[0].name, "filesystem");
+        assert_eq!(mcp.servers[0].transport, "stdio");
+        assert_eq!(mcp.servers[0].command, Some("npx".to_string()));
+        assert!(mcp.servers[0].auto_connect);
+        assert_eq!(mcp.servers[1].name, "web-search");
+        assert_eq!(mcp.servers[1].transport, "http");
+        assert!(!mcp.servers[1].auto_connect);
+    }
+
+    #[test]
+    fn test_autohand_config_missing_sections_load_defaults() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join(".autohand");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        // Config with only basic fields, no new sections
+        std::fs::write(
+            config_dir.join("config.json"),
+            r#"{"provider": "anthropic", "protocol": "rpc"}"#,
+        )
+        .unwrap();
+
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            tmp.path().to_str().unwrap(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(config.provider, "anthropic");
+        assert!(config.mcp.is_none());
+        assert!(config.provider_details.is_none());
+        assert!(config.permissions.is_none());
+        assert!(config.agent.is_none());
+        assert!(config.network.is_none());
+    }
+
+    #[test]
+    fn test_autohand_config_dynamic_provider_key() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join(".autohand");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.json"),
+            r#"{
+                "provider": "openrouter",
+                "openrouter": {
+                    "api_key": "sk-or-test-123",
+                    "model": "anthropic/claude-sonnet-4-20250514",
+                    "base_url": "https://openrouter.ai/api/v1"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            tmp.path().to_str().unwrap(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(config.provider, "openrouter");
+        let pd = config.provider_details.unwrap();
+        assert_eq!(pd.api_key, Some("sk-or-test-123".to_string()));
+        assert_eq!(
+            pd.model,
+            Some("anthropic/claude-sonnet-4-20250514".to_string())
+        );
+        assert_eq!(
+            pd.base_url,
+            Some("https://openrouter.ai/api/v1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_autohand_mcp_server_crud() {
+        let tmp = TempDir::new().unwrap();
+        let ws_dir = tmp.path().to_str().unwrap();
+
+        // Initially no servers
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_dir, None,
+        )
+        .unwrap();
+        assert!(config.mcp.is_none());
+
+        // Write a config with mcp servers via save
+        let mut config_with_mcp = config.clone();
+        config_with_mcp.mcp = Some(McpConfig {
+            servers: vec![McpServerConfig {
+                name: "test-srv".to_string(),
+                transport: "stdio".to_string(),
+                command: Some("echo".to_string()),
+                args: vec![],
+                url: None,
+                env: HashMap::new(),
+                source: None,
+                auto_connect: true,
+            }],
+        });
+
+        crate::commands::autohand_commands::save_autohand_config_internal(
+            ws_dir,
+            &config_with_mcp,
+        )
+        .unwrap();
+
+        // Reload and verify
+        let reloaded = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_dir, None,
+        )
+        .unwrap();
+        let servers = reloaded.mcp.unwrap().servers;
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "test-srv");
+
+        // Add a second server by saving config again
+        let mut updated = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_dir, None,
+        )
+        .unwrap();
+        let mcp = updated.mcp.get_or_insert_with(McpConfig::default);
+        mcp.servers.push(McpServerConfig {
+            name: "second-srv".to_string(),
+            transport: "http".to_string(),
+            command: None,
+            args: vec![],
+            url: Some("http://localhost:8080".to_string()),
+            env: HashMap::new(),
+            source: None,
+            auto_connect: false,
+        });
+        crate::commands::autohand_commands::save_autohand_config_internal(ws_dir, &updated)
+            .unwrap();
+
+        let reloaded = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_dir, None,
+        )
+        .unwrap();
+        assert_eq!(reloaded.mcp.unwrap().servers.len(), 2);
+
+        // Delete by retaining only non-matching
+        let mut to_delete = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_dir, None,
+        )
+        .unwrap();
+        if let Some(ref mut mcp) = to_delete.mcp {
+            mcp.servers.retain(|s| s.name != "test-srv");
+        }
+        crate::commands::autohand_commands::save_autohand_config_internal(ws_dir, &to_delete)
+            .unwrap();
+
+        let reloaded = crate::commands::autohand_commands::load_autohand_config_with_global(
+            ws_dir, None,
+        )
+        .unwrap();
+        let servers = reloaded.mcp.unwrap().servers;
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "second-srv");
     }
 }

@@ -1,5 +1,3 @@
-#![allow(dead_code)] // Items used by later tasks (commands, event dispatcher)
-
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
@@ -15,6 +13,7 @@ use crate::models::autohand::{
     PermissionRequest, ToolEvent, ToolPhase,
 };
 use crate::services::autohand::protocol::AutohandProtocol;
+use crate::services::autohand::rpc_client::write_headless_config;
 
 // ---------------------------------------------------------------------------
 // AcpMessage enum -- classified ACP ndJSON messages
@@ -53,8 +52,8 @@ pub enum AcpMessage {
     },
     /// Agent session state has changed.
     StateChange { status: String, context_percent: Option<f64> },
-    /// An unrecognized message type (forward the raw JSON).
-    Unknown(Value),
+    /// An unrecognized message type.
+    Unknown,
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +64,7 @@ pub enum AcpMessage {
 ///
 /// Kinds are broad categories used by the UI to display appropriate icons
 /// and badge colors for each tool invocation.
+#[cfg(test)]
 pub fn resolve_tool_kind(tool_name: &str) -> &'static str {
     match tool_name {
         // Read operations
@@ -214,7 +214,7 @@ pub fn classify_acp_message(line: &str) -> Result<AcpMessage, CommanderError> {
                 context_percent,
             })
         }
-        _ => Ok(AcpMessage::Unknown(value)),
+        _ => Ok(AcpMessage::Unknown),
     }
 }
 
@@ -226,7 +226,7 @@ pub fn classify_acp_message(line: &str) -> Result<AcpMessage, CommanderError> {
 ///
 /// This is ACP-specific and always passes `--mode acp`. For RPC mode, use
 /// `rpc_client::build_spawn_args` instead.
-pub fn build_acp_spawn_args(working_dir: &str, config: &AutohandConfig) -> Vec<String> {
+pub fn build_acp_spawn_args(working_dir: &str, config: &AutohandConfig, config_path: Option<&std::path::Path>) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
 
     // Always use ACP mode
@@ -241,6 +241,12 @@ pub fn build_acp_spawn_args(working_dir: &str, config: &AutohandConfig) -> Vec<S
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
         args.push(model.clone());
+    }
+
+    // Headless-safe config file
+    if let Some(path) = config_path {
+        args.push("--config".to_string());
+        args.push(path.to_string_lossy().to_string());
     }
 
     args
@@ -306,6 +312,8 @@ pub struct AutohandAcpClient {
     stdin_writer: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     /// Stdout from the child process, taken after start() for the event reader.
     stdout_handle: Arc<Mutex<Option<tokio::process::ChildStdout>>>,
+    /// Stderr from the child process, read on exit to surface CLI errors.
+    stderr_handle: Arc<Mutex<Option<tokio::process::ChildStderr>>>,
     /// Whether the child process is still alive.
     alive: Arc<std::sync::atomic::AtomicBool>,
     /// Last known state from state_change messages.
@@ -319,14 +327,10 @@ impl AutohandAcpClient {
             child: Arc::new(Mutex::new(None)),
             stdin_writer: Arc::new(Mutex::new(None)),
             stdout_handle: Arc::new(Mutex::new(None)),
+            stderr_handle: Arc::new(Mutex::new(None)),
             alive: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             last_state: Arc::new(Mutex::new(AutohandState::default())),
         }
-    }
-
-    /// Return the last known `AutohandState` captured from `state_change` messages.
-    pub async fn current_state(&self) -> AutohandState {
-        self.last_state.lock().await.clone()
     }
 
     /// Write a serialized ndJSON line to the child process's stdin.
@@ -373,12 +377,32 @@ impl AutohandAcpClient {
                 )
             })?;
 
+        let stderr = self.stderr_handle.lock().await.take();
+
         let alive = Arc::clone(&self.alive);
         let last_state = Arc::clone(&self.last_state);
+
+        // Collect stderr in a background task so we can surface errors.
+        let stderr_buf = Arc::new(Mutex::new(String::new()));
+        if let Some(stderr_stream) = stderr {
+            let buf = Arc::clone(&stderr_buf);
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr_stream);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let mut guard = buf.lock().await;
+                    if !guard.is_empty() {
+                        guard.push('\n');
+                    }
+                    guard.push_str(&line);
+                }
+            });
+        }
 
         tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
+            let mut received_content = false;
 
             while let Ok(Some(line)) = lines.next_line().await {
                 if line.trim().is_empty() {
@@ -387,6 +411,9 @@ impl AutohandAcpClient {
 
                 match classify_acp_message(&line) {
                     Ok(msg) => {
+                        if matches!(&msg, AcpMessage::Message { .. }) {
+                            received_content = true;
+                        }
                         dispatch_acp_message(&app, &session_id, msg, &last_state).await;
                     }
                     Err(_) => {
@@ -398,13 +425,26 @@ impl AutohandAcpClient {
             // EOF or error -- process exited.
             alive.store(false, std::sync::atomic::Ordering::SeqCst);
 
+            // If no content was received, check stderr for error info.
+            let error_content = if !received_content {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                let stderr_text = stderr_buf.lock().await;
+                if stderr_text.is_empty() {
+                    "Autohand process exited without producing any output. Is the autohand CLI installed and configured?".to_string()
+                } else {
+                    format!("Autohand error: {}", stderr_text.trim())
+                }
+            } else {
+                String::new()
+            };
+
             let now = chrono::Utc::now().to_rfc3339();
             let _ = app.emit(
                 "autohand:message",
                 AutohandMessagePayload {
                     session_id: session_id.clone(),
                     role: "system".to_string(),
-                    content: String::new(),
+                    content: error_content.clone(),
                     finished: true,
                     timestamp: now,
                 },
@@ -413,7 +453,7 @@ impl AutohandAcpClient {
                 "cli-stream",
                 StreamChunk {
                     session_id: session_id.clone(),
-                    content: String::new(),
+                    content: error_content,
                     finished: true,
                 },
             );
@@ -566,7 +606,7 @@ async fn dispatch_acp_message(
             );
         }
 
-        AcpMessage::Unknown(_) => {
+        AcpMessage::Unknown => {
             // Unknown message type -- ignore.
         }
     }
@@ -579,7 +619,8 @@ impl AutohandProtocol for AutohandAcpClient {
         working_dir: &str,
         config: &AutohandConfig,
     ) -> Result<(), CommanderError> {
-        let args = build_acp_spawn_args(working_dir, config);
+        let headless_config = write_headless_config(working_dir)?;
+        let args = build_acp_spawn_args(working_dir, config, Some(&headless_config));
 
         let mut child = Command::new("autohand")
             .args(&args)
@@ -602,8 +643,13 @@ impl AutohandProtocol for AutohandAcpClient {
             CommanderError::autohand("start", "failed to capture stdout for ACP process")
         })?;
 
+        let stderr = child.stderr.take().ok_or_else(|| {
+            CommanderError::autohand("start", "failed to capture stderr for ACP process")
+        })?;
+
         *self.stdin_writer.lock().await = Some(stdin);
         *self.stdout_handle.lock().await = Some(stdout);
+        *self.stderr_handle.lock().await = Some(stderr);
         *self.child.lock().await = Some(child);
         self.alive
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -657,6 +703,7 @@ impl AutohandProtocol for AutohandAcpClient {
         *guard = None;
         *self.stdin_writer.lock().await = None;
         *self.stdout_handle.lock().await = None;
+        *self.stderr_handle.lock().await = None;
         self.alive
             .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())

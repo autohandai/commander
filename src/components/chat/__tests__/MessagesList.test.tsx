@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import { ToastProvider } from '@/components/ToastProvider'
 import { useState } from 'react'
 import { MessagesList } from '@/components/chat/MessagesList'
@@ -29,7 +29,7 @@ describe('MessagesList', () => {
         <Harness />
       </ToastProvider>
     )
-    expect(screen.getByText('User')).toBeInTheDocument()
+    expect(screen.getByText('Hello world')).toBeInTheDocument()
     expect(screen.getByText(/Thinking/i)).toBeInTheDocument()
   })
 

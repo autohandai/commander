@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import App from '@/App'
 
+vi.mock('@/services/auth-service', () => ({
+  AUTH_CONFIG: { apiBaseUrl: 'https://autohand.ai/api/auth', pollInterval: 2000, authTimeout: 300000, sessionExpiryDays: 30 },
+  initiateDeviceAuth: vi.fn(),
+  pollForAuth: vi.fn(),
+  validateToken: vi.fn().mockResolvedValue({ id: '1', email: 'test@test.com', name: 'Test', avatar_url: null }),
+  logoutFromApi: vi.fn(),
+}))
+
 const { DUP_RECENTS, defaultInvokeImplementation } = vi.hoisted(() => {
   const now = Math.floor(Date.now() / 1000)
   const recents = [
@@ -29,6 +37,10 @@ const { DUP_RECENTS, defaultInvokeImplementation } = vi.hoisted(() => {
         return null
       case 'get_user_home_directory':
         return ''
+      case 'get_auth_token':
+        return 'test-token'
+      case 'get_auth_user':
+        return { id: '1', email: 'test@test.com', name: 'Test', avatar_url: null }
       default:
         return null
     }

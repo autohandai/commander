@@ -93,6 +93,7 @@ const defaultSettings = {
   chat_send_shortcut: 'mod+enter',
   code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false },
   ui_theme: 'auto',
+  has_completed_onboarding: true,
 }
 
 if (typeof window !== 'undefined' && !window.matchMedia) {

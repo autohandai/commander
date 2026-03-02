@@ -2,16 +2,15 @@ import type { DeviceAuthResponse, PollResponse, AuthUser } from '@/types/auth'
 
 export const AUTH_CONFIG = {
   apiBaseUrl: 'https://autohand.ai/api/auth',
-  verificationBaseUrl: 'https://autohand.ai/cli-auth',
   pollInterval: 2000,
   authTimeout: 300000,
-  sessionExpiryDays: 30,
 } as const
 
 export async function initiateDeviceAuth(): Promise<DeviceAuthResponse> {
   const res = await fetch(`${AUTH_CONFIG.apiBaseUrl}/cli/initiate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId: 'autohand-commander' }),
   })
 
   if (!res.ok) {

@@ -22,10 +22,6 @@ enum AutohandClient {
 /// An active autohand session tracked by the backend.
 struct AutohandSessionHandle {
     client: AutohandClient,
-    #[allow(dead_code)] // Will be used by session listing in future tasks
-    working_dir: String,
-    #[allow(dead_code)] // Will be used by session cleanup/TTL in future tasks
-    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Global map of active autohand sessions keyed by session_id.
@@ -88,47 +84,34 @@ pub fn load_autohand_config_with_global(
         }
     };
 
-    // Extract individual fields with defaults from AutohandConfig::default()
-    let defaults = AutohandConfig::default();
+    // Deserialize the merged JSON into AutohandConfig.
+    // serde defaults handle missing fields automatically.
+    let mut config: AutohandConfig = serde_json::from_value(root.clone())
+        .map_err(|e| format!("Failed to deserialize autohand config: {}", e))?;
 
-    let protocol: ProtocolMode = root
-        .get("protocol")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or(defaults.protocol);
+    // Handle dynamic provider key: if the provider name (e.g. "openrouter")
+    // appears as a top-level key in the config, extract it as provider_details.
+    if config.provider_details.is_none() {
+        if let Some(provider_obj) = root.get(&config.provider) {
+            if provider_obj.is_object() {
+                if let Ok(details) = serde_json::from_value::<ProviderDetails>(provider_obj.clone())
+                {
+                    config.provider_details = Some(details);
+                }
+            }
+        }
+    }
 
-    let provider = root
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&defaults.provider)
-        .to_string();
-
-    let model = root
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let permissions_mode = root
-        .get("permissions_mode")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&defaults.permissions_mode)
-        .to_string();
-
-    // Load hooks: try workspace first, fall back to global directory
+    // Load hooks separately (they are managed by hooks_service, skipped by serde)
     let hooks = match hooks_service::load_hooks_from_config(workspace) {
         Ok(h) if !h.is_empty() => h,
         _ => global_dir
             .and_then(|dir| hooks_service::load_hooks_from_config(dir).ok())
             .unwrap_or_default(),
     };
+    config.hooks = hooks;
 
-    Ok(AutohandConfig {
-        protocol,
-        provider,
-        model,
-        permissions_mode,
-        hooks,
-    })
+    Ok(config)
 }
 
 /// Load autohand configuration by merging global (`~/.autohand/config.json`)
@@ -146,7 +129,7 @@ pub fn load_autohand_config_internal(working_dir: &str) -> Result<AutohandConfig
 /// Save autohand configuration back to `.autohand/config.json`.
 ///
 /// Preserves any other top-level keys already present in the file.
-fn save_autohand_config_internal(working_dir: &str, config: &AutohandConfig) -> Result<(), String> {
+pub fn save_autohand_config_internal(working_dir: &str, config: &AutohandConfig) -> Result<(), String> {
     let workspace = Path::new(working_dir);
     let config_dir = workspace.join(".autohand");
     let config_path = config_dir.join("config.json");
@@ -154,7 +137,7 @@ fn save_autohand_config_internal(working_dir: &str, config: &AutohandConfig) -> 
     std::fs::create_dir_all(&config_dir)
         .map_err(|e| format!("Failed to create .autohand directory: {}", e))?;
 
-    // Read existing config to preserve extra fields
+    // Read existing config to preserve extra fields (hooks, unknown keys)
     let mut root: serde_json::Value = if config_path.exists() {
         let raw = std::fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read autohand config: {}", e))?;
@@ -164,32 +147,24 @@ fn save_autohand_config_internal(working_dir: &str, config: &AutohandConfig) -> 
         serde_json::json!({})
     };
 
-    let obj = root
-        .as_object_mut()
-        .ok_or_else(|| "Config root is not a JSON object".to_string())?;
+    // Serialize the config struct (hooks are skipped by serde)
+    let config_value = serde_json::to_value(config)
+        .map_err(|e| format!("Failed to serialize autohand config: {}", e))?;
 
-    // Write the known fields
-    obj.insert(
-        "protocol".to_string(),
-        serde_json::to_value(&config.protocol)
-            .map_err(|e| format!("Failed to serialize protocol: {}", e))?,
-    );
-    obj.insert(
-        "provider".to_string(),
-        serde_json::Value::String(config.provider.clone()),
-    );
-    if let Some(ref model) = config.model {
-        obj.insert(
-            "model".to_string(),
-            serde_json::Value::String(model.clone()),
-        );
-    } else {
-        obj.remove("model");
+    // Merge serialized config into existing root, preserving unknown keys
+    if let (Some(root_obj), Some(config_obj)) = (root.as_object_mut(), config_value.as_object()) {
+        for (k, v) in config_obj {
+            // Skip null values for optional fields that are None
+            if v.is_null() {
+                continue;
+            }
+            root_obj.insert(k.clone(), v.clone());
+        }
+        // Remove keys for optional fields explicitly set to None
+        if config.model.is_none() {
+            root_obj.remove("model");
+        }
     }
-    obj.insert(
-        "permissions_mode".to_string(),
-        serde_json::Value::String(config.permissions_mode.clone()),
-    );
 
     // Note: hooks are managed separately via the hooks_service and stay
     // under the "hooks.definitions" key.  We do NOT overwrite them here.
@@ -260,6 +235,50 @@ pub async fn toggle_autohand_hook(
     hooks_service::toggle_hook_in_config(workspace, &hook_id, enabled).map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// MCP server CRUD commands
+// ---------------------------------------------------------------------------
+
+/// Retrieve all MCP server configurations for a workspace.
+#[tauri::command]
+pub async fn get_autohand_mcp_servers(
+    working_dir: String,
+) -> Result<Vec<McpServerConfig>, String> {
+    let config = load_autohand_config_internal(&working_dir)?;
+    Ok(config.mcp.map(|m| m.servers).unwrap_or_default())
+}
+
+/// Save (upsert) a single MCP server configuration by name.
+#[tauri::command]
+pub async fn save_autohand_mcp_server(
+    working_dir: String,
+    server: McpServerConfig,
+) -> Result<(), String> {
+    let mut config = load_autohand_config_internal(&working_dir)?;
+    let mcp = config.mcp.get_or_insert_with(McpConfig::default);
+
+    if let Some(pos) = mcp.servers.iter().position(|s| s.name == server.name) {
+        mcp.servers[pos] = server;
+    } else {
+        mcp.servers.push(server);
+    }
+
+    save_autohand_config_internal(&working_dir, &config)
+}
+
+/// Delete an MCP server configuration by name.
+#[tauri::command]
+pub async fn delete_autohand_mcp_server(
+    working_dir: String,
+    server_name: String,
+) -> Result<(), String> {
+    let mut config = load_autohand_config_internal(&working_dir)?;
+    if let Some(ref mut mcp) = config.mcp {
+        mcp.servers.retain(|s| s.name != server_name);
+    }
+    save_autohand_config_internal(&working_dir, &config)
+}
+
 /// Respond to a permission request from the autohand CLI.
 ///
 /// Forwards the approval/rejection to the active RPC or ACP session.
@@ -326,8 +345,6 @@ pub async fn execute_autohand_command(
 
             let handle = AutohandSessionHandle {
                 client: AutohandClient::Rpc(client),
-                working_dir: working_dir.clone(),
-                created_at: chrono::Utc::now(),
             };
 
             AUTOHAND_SESSIONS
@@ -354,8 +371,6 @@ pub async fn execute_autohand_command(
 
             let handle = AutohandSessionHandle {
                 client: AutohandClient::Acp(client),
-                working_dir: working_dir.clone(),
-                created_at: chrono::Utc::now(),
             };
 
             AUTOHAND_SESSIONS

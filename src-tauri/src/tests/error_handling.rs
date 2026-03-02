@@ -147,19 +147,14 @@ mod tests {
     }
 
     #[test]
-    fn test_technical_vs_user_messages() {
+    fn test_user_message_is_readable() {
         let error = CommanderError::git("push", "/repo", "Authentication failed");
 
         let user_msg = error.user_message();
-        let technical_msg = error.technical_message();
 
         // User message should be readable
         assert!(user_msg.contains("Git operation"));
         assert!(!user_msg.contains("Git {"));
-
-        // Technical message should contain debug info
-        assert!(technical_msg.contains("Git {"));
-        assert!(technical_msg.contains("operation:"));
     }
 
     #[test]

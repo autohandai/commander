@@ -226,11 +226,6 @@ mod tests {
         temp_dir
     }
 
-    fn create_mock_app() -> tauri::AppHandle {
-        // This is a simplified mock - in real tests you'd need proper Tauri app setup
-        unimplemented!("Mock app creation not implemented for migration tests")
-    }
-
     #[tokio::test]
     async fn test_migration_check() {
         let temp_dir = create_test_project_dir();

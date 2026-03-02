@@ -1,5 +1,3 @@
-#![allow(dead_code)] // Items used by later tasks (commands, event dispatcher)
-
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -47,6 +45,7 @@ pub fn build_rpc_request(method: &str, params: Option<Value>) -> JsonRpcRequest 
 }
 
 /// Build a JSON-RPC 2.0 **notification** (no id -- no response expected).
+#[cfg(test)]
 pub fn build_rpc_notification(method: &str, params: Option<Value>) -> JsonRpcRequest {
     JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -128,8 +127,75 @@ pub fn build_permission_response_params(request_id: &str, approved: bool) -> Val
 // Process spawn argument builder
 // ---------------------------------------------------------------------------
 
+/// Write a sanitized copy of the user's autohand config suitable for headless
+/// (RPC/ACP) mode.  The CLI validates `ui.theme` on startup even in headless
+/// mode, so we force it to `"dark"` to avoid crashes caused by custom themes
+/// that aren't available outside interactive mode.
+///
+/// Returns the path to the temporary config file.
+pub fn write_headless_config(working_dir: &str) -> Result<std::path::PathBuf, CommanderError> {
+    // Read the raw global config
+    let global_path = dirs::home_dir()
+        .map(|h| h.join(".autohand").join("config.json"));
+    let ws_path = std::path::Path::new(working_dir)
+        .join(".autohand")
+        .join("config.json");
+
+    let mut root: serde_json::Value = serde_json::json!({});
+
+    // Merge global config if present
+    if let Some(ref gp) = global_path {
+        if gp.exists() {
+            if let Ok(raw) = std::fs::read_to_string(gp) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    root = val;
+                }
+            }
+        }
+    }
+
+    // Overlay workspace config if present
+    if ws_path.exists() {
+        if let Ok(raw) = std::fs::read_to_string(&ws_path) {
+            if let Ok(overlay) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let (Some(base_obj), Some(overlay_obj)) =
+                    (root.as_object_mut(), overlay.as_object())
+                {
+                    for (k, v) in overlay_obj {
+                        base_obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Force a safe UI theme for headless mode
+    if let Some(obj) = root.as_object_mut() {
+        let ui_entry = obj.entry("ui").or_insert(serde_json::json!({}));
+        if let Some(ui_obj) = ui_entry.as_object_mut() {
+            ui_obj.insert("theme".to_string(), serde_json::json!("dark"));
+        }
+    }
+
+    // Write to temp file
+    let tmp_dir = std::env::temp_dir().join("commander-autohand");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| {
+        CommanderError::autohand("write_headless_config", format!("failed to create temp dir: {}", e))
+    })?;
+    // Use a fixed filename so successive calls overwrite instead of accumulating.
+    let tmp_path = tmp_dir.join("headless-config.json");
+    let content = serde_json::to_string_pretty(&root).map_err(|e| {
+        CommanderError::autohand("write_headless_config", format!("failed to serialize config: {}", e))
+    })?;
+    std::fs::write(&tmp_path, content).map_err(|e| {
+        CommanderError::autohand("write_headless_config", format!("failed to write temp config: {}", e))
+    })?;
+
+    Ok(tmp_path)
+}
+
 /// Build the CLI arguments needed to spawn an autohand process in RPC/ACP mode.
-pub fn build_spawn_args(working_dir: &str, config: &AutohandConfig) -> Vec<String> {
+pub fn build_spawn_args(working_dir: &str, config: &AutohandConfig, config_path: Option<&std::path::Path>) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
 
     // Protocol mode
@@ -149,6 +215,12 @@ pub fn build_spawn_args(working_dir: &str, config: &AutohandConfig) -> Vec<Strin
         args.push(model.clone());
     }
 
+    // Headless-safe config file
+    if let Some(path) = config_path {
+        args.push("--config".to_string());
+        args.push(path.to_string_lossy().to_string());
+    }
+
     args
 }
 
@@ -164,6 +236,8 @@ pub struct AutohandRpcClient {
     stdin_writer: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     /// Stdout from the child process, taken after start() for the event reader.
     stdout_handle: Arc<Mutex<Option<tokio::process::ChildStdout>>>,
+    /// Stderr from the child process, read on exit to surface CLI errors.
+    stderr_handle: Arc<Mutex<Option<tokio::process::ChildStderr>>>,
     /// Whether the child process is still alive (set to false when reader exits).
     alive: Arc<std::sync::atomic::AtomicBool>,
     /// Last known state from state_change notifications.
@@ -177,14 +251,10 @@ impl AutohandRpcClient {
             child: Arc::new(Mutex::new(None)),
             stdin_writer: Arc::new(Mutex::new(None)),
             stdout_handle: Arc::new(Mutex::new(None)),
+            stderr_handle: Arc::new(Mutex::new(None)),
             alive: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             last_state: Arc::new(Mutex::new(AutohandState::default())),
         }
-    }
-
-    /// Return the last known `AutohandState` captured from `agent/stateChange` notifications.
-    pub async fn current_state(&self) -> AutohandState {
-        self.last_state.lock().await.clone()
     }
 
     /// Write a serialized JSON-RPC line to the child process's stdin.
@@ -239,12 +309,32 @@ impl AutohandRpcClient {
                 )
             })?;
 
+        let stderr = self.stderr_handle.lock().await.take();
+
         let alive = Arc::clone(&self.alive);
         let last_state = Arc::clone(&self.last_state);
+
+        // Collect stderr in a background task so we can surface errors.
+        let stderr_buf = Arc::new(Mutex::new(String::new()));
+        if let Some(stderr_stream) = stderr {
+            let buf = Arc::clone(&stderr_buf);
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr_stream);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let mut guard = buf.lock().await;
+                    if !guard.is_empty() {
+                        guard.push('\n');
+                    }
+                    guard.push_str(&line);
+                }
+            });
+        }
 
         tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
+            let mut received_content = false;
 
             while let Ok(Some(line)) = lines.next_line().await {
                 if line.trim().is_empty() {
@@ -253,6 +343,10 @@ impl AutohandRpcClient {
 
                 match parse_rpc_line(&line) {
                     Ok(RpcMessage::Notification(notif)) => {
+                        // Track if we received any content notifications
+                        if notif.method == rpc_notifications::MESSAGE_UPDATE {
+                            received_content = true;
+                        }
                         dispatch_rpc_notification(
                             &app,
                             &session_id,
@@ -261,10 +355,21 @@ impl AutohandRpcClient {
                         )
                         .await;
                     }
-                    Ok(RpcMessage::Response(_resp)) => {
-                        // Responses to our requests (e.g. getState) -- we do
-                        // not currently correlate these; they could be used for
-                        // a response-future map in the future.
+                    Ok(RpcMessage::Response(resp)) => {
+                        // If the response carries an error, surface it to the user.
+                        if let Some(ref err) = resp.error {
+                            use tauri::Emitter;
+                            let error_msg = format!("Autohand error: {}", err.message);
+                            let _ = app.emit(
+                                "cli-stream",
+                                StreamChunk {
+                                    session_id: session_id.clone(),
+                                    content: error_msg,
+                                    finished: true,
+                                },
+                            );
+                            received_content = true;
+                        }
                     }
                     Err(_) => {
                         // Unparsable line -- skip silently. Could be stderr
@@ -276,13 +381,27 @@ impl AutohandRpcClient {
             // EOF or error -- process exited.
             alive.store(false, std::sync::atomic::Ordering::SeqCst);
 
+            // If no content was received, check stderr for error info.
+            let error_content = if !received_content {
+                // Small delay to let stderr task finish reading.
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                let stderr_text = stderr_buf.lock().await;
+                if stderr_text.is_empty() {
+                    "Autohand process exited without producing any output. Is the autohand CLI installed and configured?".to_string()
+                } else {
+                    format!("Autohand error: {}", stderr_text.trim())
+                }
+            } else {
+                String::new()
+            };
+
             let now = chrono::Utc::now().to_rfc3339();
             let _ = app.emit(
                 "autohand:message",
                 AutohandMessagePayload {
                     session_id: session_id.clone(),
                     role: "system".to_string(),
-                    content: String::new(),
+                    content: error_content.clone(),
                     finished: true,
                     timestamp: now,
                 },
@@ -291,7 +410,7 @@ impl AutohandRpcClient {
                 "cli-stream",
                 StreamChunk {
                     session_id: session_id.clone(),
-                    content: String::new(),
+                    content: error_content,
                     finished: true,
                 },
             );
@@ -626,7 +745,8 @@ impl AutohandProtocol for AutohandRpcClient {
         working_dir: &str,
         config: &AutohandConfig,
     ) -> Result<(), CommanderError> {
-        let args = build_spawn_args(working_dir, config);
+        let headless_config = write_headless_config(working_dir)?;
+        let args = build_spawn_args(working_dir, config, Some(&headless_config));
 
         let mut child = Command::new("autohand")
             .args(&args)
@@ -646,8 +766,13 @@ impl AutohandProtocol for AutohandRpcClient {
             CommanderError::autohand("start", "failed to capture stdout")
         })?;
 
+        let stderr = child.stderr.take().ok_or_else(|| {
+            CommanderError::autohand("start", "failed to capture stderr")
+        })?;
+
         *self.stdin_writer.lock().await = Some(stdin);
         *self.stdout_handle.lock().await = Some(stdout);
+        *self.stderr_handle.lock().await = Some(stderr);
         *self.child.lock().await = Some(child);
         self.alive
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -706,6 +831,7 @@ impl AutohandProtocol for AutohandRpcClient {
         *guard = None;
         *self.stdin_writer.lock().await = None;
         *self.stdout_handle.lock().await = None;
+        *self.stderr_handle.lock().await = None;
         self.alive
             .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(())

@@ -14,7 +14,6 @@ const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
 const DEFAULT_SIDEBAR_WIDTH = 256; // 16rem = 256px
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 400;
-const COLLAPSED_SIDEBAR_WIDTH = 48; // 3rem = 48px
 
 interface SidebarWidthProviderProps {
   children: React.ReactNode;
@@ -77,4 +76,4 @@ export function useSidebarWidth() {
   return context;
 }
 
-export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, COLLAPSED_SIDEBAR_WIDTH };
+export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH };

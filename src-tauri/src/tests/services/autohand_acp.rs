@@ -11,7 +11,7 @@ mod tests {
     fn test_build_acp_spawn_args() {
         let mut config = AutohandConfig::default();
         config.protocol = ProtocolMode::Acp;
-        let args = build_acp_spawn_args("/project", &config);
+        let args = build_acp_spawn_args("/project", &config, None);
         assert!(args.contains(&"--mode".to_string()));
         assert!(args.contains(&"acp".to_string()));
         assert!(args.contains(&"--path".to_string()));
@@ -23,7 +23,7 @@ mod tests {
         let mut config = AutohandConfig::default();
         config.protocol = ProtocolMode::Acp;
         config.model = Some("gpt-4o".to_string());
-        let args = build_acp_spawn_args("/project", &config);
+        let args = build_acp_spawn_args("/project", &config, None);
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"gpt-4o".to_string()));
     }
@@ -33,7 +33,7 @@ mod tests {
         let mut config = AutohandConfig::default();
         config.protocol = ProtocolMode::Acp;
         config.model = None;
-        let args = build_acp_spawn_args("/project", &config);
+        let args = build_acp_spawn_args("/project", &config, None);
         assert!(!args.contains(&"--model".to_string()));
     }
 
@@ -187,9 +187,7 @@ mod tests {
         let msg = classify_acp_message(line);
         assert!(msg.is_ok());
         match msg.unwrap() {
-            AcpMessage::Unknown(value) => {
-                assert_eq!(value["type"], "custom_event");
-            }
+            AcpMessage::Unknown => {}
             other => panic!("Expected Unknown, got {:?}", other),
         }
     }

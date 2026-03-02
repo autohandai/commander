@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { CodeView } from '@/components/CodeView'
 import { SettingsProvider } from '@/contexts/settings-context'
 
@@ -65,5 +65,31 @@ if (typeof document !== 'undefined') describe('CodeView auto refresh', () => {
       const count = calls.filter(c => c.cmd === 'list_files_in_directory').length
       expect(count).toBeGreaterThan(1)
     })
+  })
+
+  it('does not poll file listing repeatedly when idle', async () => {
+    vi.useFakeTimers()
+    render(
+      <SettingsProvider>
+        <CodeView project={project as any} />
+      </SettingsProvider>
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const initialCount = calls.filter(c => c.cmd === 'list_files_in_directory').length
+    expect(initialCount).toBeGreaterThan(0)
+
+    // In idle state, advancing timers should not trigger repeated re-listing loops.
+    act(() => {
+      vi.advanceTimersByTime(20000)
+    })
+
+    const afterCount = calls.filter(c => c.cmd === 'list_files_in_directory').length
+    expect(afterCount).toBe(initialCount)
+    vi.useRealTimers()
   })
 })

@@ -159,17 +159,11 @@ export interface GeneralSettingsProps {
   tempShowWelcomeRecentProjects?: boolean;
   // Suggest AGENTS.md creation when missing (temporary for unsaved changes)
   tempSuggestCreateAgentsMd?: boolean;
-  gitConfig: GitConfig;
-  gitWorktreeEnabled: boolean;
-  gitConfigLoading: boolean;
-  gitConfigError: string | null;
   onFolderChange: (folder: string) => void;
   onSelectFolder: () => Promise<void>;
   onConsoleOutputChange: (enabled: boolean) => void;
   onSystemPromptChange: (prompt: string) => void;
   onClearRecentProjects: () => Promise<void>;
-  onRefreshGitConfig: () => Promise<void>;
-  onToggleGitWorktree: (enabled: boolean) => Promise<void>;
   // Theme change handler
   onUiThemeChange?: (theme: string) => void;
   // Welcome screen toggle change handler
@@ -232,72 +226,3 @@ export interface LLMSettingsProps {
   onUpdateSystemPrompt: (prompt: string) => void;
 }
 
-// ============================
-// Hook Return Types
-// ============================
-
-export interface UseTauriOperationsReturn {
-  // App settings
-  loadAppSettings: () => Promise<AppSettings>;
-  saveAppSettings: (settings: AppSettings) => Promise<void>;
-  
-  // Projects folder
-  getDefaultProjectsFolder: () => Promise<string>;
-  saveProjectsFolder: (path: string) => Promise<void>;
-  selectProjectsFolder: () => Promise<string | null>;
-  loadProjectsFolder: () => Promise<string | null>;
-  ensureDirectoryExists: (path: string) => Promise<void>;
-  clearRecentProjects: () => Promise<void>;
-  
-  // Agent settings
-  loadAgentSettings: () => Promise<BasicAgentSettings | null>;
-  saveAgentSettings: (settings: BasicAgentSettings) => Promise<void>;
-  loadAllAgentSettings: () => Promise<AllAgentSettings>;
-  saveAllAgentSettings: (settings: AllAgentSettings) => Promise<void>;
-  fetchAgentModels: (agent: string) => Promise<string[]>;
-  
-  // Git configuration
-  getGitGlobalConfig: () => Promise<Record<string, string>>;
-  getGitLocalConfig: () => Promise<Record<string, string>>;
-  getGitAliases: () => Promise<Record<string, string>>;
-  getGitWorktreeEnabled: () => Promise<boolean>;
-  setGitWorktreeEnabled: (enabled: boolean) => Promise<void>;
-}
-
-export interface UseSettingsStateReturn {
-  state: SettingsState;
-  actions: {
-    updateGeneralSettings: (updates: Partial<SettingsState>) => void;
-    updateAgentSettings: (updates: Partial<BasicAgentSettings>) => void;
-    updateAllAgentSettings: (updates: Partial<AllAgentSettings>) => void;
-    updateGitConfig: (config: Partial<GitConfig>) => void;
-    setHasUnsavedChanges: (hasChanges: boolean) => void;
-    resetTempValues: () => void;
-    saveAllChanges: () => Promise<void>;
-  };
-  meta: {
-    loading: boolean;
-    saving: boolean;
-    hasUnsavedChanges: boolean;
-  };
-}
-
-// ============================
-// Menu Item Types
-// ============================
-
-export interface SettingsMenuItem {
-  id: SettingsTab;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-// ============================
-// Error Boundary Types
-// ============================
-
-export interface SettingsErrorBoundaryProps {
-  children: React.ReactNode;
-  fallback?: React.ReactNode;
-  onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
-}

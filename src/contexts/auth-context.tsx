@@ -26,21 +26,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [verificationUri, setVerificationUri] = useState<string | null>(null)
   const pollingRef = useRef<boolean>(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef<boolean>(true)
 
   useEffect(() => {
+    mountedRef.current = true
     checkExistingSession()
+    return () => { mountedRef.current = false }
   }, [])
 
   async function checkExistingSession() {
     try {
       const storedToken = await invoke<string | null>('get_auth_token')
+      if (!mountedRef.current) return
 
       if (!storedToken) {
         setStatus('unauthenticated')
         return
       }
 
+      // Use locally stored user for instant auth on reload.
+      // This avoids forcing re-login when the API is unreachable.
+      const storedUser = await invoke<AuthUser | null>('get_auth_user')
+      if (!mountedRef.current) return
+
+      if (storedUser) {
+        setToken(storedToken)
+        setUser(storedUser)
+        setStatus('authenticated')
+
+        // Validate in background -- only force logout on explicit 401 rejection.
+        validateToken(storedToken).then((validUser) => {
+          if (!mountedRef.current) return
+          if (validUser) {
+            // Refresh user data silently (e.g. updated avatar/name)
+            setUser(validUser)
+          }
+          // If null (network error, API down), keep the local session alive.
+          // The user will only be forced out on explicit logout or token revocation
+          // which is handled by a 401 from actual API calls.
+        }).catch(() => {
+          // Network failure -- keep local session
+        })
+        return
+      }
+
+      // No stored user -- must validate remotely
       const validUser = await validateToken(storedToken)
+      if (!mountedRef.current) return
 
       if (validUser) {
         setToken(storedToken)
@@ -51,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('unauthenticated')
       }
     } catch {
-      setStatus('unauthenticated')
+      if (mountedRef.current) setStatus('unauthenticated')
     }
   }
 
@@ -62,11 +94,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const authData = await initiateDeviceAuth()
       setUserCode(authData.userCode)
-      setVerificationUri(authData.verificationUri)
+      const fullUri = authData.verificationUriComplete || `${authData.verificationUri}?code=${authData.userCode}`
+      setVerificationUri(fullUri)
 
       try {
         const { openUrl } = await import('@tauri-apps/plugin-opener')
-        await openUrl(authData.verificationUri)
+        await openUrl(`${fullUri}&source=commander`)
       } catch {
         // If opener fails, user can manually open
       }

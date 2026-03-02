@@ -1,5 +1,15 @@
 import type { Plan } from './plan'
 
+export interface ChatMessageToolEvent {
+  tool_id: string
+  tool_name: string
+  phase: 'start' | 'update' | 'end'
+  args?: Record<string, unknown>
+  output?: string
+  success?: boolean
+  duration_ms?: number
+}
+
 export interface ChatMessage {
   id: string
   content: string
@@ -11,6 +21,7 @@ export interface ChatMessage {
   conversationId?: string
   steps?: TimelineStep[]
   status?: 'thinking' | 'running' | 'completed' | 'failed'
+  toolEvents?: ChatMessageToolEvent[]
 }
 
 export interface TimelineStep {

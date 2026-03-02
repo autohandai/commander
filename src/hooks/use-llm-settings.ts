@@ -21,7 +21,7 @@ export const useLLMSettings = () => {
 
       // Try to load saved settings first
       const savedSettings = await invoke<LLMSettings | null>('load_llm_settings');
-      
+
       if (savedSettings) {
         setSettings(savedSettings);
       } else {
@@ -30,8 +30,7 @@ export const useLLMSettings = () => {
         setSettings(defaultSettings);
       }
 
-      // Check provider statuses
-      await refreshProviderStatuses();
+      // Provider statuses are refreshed via the effect below when settings change
     } catch (err) {
       console.error('Failed to load LLM settings:', err);
       setError(err as string);
@@ -39,6 +38,13 @@ export const useLLMSettings = () => {
       setLoading(false);
     }
   }, []);
+
+  // Refresh provider statuses whenever settings change
+  useEffect(() => {
+    if (settings) {
+      refreshProviderStatuses();
+    }
+  }, [settings]);
 
   const refreshProviderStatuses = useCallback(async () => {
     if (!settings) return;

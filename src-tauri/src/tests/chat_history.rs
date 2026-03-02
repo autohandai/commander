@@ -72,7 +72,7 @@ mod tests {
     #[tokio::test]
     async fn test_session_grouping_by_time_gap() {
         let temp_dir = create_test_project_dir();
-        let project_path = temp_dir.path().to_string_lossy().to_string();
+        let _ = temp_dir.path();
 
         // Create messages with different time gaps
         let messages = vec![
@@ -103,7 +103,7 @@ mod tests {
     #[tokio::test]
     async fn test_agent_specific_session_grouping() {
         let temp_dir = create_test_project_dir();
-        let project_path = temp_dir.path().to_string_lossy().to_string();
+        let _ = temp_dir.path();
 
         // Create messages with different agents but close timing
         let messages = vec![
@@ -309,7 +309,7 @@ mod tests {
     #[tokio::test]
     async fn test_file_mentions_extraction() {
         let temp_dir = create_test_project_dir();
-        let project_path = temp_dir.path().to_string_lossy().to_string();
+        let _ = temp_dir.path();
 
         let content_with_files = "Let me check the src/main.rs and tests/mod.rs files for you.";
         let mut message = create_test_message("user", content_with_files, "claude", 0);
@@ -331,6 +331,7 @@ mod tests {
     #[tokio::test]
     async fn test_session_summary_generation() {
         let temp_dir = create_test_project_dir();
+        let _ = temp_dir.path();
 
         let messages = vec![
             create_test_message(

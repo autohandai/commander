@@ -13,17 +13,11 @@ const baseProps = {
   systemPrompt: '',
   saving: false,
   tempUiTheme: 'auto',
-  gitConfig: { global: {}, local: {}, aliases: {} },
-  gitWorktreeEnabled: false,
-  gitConfigLoading: false,
-  gitConfigError: null as string | null,
   onFolderChange: vi.fn(),
   onSelectFolder: vi.fn(async () => {}),
   onConsoleOutputChange: vi.fn(),
   onSystemPromptChange: vi.fn(),
   onClearRecentProjects: vi.fn(async () => {}),
-  onRefreshGitConfig: vi.fn(async () => {}),
-  onToggleGitWorktree: vi.fn(async () => {}),
   onUiThemeChange: vi.fn(),
 }
 

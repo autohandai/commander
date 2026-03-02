@@ -49,6 +49,9 @@ pub struct AppSettings {
     #[serde(default = "default_suggest_create_agents_md")]
     /// Whether to suggest creating AGENTS.md (or CLAUDE.md/GEMINI.md) when missing
     pub suggest_create_agents_md: bool,
+    #[serde(default = "default_has_completed_onboarding")]
+    /// Whether the user has completed the onboarding guide
+    pub has_completed_onboarding: bool,
 }
 
 fn default_show_console_output() -> bool {
@@ -121,6 +124,7 @@ fn default_auto_collapse_sidebar() -> bool {
 }
 fn default_show_file_explorer() -> bool { true }
 fn default_suggest_create_agents_md() -> bool { true }
+fn default_has_completed_onboarding() -> bool { false }
 
 impl Default for CodeSettings {
     fn default() -> Self {
@@ -146,6 +150,7 @@ impl Default for AppSettings {
             default_cli_agent: default_default_cli_agent(),
             code_settings: CodeSettings::default(),
             suggest_create_agents_md: default_suggest_create_agents_md(),
+            has_completed_onboarding: default_has_completed_onboarding(),
         }
     }
 }

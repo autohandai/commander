@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 
 use crate::commands::settings_commands::load_all_agent_settings;
 use crate::models::*;
@@ -54,16 +54,11 @@ const SESSION_TIMEOUT_SECONDS: i64 = 1800; // 30 minutes
 static SESSIONS: Lazy<Arc<Mutex<HashMap<String, ActiveSession>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-// Secondary index for O(1) session lookup by agent+working_dir
-static SESSION_INDEX: Lazy<Arc<Mutex<HashMap<String, String>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
-
 // Internal ActiveSession struct for session management (not serializable due to Child process)
 #[derive(Debug)]
 struct ActiveSession {
     pub session: CLISession,
     pub process: Arc<Mutex<Option<Child>>>,
-    pub stdin_sender: Option<mpsc::UnboundedSender<String>>,
 }
 
 impl Clone for ActiveSession {
@@ -71,7 +66,6 @@ impl Clone for ActiveSession {
         Self {
             session: self.session.clone(),
             process: self.process.clone(),
-            stdin_sender: self.stdin_sender.clone(),
         }
     }
 }
@@ -86,23 +80,6 @@ impl Drop for ActiveSession {
                 let _ = child.kill().await;
             }
         });
-    }
-}
-
-// Session management helper functions
-fn generate_session_key(agent: &str, working_dir: &Option<String>) -> String {
-    match working_dir {
-        Some(dir) => format!("{}:{}", agent, dir),
-        None => agent.to_string(),
-    }
-}
-
-fn get_agent_quit_command(agent: &str) -> &str {
-    match agent {
-        "claude" => "/quit",
-        "codex" => "/exit",
-        "gemini" => "/quit",
-        _ => "/quit",
     }
 }
 
@@ -246,12 +223,7 @@ fn parse_command_structure(agent: &str, message: &str) -> (String, String) {
             } else {
                 // "/claude /help" or "/claude help"
                 let command = remaining_parts.join(" ");
-                let formatted_command = if command.starts_with('/') {
-                    command
-                } else {
-                    command
-                };
-                (actual_agent, formatted_command)
+                (actual_agent, command)
             }
         } else {
             // "/help" -> treat as subcommand for current agent
@@ -334,24 +306,7 @@ async fn terminate_session_process(session_id: &str) -> Result<(), String> {
     };
 
     if let Some(session) = session_info {
-        // Remove from index as well
-        {
-            let session_key =
-                generate_session_key(&session.session.agent, &session.session.working_dir);
-            let mut session_index = SESSION_INDEX.lock().await;
-            session_index.remove(&session_key);
-        }
-
-        // Send quit command to the process first
-        if let Some(sender) = &session.stdin_sender {
-            let quit_cmd = get_agent_quit_command(&session.session.agent);
-            let _ = sender.send(format!("{}\n", quit_cmd));
-
-            // Give the process a moment to gracefully exit
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        }
-
-        // Then forcefully kill if still running
+        // Forcefully kill if still running
         let mut process_guard = session.process.lock().await;
         if let Some(mut process) = process_guard.take() {
             let _ = process.kill().await;
@@ -747,9 +702,9 @@ pub async fn execute_persistent_cli_command(
     agent: String,
     message: String,
     working_dir: Option<String>,
-    execution_mode: Option<String>,
-    dangerousBypass: Option<bool>,
-    permissionMode: Option<String>,
+    #[allow(non_snake_case)] executionMode: Option<String>,
+    #[allow(non_snake_case)] dangerousBypass: Option<bool>,
+    #[allow(non_snake_case)] permissionMode: Option<String>,
 ) -> Result<(), String> {
     println!(
         "🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}",
@@ -757,7 +712,6 @@ pub async fn execute_persistent_cli_command(
     );
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
-    let _current_time = chrono::Utc::now().timestamp();
 
     tokio::spawn(async move {
         // Parse command structure to handle both "/agent subcommand" and direct subcommands
@@ -784,7 +738,7 @@ pub async fn execute_persistent_cli_command(
                 });
 
             let current_agent_settings = all_agent_settings.codex.clone();
-            let parsed_execution_mode = execution_mode.as_deref().and_then(ExecutionMode::from_str);
+            let parsed_execution_mode = executionMode.as_deref().and_then(ExecutionMode::from_str);
             let prefs = build_codex_thread_prefs(parsed_execution_mode, dangerous_bypass);
             let model = current_agent_settings.model.clone();
 
@@ -849,7 +803,7 @@ pub async fn execute_persistent_cli_command(
             &agent_name,
             &actual_message,
             &app_clone,
-            execution_mode.clone(),
+            executionMode.clone(),
             dangerous_bypass,
             permissionMode.clone(),
         )
@@ -1113,9 +1067,9 @@ pub async fn execute_cli_command(
     command: String,
     args: Vec<String>,
     working_dir: Option<String>,
-    execution_mode: Option<String>,
-    dangerousBypass: Option<bool>,
-    permissionMode: Option<String>,
+    #[allow(non_snake_case)] executionMode: Option<String>,
+    #[allow(non_snake_case)] dangerousBypass: Option<bool>,
+    #[allow(non_snake_case)] permissionMode: Option<String>,
 ) -> Result<(), String> {
     // Legacy function - redirect to persistent session handler
     let message = args.join(" ");
@@ -1125,7 +1079,7 @@ pub async fn execute_cli_command(
         command,
         message,
         working_dir,
-        execution_mode,
+        executionMode,
         dangerousBypass,
         permissionMode,
     )
@@ -1158,9 +1112,9 @@ pub async fn execute_codex_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
-    executionMode: Option<String>,
-    dangerousBypass: Option<bool>,
-    permissionMode: Option<String>,
+    #[allow(non_snake_case)] executionMode: Option<String>,
+    #[allow(non_snake_case)] dangerousBypass: Option<bool>,
+    #[allow(non_snake_case)] permissionMode: Option<String>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1292,16 +1246,7 @@ pub async fn terminate_all_active_sessions() -> Result<(), String> {
 pub async fn send_quit_to_session(session_id: &str) -> Result<(), String> {
     let sessions = SESSIONS.lock().await;
 
-    if let Some(session) = sessions.get(session_id) {
-        if let Some(ref sender) = session.stdin_sender {
-            let quit_cmd = get_agent_quit_command(&session.session.agent);
-            sender
-                .send(format!("{}\n", quit_cmd))
-                .map_err(|e| format!("Failed to send quit command: {}", e))?;
-        } else {
-            return Err("Session stdin not available".to_string());
-        }
-    } else {
+    if sessions.get(session_id).is_none() {
         return Err("Session not found".to_string());
     }
 
@@ -1317,29 +1262,26 @@ pub fn open_file_in_editor(file_path: String) -> Result<(), String> {
     }
 
     #[cfg(target_os = "macos")]
-    {
-        StdCommand::new("open")
-            .arg("-t")
-            .arg(file_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-    }
+    let mut child = StdCommand::new("open")
+        .arg("-t")
+        .arg(file_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open file: {}", e))?;
 
     #[cfg(target_os = "windows")]
-    {
-        StdCommand::new("cmd")
-            .args(&["/C", "start", "", &file_path])
-            .spawn()
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-    }
+    let mut child = StdCommand::new("cmd")
+        .args(&["/C", "start", "", &file_path])
+        .spawn()
+        .map_err(|e| format!("Failed to open file: {}", e))?;
 
     #[cfg(target_os = "linux")]
-    {
-        StdCommand::new("xdg-open")
-            .arg(file_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-    }
+    let mut child = StdCommand::new("xdg-open")
+        .arg(file_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+
+    // Reap the child process to avoid zombies.
+    std::thread::spawn(move || { let _ = child.wait(); });
 
     Ok(())
 }

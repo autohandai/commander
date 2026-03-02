@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageCircle, Activity, Terminal, RotateCcw } from 'lucide-react';
+import { MessageCircle, Activity, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { invoke } from '@tauri-apps/api/core';
@@ -43,7 +43,6 @@ import { generateId } from '@/components/chat/utils/id';
 
 interface ChatInterfaceProps {
   isOpen: boolean;
-  onToggle: () => void;
   selectedAgent?: string;
   project?: RecentProject;
 }
@@ -67,8 +66,29 @@ interface AllAgentSettings {
   max_concurrent_sessions: number;
 }
 
+function normalizeProjectPath(rawPath?: string): string | undefined {
+  if (!rawPath) return rawPath;
+  let normalized = rawPath.trim();
+  if (!normalized) return normalized;
+
+  while (normalized.endsWith('/.') || normalized.endsWith('\\.')) {
+    normalized = normalized.slice(0, -2);
+  }
+
+  const isWindowsDriveRoot = /^[A-Za-z]:[\\/]?$/.test(normalized);
+  if (!isWindowsDriveRoot && normalized.length > 1) {
+    normalized = normalized.replace(/[\\/]+$/, '');
+  }
+
+  return normalized;
+}
+
 
 export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceProps) {
+  const normalizedProjectPath = React.useMemo(
+    () => normalizeProjectPath(project?.path),
+    [project?.path]
+  );
   const [inputValue, setInputValue] = useState('');
   const [typedPlaceholder, setTypedPlaceholder] = useState('');
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -93,11 +113,35 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [executionMode, setExecutionMode] = useState<'chat'|'collab'|'full'>('collab');
   const [unsafeFull, setUnsafeFull] = useState(false);
   const { files, listFiles, searchFiles } = useFileMention();
-  const [mentionBasePath, setMentionBasePath] = useState<string | undefined>(project?.path);
+  const [mentionBasePath, setMentionBasePath] = useState<string | undefined>(normalizedProjectPath);
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const storageKey = React.useMemo(() => project ? `chat:${project.path}` : null, [project]);
+  const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const previousMessagesRef = useRef<ChatMessage[]>([]);
+
+  // Helper to schedule a timeout that is automatically cleared on unmount
+  const safeTimeout = useCallback((fn: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      pendingTimeoutsRef.current.delete(id);
+      fn();
+    }, ms);
+    pendingTimeoutsRef.current.add(id);
+    return id;
+  }, []);
+
+  // Clear all pending timeouts on unmount
+  useEffect(() => {
+    return () => {
+      pendingTimeoutsRef.current.forEach(clearTimeout);
+      pendingTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  const storageKey = React.useMemo(
+    () => normalizedProjectPath ? `chat:${normalizedProjectPath}` : null,
+    [normalizedProjectPath]
+  );
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [historyCompacted, setHistoryCompacted] = useState(false);
   const { showError } = useToast();
@@ -156,15 +200,15 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   // Utilities to normalize agent id and check enablement live in chat/agents
 
   // Helper function to resolve working directory for CLI commands
-  const resolveWorkingDir = useWorkingDir(project?.path, workspaceEnabled);
+  const resolveWorkingDir = useWorkingDir(normalizedProjectPath, workspaceEnabled);
 
   // ensureEnabled provided by hook
 
   const isLongMessage = (text: string | undefined) => {
     if (!text) return false;
-    if (text.length > 100) return true;
+    if (text.length > 2000) return true;
     const lines = text.split('\n');
-    return lines.length > 6;
+    return lines.length > 40;
   };
 
   const toggleExpand = (id: string) => {
@@ -196,9 +240,9 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
       }
     }
     // Also clear from backend store
-    if (project) {
+    if (project && normalizedProjectPath) {
       import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('save_project_chat', { projectPath: project.path, messages: [] }).catch(() => {})
+        invoke('save_project_chat', { projectPath: normalizedProjectPath, messages: [] }).catch(() => {})
       })
     }
   };
@@ -273,7 +317,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     try {
       await invoke('send_quit_command_to_session', { sessionId });
       // Wait a moment then refresh session status
-      setTimeout(loadSessionStatus, 1000);
+      safeTimeout(loadSessionStatus, 1000);
     } catch (error) {
       console.error('Failed to send quit command:', error);
     }
@@ -324,13 +368,13 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     (async () => {
       try {
         const wd = await resolveWorkingDir();
-        setMentionBasePath(wd || project?.path);
+        setMentionBasePath(wd || normalizedProjectPath);
       } catch {
-        setMentionBasePath(project?.path);
+        setMentionBasePath(normalizedProjectPath);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.path, workspaceEnabled]);
+  }, [normalizedProjectPath, workspaceEnabled]);
 
 
   // Focus input when chat opens
@@ -343,7 +387,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   // Persistence (sessionStorage + tauri store)
   useChatPersistence({
-    projectPath: project?.path,
+    projectPath: normalizedProjectPath,
     storageKey,
     messages,
     onRestore: (restored) => setMessages(restored as any),
@@ -698,7 +742,7 @@ Please focus only on this step.`;
         conversationId
       )
       // Mark step as completed after successful execution
-      setTimeout(() => {
+      safeTimeout(() => {
         setCurrentPlan(prev => (prev ? setStepStatus(prev, stepId, 'completed') : null));
         setMessages(prev => updateMessagesPlanStep(prev, stepId, 'completed'));
       }, 2000)
@@ -914,8 +958,25 @@ Please focus only on this step.`;
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const previousMessages = previousMessagesRef.current;
+    const previousLast = previousMessages[previousMessages.length - 1];
+    const last = messages[messages.length - 1];
+
+    const appendedNewMessage =
+      !!last &&
+      (messages.length > previousMessages.length || !previousLast || previousLast.id !== last.id);
+    const isFreshUserSend =
+      !!last &&
+      last.role === 'user' &&
+      Date.now() - Number(last.timestamp || 0) < 3000;
+    const hasLiveStream = executingSessions.size > 0 || Boolean(last?.isStreaming);
+
+    if (hasLiveStream || (appendedNewMessage && isFreshUserSend)) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+
+    previousMessagesRef.current = messages;
+  }, [messages, executingSessions.size]);
 
   // Load initial session status and set up periodic refresh
   useEffect(() => {
@@ -1064,45 +1125,47 @@ Please focus only on this step.`;
         />
       )}
 
-      {/* Messages area (ScrollArea fills root; content padded for input) */}
-      <ScrollArea data-state="visible" data-testid="chat-scrollarea" className="absolute inset-0 p-6 flex-1 min-h-0">
-        <div className="max-w-4xl mx-auto pb-32">
-            {/* New Session control moved into ChatInput */}
-            
-            <div className="space-y-4">
-            {messages.length === 0 ? (
-              <div className="text-center text-muted-foreground mt-20">
-                <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
-                <p className="text-sm mb-2">
-                  Ask questions about your code, request changes, or get help with your project.
-                </p>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/codex</kbd> - Direct command execution</p>
-                  <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/gemini help</kbd> - Introduce me to this repo</p>
-                  <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/claude help</kbd> - Get help and available commands</p>
-                  <p>Non-interactive mode for fast, direct responses</p>
+      {/* Messages area: only this region scrolls; input stays visible as footer */}
+      <div className="relative flex-1 min-h-0" data-testid="chat-scroll-wrapper">
+        <ScrollArea data-state="visible" data-testid="chat-scrollarea" className="h-full p-6 min-h-0">
+          <div className="max-w-4xl mx-auto pb-6">
+              {/* New Session control moved into ChatInput */}
+              
+              <div className="space-y-4">
+              {messages.length === 0 ? (
+                <div className="text-center text-muted-foreground mt-20">
+                  <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
+                  <p className="text-sm mb-2">
+                    Ask questions about your code, request changes, or get help with your project.
+                  </p>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/codex</kbd> - Direct command execution</p>
+                    <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/gemini help</kbd> - Introduce me to this repo</p>
+                    <p><kbd className="px-1.5 py-0.5 bg-muted rounded">/claude help</kbd> - Get help and available commands</p>
+                    <p>Non-interactive mode for fast, direct responses</p>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <MessagesList
+                    messages={messages as any}
+                    expandedMessages={expandedMessages}
+                    onToggleExpand={toggleExpand}
+                    isLongMessage={isLongMessage}
+                    onExecutePlan={handleExecutePlan}
+                    onExecuteStep={handleExecuteStep}
+                  />
+                  <div ref={messagesEndRef} />
+                </>
+              )}
               </div>
-            ) : (
-              <>
-                <MessagesList
-                  messages={messages as any}
-                  expandedMessages={expandedMessages}
-                  onToggleExpand={toggleExpand}
-                  isLongMessage={isLongMessage}
-                  onExecutePlan={handleExecutePlan}
-                  onExecuteStep={handleExecuteStep}
-                />
-                <div ref={messagesEndRef} />
-              </>
-            )}
-            </div>
-        </div>
-      </ScrollArea>
+          </div>
+        </ScrollArea>
+      </div>
 
-      {/* Chat Input Area - Absolutely positioned at bottom */}
-      <div className="absolute bottom-0 left-0 right-0 border-t bg-background p-4 pb-8">
+      {/* Chat Input Area - fixed in layout flow (no overlay on messages) */}
+      <div className="shrink-0 border-t bg-background p-4" data-testid="chat-input-area">
         <div className="max-w-4xl mx-auto">
           <ChatInput
             inputRef={inputRef}

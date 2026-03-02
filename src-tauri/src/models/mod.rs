@@ -12,13 +12,8 @@ pub mod auth;
 
 // Re-export all models for easy access
 pub use ai_agent::*;
-pub use autohand::*;
 pub use file::*;
 pub use llm::*;
 pub use project::*;
 pub use prompt::*;
 pub use session::*;
-pub use auth::*;
-// Commented out until used
-// pub use sub_agent::*;
-// pub use chat_history::*;

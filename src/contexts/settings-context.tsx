@@ -30,6 +30,7 @@ interface AppSettings {
   max_chat_history?: number;
   default_cli_agent?: DefaultCliAgent;
   suggest_create_agents_md?: boolean;
+  has_completed_onboarding?: boolean;
 }
 
 interface SettingsContextType {
@@ -54,6 +55,7 @@ const defaultSettings: AppSettings = {
   },
   default_cli_agent: FALLBACK_AGENT,
   suggest_create_agents_md: true,
+  has_completed_onboarding: false,
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);

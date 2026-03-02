@@ -9,6 +9,7 @@ export interface DeviceAuthResponse {
   deviceCode: string
   userCode: string
   verificationUri: string
+  verificationUriComplete: string
   expiresIn: number
   interval: number
 }
@@ -21,12 +22,3 @@ export interface PollResponse {
 }
 
 export type AuthStatus = 'loading' | 'unauthenticated' | 'polling' | 'authenticated' | 'error' | 'expired'
-
-export interface AuthState {
-  status: AuthStatus
-  user: AuthUser | null
-  token: string | null
-  error: string | null
-  userCode: string | null
-  verificationUri: string | null
-}

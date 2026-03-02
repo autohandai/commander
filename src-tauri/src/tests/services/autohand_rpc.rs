@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn test_build_autohand_spawn_args_rpc() {
         let config = AutohandConfig::default();
-        let args = build_spawn_args("/home/user/project", &config);
+        let args = build_spawn_args("/home/user/project", &config, None);
         assert!(args.contains(&"--mode".to_string()));
         assert!(args.contains(&"rpc".to_string()));
         assert!(args.contains(&"--path".to_string()));
@@ -98,7 +98,7 @@ mod tests {
     fn test_build_autohand_spawn_args_with_model() {
         let mut config = AutohandConfig::default();
         config.model = Some("claude-opus-4-20250514".to_string());
-        let args = build_spawn_args("/project", &config);
+        let args = build_spawn_args("/project", &config, None);
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"claude-opus-4-20250514".to_string()));
     }

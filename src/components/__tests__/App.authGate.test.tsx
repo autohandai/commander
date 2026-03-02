@@ -52,7 +52,7 @@ describe('App auth gate', () => {
     tauriCore.invoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_auth_token') return 'valid-tok'
       if (cmd === 'get_auth_user') return mockUser
-      if (cmd === 'load_app_settings') return { show_console_output: true, projects_folder: '', file_mentions_enabled: true, code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false } }
+      if (cmd === 'load_app_settings') return { show_console_output: true, projects_folder: '', file_mentions_enabled: true, has_completed_onboarding: true, code_settings: { theme: 'github', font_size: 14, auto_collapse_sidebar: false } }
       if (cmd === 'list_recent_projects') return []
       if (cmd === 'get_user_home_directory') return '/home/test'
       return null

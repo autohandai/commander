@@ -326,10 +326,6 @@ impl CommanderError {
         }
     }
 
-    /// Get technical error message (for logging)
-    pub fn technical_message(&self) -> String {
-        format!("{:?}", self)
-    }
 }
 
 impl fmt::Display for CommanderError {
@@ -348,7 +344,7 @@ impl From<CommanderError> for String {
 }
 
 /// Result type alias for Commander operations
-#[allow(dead_code)] // Used in tests
+#[allow(dead_code)]
 pub type CommanderResult<T> = Result<T, CommanderError>;
 
 /// Helper macros for creating errors quickly

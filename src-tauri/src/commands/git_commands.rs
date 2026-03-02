@@ -315,7 +315,6 @@ pub async fn select_git_project_folder(app: tauri::AppHandle) -> Result<Option<S
 
 #[tauri::command]
 pub async fn create_workspace_worktree(
-    app: tauri::AppHandle,
     project_path: String,
     name: String,
 ) -> Result<String, String> {

@@ -8,6 +8,7 @@ use crate::models::autohand::{AutohandConfig, AutohandState};
 /// Concrete implementations will handle the JSON-RPC 2.0 stdio transport
 /// or the future ACP HTTP transport while exposing the same surface to the
 /// rest of the Commander backend.
+#[allow(dead_code)]
 #[async_trait]
 pub trait AutohandProtocol: Send + Sync {
     /// Start the autohand process with the given working directory and config.

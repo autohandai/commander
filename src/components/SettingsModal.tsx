@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard, Code2, MessageSquare, Terminal } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   ChatSettings,
   GeneralSettings,
@@ -778,7 +779,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
         
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Left Menu Panel */}
-          <div className="w-64 border-r bg-muted/20 p-4 flex-shrink-0 overflow-y-auto">
+          <ScrollArea className="w-64 border-r bg-muted/20 p-4 flex-shrink-0">
             <nav className="space-y-2">
               {menuItems.map((item) => {
                 const Icon = item.icon
@@ -795,10 +796,10 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                 )
               })}
             </nav>
-          </div>
+          </ScrollArea>
 
           {/* Right Content Panel */}
-          <div className="flex-1 p-6 overflow-y-auto min-w-0">
+          <ScrollArea className="flex-1 p-6 min-w-0">
             <div className="max-w-4xl">
               {activeTab === 'general' && (
                 <GeneralSettings
@@ -809,17 +810,11 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                   tempUiTheme={tempUiTheme}
                   tempShowWelcomeRecentProjects={tempShowWelcomeRecentProjects}
                   tempSuggestCreateAgentsMd={tempSuggestCreateAgentsMd}
-                  gitConfig={gitConfig}
-                  gitWorktreeEnabled={gitWorktreeEnabled}
-                  gitConfigLoading={gitConfigLoading}
-                  gitConfigError={gitConfigError}
                   onFolderChange={setTempDefaultProjectsFolder}
                   onSelectFolder={handleSelectProjectsFolder}
                   onConsoleOutputChange={setTempShowConsoleOutput}
                   onSystemPromptChange={handleSystemPromptChange}
                   onClearRecentProjects={handleClearRecentProjects}
-                  onRefreshGitConfig={loadGitConfig}
-                  onToggleGitWorktree={handleGitWorktreeToggle}
                   onUiThemeChange={setTempUiTheme}
                   onShowWelcomeRecentProjectsChange={setTempShowWelcomeRecentProjects}
                   onSuggestCreateAgentsMdChange={setTempSuggestCreateAgentsMd}
@@ -895,7 +890,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                 <AutohandSettingsTab workingDir={workingDir ?? null} />
               )}
             </div>
-          </div>
+          </ScrollArea>
         </div>
 
         {/* Footer */}

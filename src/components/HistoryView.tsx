@@ -7,6 +7,7 @@ import { DiffViewer } from '@/components/DiffViewer'
 import { ChatHistoryPanel } from '@/components/ChatHistoryPanel'
 import { HistoryControls } from '@/components/HistoryControls'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 interface Props { 
   project: RecentProject 
@@ -106,7 +107,7 @@ export function HistoryView({ project }: Props) {
             <div className="flex items-center gap-2" />
           </div>
           
-          <div className="flex-1 overflow-auto">
+          <ScrollArea className="flex-1">
             {enhancedCommits.length === 0 ? (
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 <div className="text-center">
@@ -122,7 +123,7 @@ export function HistoryView({ project }: Props) {
                 maxLanes={maxLanes}
               />
             )}
-          </div>
+          </ScrollArea>
         </div>
       </div>
 
@@ -141,7 +142,7 @@ export function HistoryView({ project }: Props) {
             onBranchChange={handleBranchChange}
             onWorkspaceChange={handleWorkspaceChange}
           />
-          <div className="h-[calc(100%-3rem)] overflow-auto">
+          <ScrollArea className="h-[calc(100%-3rem)]">
             {diffMode === 'commit' ? (
               <DiffViewer
                 projectPath={selectedWorkspace || project.path}
@@ -160,7 +161,7 @@ export function HistoryView({ project }: Props) {
                 Select a workspace in the controls to compare with main.
               </div>
             )}
-          </div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
 

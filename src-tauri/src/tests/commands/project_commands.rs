@@ -6,13 +6,6 @@ mod tests {
     use serial_test::serial;
     use tempfile::TempDir;
 
-    // Helper function to create a mock app handle for testing
-    // Note: This is a placeholder - we'll need to implement proper app mocking
-    async fn create_mock_app() -> tauri::AppHandle {
-        // TODO: Implement proper mock app creation
-        // For now, this will need to be implemented when we set up full integration tests
-        todo!("Implement mock app creation")
-    }
 
     #[tokio::test]
     #[serial] // Ensure tests don't interfere with each other's storage

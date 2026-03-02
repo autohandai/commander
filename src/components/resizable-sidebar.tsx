@@ -67,15 +67,13 @@ export function ResizableSidebar({ children, className }: ResizableSidebarProps)
   // Don't show resize handle when sidebar is collapsed
   const showResizeHandle = state === 'expanded';
 
-  const computedWidth = state === 'expanded' ? sidebarWidth : 0
-
   return (
     <div
       ref={sidebarRef}
       className={cn('relative', className)}
       style={{
-        '--sidebar-width': `${computedWidth}px`,
-        width: `${computedWidth}px`,
+        '--sidebar-width': `${sidebarWidth}px`,
+        width: state === 'expanded' ? `${sidebarWidth}px` : '0px',
         transition: 'width 0.2s ease',
       } as React.CSSProperties}
     >

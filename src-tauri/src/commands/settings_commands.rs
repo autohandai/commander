@@ -251,7 +251,6 @@ pub async fn load_all_agent_settings(app: tauri::AppHandle) -> Result<AllAgentSe
     }
 }
 
-#[tauri::command]
 fn user_settings_path() -> Result<PathBuf, String> {
     let home =
         dirs::home_dir().ok_or_else(|| "Could not determine user home directory".to_string())?;
@@ -315,6 +314,17 @@ fn set_code_auto_collapse_sidebar(enabled: bool) -> Result<(), String> {
     settings.code_settings.auto_collapse_sidebar = enabled;
     write_app_settings_to_root(&mut root, &settings)?;
     save_user_settings_json(root)
+}
+
+// Expose code auto-collapse setting via commands to avoid dead_code and enable UI wiring
+#[tauri::command]
+pub async fn get_code_auto_collapse_sidebar_setting() -> Result<Option<bool>, String> {
+    get_code_auto_collapse_sidebar()
+}
+
+#[tauri::command]
+pub async fn set_code_auto_collapse_sidebar_setting(enabled: bool) -> Result<(), String> {
+    set_code_auto_collapse_sidebar(enabled)
 }
 
 #[tauri::command]

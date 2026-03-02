@@ -26,6 +26,7 @@ import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
 import { ChatInterface } from "@/components/ChatInterface"
 import { CodeView } from "@/components/CodeView"
 import { HistoryView } from "@/components/HistoryView"
+import { OnboardingModal } from "@/components/OnboardingModal"
 import { Button } from "@/components/ui/button"
 import { useRecentProjects, RecentProject } from "@/hooks/use-recent-projects"
 import { useSettings } from "@/contexts/settings-context"
@@ -35,7 +36,6 @@ import type { MenuEventPayload } from "@/types/menu"
 interface ProjectViewProps {
   project: RecentProject
   selectedAgent?: string
-  onAgentChange: (agent: string | undefined) => void
   activeTab: string
   onTabChange: (tab: string) => void
 }
@@ -65,20 +65,19 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
           </TabsList>
         </div>
         
-        <TabsContent value="chat" className="flex-1 m-0 min-h-0 min-w-0" forceMount>
+        <TabsContent value="chat" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
           <ChatInterface
             isOpen={true}
-            onToggle={() => {}} // Not needed in tab mode
             selectedAgent={selectedAgent}
             project={project}
           />
         </TabsContent>
         
-        <TabsContent value="code" className="flex-1 m-0 min-h-0 min-w-0" forceMount>
+        <TabsContent value="code" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
           <CodeView project={project} />
         </TabsContent>
         
-        <TabsContent value="history" className="flex-1 m-0 h-full min-w-0" forceMount>
+        <TabsContent value="history" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
           <HistoryView project={project} />
         </TabsContent>
       </Tabs>
@@ -88,35 +87,26 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange }: Project
 
 function SidebarAutoCollapseManager({ activeTab, enabled, projectActive }: { activeTab: string; enabled: boolean; projectActive: boolean }) {
   const { setOpen } = useSidebar()
-  const { settings } = useSettings()
-  const isEnabled = enabled ?? Boolean(settings.code_settings?.auto_collapse_sidebar)
+  // Use a ref so the effect only fires on tab/setting/project changes,
+  // NOT when setOpen's reference changes due to sidebar state toggling.
+  // Without this, Cmd+B toggle is immediately undone by the effect re-running.
+  const setOpenRef = useRef(setOpen)
+  setOpenRef.current = setOpen
 
   useEffect(() => {
-    setOpen((currentOpen) => {
-      const nextState = (() => {
-        if (!isEnabled || !projectActive) {
-          return true
-        }
-        if (activeTab === 'code') {
-          return false
-        }
-        return true
-      })()
-      if (!enabled || !projectActive) {
-        return true
-      }
-      if (activeTab === 'code') {
-        return false
-      }
-      return true
-    })
-  }, [activeTab, isEnabled, projectActive, setOpen])
+    // Only auto-manage sidebar when auto-collapse is enabled AND a project is open.
+    // Otherwise let the user freely toggle via CMD+B / sidebar trigger.
+    if (!enabled || !projectActive) return
+
+    setOpenRef.current(activeTab !== 'code')
+  }, [activeTab, enabled, projectActive])
 
   return null
 }
 
 function AppContent() {
-  const { settings } = useSettings()
+  const { settings, isLoading } = useSettings()
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<import('@/types/settings').SettingsTab | undefined>(undefined)
   const [isAboutOpen, setIsAboutOpen] = useState(false)
@@ -317,7 +307,7 @@ function AppContent() {
             actionLabel: 'Create',
             onAction: async () => {
               try {
-                const created = await invoke<string>('create_default_agents_docs', { projectPath: base })
+                await invoke<string>('create_default_agents_docs', { projectPath: base })
                 showSuccess('AGENTS.md created successfully', 'Created')
               } catch (e) {
                 console.error(e)
@@ -436,9 +426,6 @@ function AppContent() {
       }
     }
 
-    // Dummy event listener for cleanup (not used anymore)  
-    const unlistenOpenProject = Promise.resolve(() => {})
-    
     // Check for CLI project on startup
     checkCliProject()
 
@@ -453,7 +440,6 @@ function AppContent() {
       unlistenMenuCloseProject.then(fn => fn())
       unlistenMenuDeleteProject.then(fn => fn())
       unlistenMenuAbout.then(fn => fn())
-      unlistenOpenProject.then(fn => fn())
     }
   }, [activeTab, currentProject, toggleChat])
 
@@ -469,6 +455,13 @@ function AppContent() {
       setWelcomePhrase(prev => pickRandomPhrase(prev))
     }
   }, [currentProject])
+
+  // Show onboarding modal when settings load and user hasn't completed it
+  useEffect(() => {
+    if (!isLoading && settings.has_completed_onboarding === false) {
+      setIsOnboardingOpen(true)
+    }
+  }, [isLoading, settings.has_completed_onboarding])
 
   return (
     <SidebarWidthProvider>
@@ -541,9 +534,8 @@ function AppContent() {
         <div className="flex-1 flex flex-col min-h-0">
           {currentProject ? (
             <ProjectView 
-              project={currentProject} 
+              project={currentProject}
               selectedAgent={selectedAgent}
-              onAgentChange={setSelectedAgent}
               activeTab={activeTab}
               onTabChange={setActiveTab}
             />
@@ -655,6 +647,11 @@ function AppContent() {
       />
       
       <AboutDialog isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
+
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onComplete={() => setIsOnboardingOpen(false)}
+      />
       
       <AIAgentStatusBar onChatToggle={toggleChat} showChatButton={!!currentProject} />
       </SidebarProvider>

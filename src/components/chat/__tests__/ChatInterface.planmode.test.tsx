@@ -69,6 +69,7 @@ if (typeof document !== 'undefined') describe('ChatInterface Plan Mode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     lastExecuteArgs = null
+    sessionStorage.clear()
     // @ts-ignore
     Element.prototype.scrollIntoView = vi.fn()
   })

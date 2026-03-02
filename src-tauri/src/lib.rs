@@ -1,3 +1,8 @@
+// Suppress false-positive dead_code/unused_imports warnings in test builds.
+// Tauri command functions are registered via invoke_handler! at runtime and
+// appear "unused" to the compiler during test compilation.
+#![cfg_attr(test, allow(dead_code, unused_imports))]
+
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
 
@@ -246,6 +251,9 @@ pub fn run() {
             save_autohand_hook,
             delete_autohand_hook,
             toggle_autohand_hook,
+            get_autohand_mcp_servers,
+            save_autohand_mcp_server,
+            delete_autohand_mcp_server,
             respond_autohand_permission,
             execute_autohand_command,
             terminate_autohand_session,

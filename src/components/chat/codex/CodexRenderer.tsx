@@ -12,7 +12,7 @@ interface ParsedCodex {
   response: string
 }
 
-function parseCodexContent(content: string): ParsedCodex {
+export function parseCodexContent(content: string): ParsedCodex {
   const blocks = content.split('\n\n')
   const reasoning: string[] = []
   const responseParts: string[] = []

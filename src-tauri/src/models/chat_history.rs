@@ -156,10 +156,6 @@ impl EnhancedChatMessage {
         }
     }
 
-    /// Extract file mentions from content using regex patterns
-    pub fn extract_file_mentions(content: &str) -> Vec<String> {
-        extract_file_mentions(content)
-    }
 }
 
 impl ChatSession {
@@ -197,10 +193,6 @@ impl ChatSession {
         message.agent == self.agent && time_gap_minutes <= timeout_minutes
     }
 
-    /// Get duration in minutes
-    pub fn duration_minutes(&self) -> i64 {
-        (self.end_time - self.start_time) / 60
-    }
 }
 
 /// Extract file mentions from message content
