@@ -5,6 +5,7 @@ pub mod file;
 pub mod llm;
 pub mod project;
 pub mod prompt;
+pub mod protocol;
 pub mod session;
 pub mod sub_agent;
 
