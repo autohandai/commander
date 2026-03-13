@@ -4,7 +4,7 @@ use std::fmt;
 use crate::error::CommanderError;
 
 /// Identifies which wire protocol an agent session uses.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProtocolMode {
     Acp,
@@ -12,7 +12,7 @@ pub enum ProtocolMode {
 }
 
 /// Errors that can occur during protocol communication.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProtocolError {
     /// The child process exited unexpectedly with the given exit code.
     ProcessDied(i32),
@@ -77,6 +77,7 @@ pub enum ToolKind {
 
 /// Session lifecycle events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SessionEventKind {
     Connected,
     Reconnected,

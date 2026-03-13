@@ -79,6 +79,7 @@ mod tests {
     fn session_event_kind_roundtrips() {
         let kind = SessionEventKind::FallbackToPty;
         let json = serde_json::to_string(&kind).unwrap();
+        assert_eq!(json, "\"fallback_to_pty\"");
         let back: SessionEventKind = serde_json::from_str(&json).unwrap();
         assert_eq!(back, kind);
     }
