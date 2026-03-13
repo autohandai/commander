@@ -24,6 +24,7 @@ Wire ACP (Agentic Communication Protocol) and RPC (JSON-RPC 2.0) support into Co
 | Executor spawn contract | `execute()` always spawns a fresh process; callers may call it again after failure | Stateless between calls, safe for reconnect |
 | autohand runtime | External CLI binary, must be on PATH; Commander does not bundle it | Same model as Claude/Codex/Gemini |
 | Reconnect timeout | 10 seconds max for reconnect attempt before PTY fallback | Prevents indefinite hangs |
+| Probe timeout | 3 seconds max for `--help` protocol detection | Keeps startup fast |
 
 ---
 
@@ -579,21 +580,19 @@ The following frontend files must be updated to include `autohand`:
 
 ### CommanderError Extension
 
-Add a `Protocol` variant to the existing `CommanderError` enum:
+Add a `Protocol` variant to the existing `CommanderError` enum. Use a struct variant with named fields to match the existing enum style (`Git { operation, path, message }`, `Command { command, exit_code, message }`):
 
 ```rust
 pub enum CommanderError {
     // existing variants...
-    Git(String),
-    Project(String),
-    FileSystem(String),
-    Llm(String),
-    // new
-    Protocol(ProtocolError),
+    // new — flattened struct variant, consistent with existing style
+    Protocol { kind: String, code: Option<i32>, message: String },
 }
 ```
 
-### ProtocolError with Timeout
+The `kind` field maps to the `ProtocolError` variant name (e.g., `"process_died"`, `"parse_error"`, `"timeout"`). This avoids a nested enum and keeps the serde shape (`#[serde(tag = "type", content = "details")]`) consistent.
+
+Internal `ProtocolError` enum is used within executors only, and converted to `CommanderError::Protocol { .. }` at the boundary:
 
 ```rust
 pub enum ProtocolError {
@@ -601,6 +600,84 @@ pub enum ProtocolError {
     ParseError(String),
     AgentError { code: i32, message: String },
     WriteFailed(String),
-    Timeout(String),            // handshake or mid-stream timeout
+    Timeout(String),
+}
+
+impl From<ProtocolError> for CommanderError {
+    fn from(e: ProtocolError) -> Self {
+        match e {
+            ProtocolError::ProcessDied(code) =>
+                CommanderError::Protocol { kind: "process_died".into(), code: Some(code), message: format!("Process exited with code {code}") },
+            ProtocolError::Timeout(msg) =>
+                CommanderError::Protocol { kind: "timeout".into(), code: None, message: msg },
+            // ... etc
+        }
+    }
 }
 ```
+
+### AllAgentSettings Backward Compatibility
+
+Existing persisted stores (`all-agent-settings.json`) won't have an `autohand` key. The `autohand` field uses `#[serde(default)]` so deserialization of old data succeeds with default settings:
+
+```rust
+pub struct AllAgentSettings {
+    #[serde(default)]
+    pub autohand: AgentSettings,
+    pub claude: AgentSettings,
+    pub codex: AgentSettings,
+    pub gemini: AgentSettings,
+    pub max_concurrent_sessions: usize,
+}
+```
+
+### Ollama Agent
+
+`ollama` is retained as-is in the frontend (`agents.ts`, `useChatExecution.ts`). It is not added to `AGENT_DEFINITIONS` — it remains a frontend-only agent with its own dedicated Tauri command (`execute_ollama_command`). It does not participate in protocol probing. This is unchanged from today.
+
+### ExecutorFactory Flag Passing
+
+The factory passes the detected `flag_variant` to the executor constructor:
+
+```rust
+impl ExecutorFactory {
+    pub fn create(
+        agent: &str,
+        protocol_cache: &ProtocolCache,
+    ) -> Box<dyn AgentExecutor> {
+        let entry = protocol_cache.get(agent);
+        match entry.map(|e| &e.protocol) {
+            Some(Some(ProtocolMode::Acp)) => Box::new(AcpExecutor::new(entry.unwrap().flag_variant.clone())),
+            Some(Some(ProtocolMode::Rpc)) => Box::new(RpcExecutor::new(entry.unwrap().flag_variant.clone())),
+            _ => Box::new(PtyExecutor::new()),
+        }
+    }
+}
+```
+
+Executors use `flag_variant` (e.g., `Some("--acp")` or `Some("--mode acp")`) when building spawn args. If `None`, defaults to `--mode acp` / `--mode rpc`.
+
+### Interior Mutability for Executor Stdin
+
+Executors use interior mutability for the child process stdin handle, since `respond_permission(&self)` and `abort(&self)` need write access without `&mut self`:
+
+```rust
+pub struct AcpExecutor {
+    flag_variant: Option<String>,
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    child: Arc<Mutex<Option<Child>>>,
+}
+```
+
+This allows `respond_permission(&self)` and `abort(&self)` to acquire the lock and write without requiring `&mut self`. The `execute(&mut self)` method sets up these handles.
+
+### Reconnect Ownership Clarification
+
+In the fallback flow, the executor is a **local variable** (not the one stored in `SessionManager`). The flow:
+
+1. Create executor from factory → local variable
+2. Store it in `SessionManager` as `ActiveSession`
+3. On failure, the local var is used for reconnect (it spawns a fresh process)
+4. If reconnect fails, create a new `PtyExecutor` local var
+5. Call `session_manager.replace_executor()` to update the stored reference
+6. All paths end with the `SessionManager` holding the correct executor
