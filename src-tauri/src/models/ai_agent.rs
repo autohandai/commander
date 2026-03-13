@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::protocol::ProtocolMode;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIAgent {
     pub name: String,
@@ -11,6 +13,9 @@ pub struct AIAgent {
     pub installed_version: Option<String>,
     pub latest_version: Option<String>,
     pub upgrade_available: bool,
+    pub protocol: Option<ProtocolMode>,
+    pub is_default: bool,
+    pub removable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +54,8 @@ impl Default for AgentSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllAgentSettings {
+    #[serde(default)]
+    pub autohand: AgentSettings,
     pub claude: AgentSettings,
     pub codex: AgentSettings,
     pub gemini: AgentSettings,

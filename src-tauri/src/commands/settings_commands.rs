@@ -145,6 +145,7 @@ pub async fn load_all_agent_settings(app: tauri::AppHandle) -> Result<AllAgentSe
         None => {
             // Return default settings
             Ok(AllAgentSettings {
+                autohand: AgentSettings::default(),
                 claude: AgentSettings::default(),
                 codex: AgentSettings::default(),
                 gemini: AgentSettings::default(),

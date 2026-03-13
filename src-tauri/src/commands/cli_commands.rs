@@ -120,6 +120,7 @@ async fn build_agent_command_args(
     let agent_settings = load_all_agent_settings(app_handle.clone())
         .await
         .unwrap_or_else(|_| AllAgentSettings {
+            autohand: AgentSettings::default(),
             claude: AgentSettings::default(),
             codex: AgentSettings::default(),
             gemini: AgentSettings::default(),
@@ -777,6 +778,7 @@ pub async fn execute_persistent_cli_command(
             let all_agent_settings = load_all_agent_settings(app_clone.clone())
                 .await
                 .unwrap_or_else(|_| AllAgentSettings {
+                    autohand: AgentSettings::default(),
                     claude: AgentSettings::default(),
                     codex: AgentSettings::default(),
                     gemini: AgentSettings::default(),

@@ -75,6 +75,9 @@ impl<P: AgentProbe> AgentStatusService<P> {
                     installed_version: None,
                     latest_version: None,
                     upgrade_available: false,
+                    protocol: None,
+                    is_default: false,
+                    removable: true,
                 });
                 continue;
             }
@@ -195,6 +198,9 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 installed_version,
                 latest_version,
                 upgrade_available,
+                protocol: None,
+                is_default: false,
+                removable: true,
             });
         }
 
