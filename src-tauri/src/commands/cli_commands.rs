@@ -17,6 +17,7 @@ use crate::services::cli_command_builder::build_codex_command_args;
 use crate::services::cli_output_service::{sanitize_cli_output_line, CodexStreamAccumulator};
 use crate::services::codex_sdk_service::{build_codex_thread_prefs, CodexThreadPreferences};
 use crate::services::execution_mode_service::ExecutionMode;
+use crate::services::executors::AgentExecutor;
 use serde::{Deserialize, Serialize};
 use std::process::Command as StdCommand;
 
@@ -106,7 +107,7 @@ fn get_agent_quit_command(agent: &str) -> &str {
     }
 }
 
-async fn build_agent_command_args(
+pub(crate) async fn build_agent_command_args(
     agent: &str,
     message: &str,
     app_handle: &tauri::AppHandle,
@@ -185,7 +186,7 @@ async fn build_agent_command_args(
     args
 }
 
-fn build_claude_cli_args(
+pub(crate) fn build_claude_cli_args(
     message: &str,
     permission_mode: Option<&str>,
     settings: &AgentSettings,
@@ -385,14 +386,14 @@ async fn cleanup_inactive_sessions() -> Result<(), String> {
 }
 
 // Check if a command is available in the system
-async fn check_command_available(command: &str) -> bool {
+pub(crate) async fn check_command_available(command: &str) -> bool {
     // Prefer Rust which crate for reliability in GUI app contexts (PATH differences)
     which::which(command).is_ok()
 }
 
 // Try to spawn the command inside a PTY to get unbuffered, real-time output.
 // Falls back to stdio pipes in the caller if PTY spawn fails.
-async fn try_spawn_with_pty(
+pub(crate) async fn try_spawn_with_pty(
     app: tauri::AppHandle,
     session_id: String,
     agent: &str,
@@ -846,262 +847,40 @@ pub async fn execute_persistent_cli_command(
             return;
         }
 
-        // Build args once
-        let command_args = build_agent_command_args(
+        // Delegate PTY/pipe execution to PtyExecutor
+        let wd = working_dir.as_deref().unwrap_or("");
+        let settings = crate::commands::settings_commands::load_all_agent_settings(app_clone.clone())
+            .await
+            .unwrap_or_else(|_| AllAgentSettings {
+                autohand: AgentSettings::default(),
+                claude: AgentSettings::default(),
+                codex: AgentSettings::default(),
+                gemini: AgentSettings::default(),
+                max_concurrent_sessions: 10,
+            });
+        let agent_settings = match agent_name.as_str() {
+            "claude" => settings.claude.clone(),
+            "codex" => settings.codex.clone(),
+            "gemini" => settings.gemini.clone(),
+            _ => AgentSettings::default(),
+        };
+
+        let mut executor = crate::services::executors::pty_executor::PtyExecutor::new();
+        if let Err(e) = executor.execute(
+            &app_clone,
+            &session_id_clone,
             &agent_name,
             &actual_message,
-            &app_clone,
-            execution_mode.clone(),
-            dangerous_bypass,
-            permissionMode.clone(),
-        )
-        .await;
-
-        // Resolve absolute path of the executable to avoid PATH issues in GUI contexts
-        let resolved_prog = which::which(&agent_name)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or(agent_name.clone());
-
-        // Prefer PTY for richer streaming – Codex in particular emits carriage-return updates that
-        // disappear when spawned via plain pipes. `try_spawn_with_pty` respects the working
-        // directory, so we can safely attempt it regardless of `working_dir`.
-        let prefer_pty = working_dir.is_none()
-            || agent_name.eq_ignore_ascii_case("codex")
-            || agent_name.eq_ignore_ascii_case("claude")
-            || agent_name.eq_ignore_ascii_case("gemini");
-
-        if prefer_pty {
-            if let Err(e) = try_spawn_with_pty(
-                app_clone.clone(),
-                session_id_clone.clone(),
-                &agent_name,
-                &resolved_prog,
-                &command_args,
-                working_dir.clone(),
-            )
-            .await
-            {
-                // Inform about PTY fallback
-                let _ = app_clone.emit(
-                    "cli-stream",
-                    StreamChunk {
-                        session_id: session_id_clone.clone(),
-                        content: format!(
-                            "ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n",
-                            e
-                        ),
-                        finished: false,
-                    },
-                );
-            } else {
-                return; // PTY path handled end-to-end
-            }
-        }
-
-        let mut cmd = Command::new(&resolved_prog);
-        cmd.args(&command_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        if let Some(dir) = &working_dir {
-            println!("📁 PIPE: Setting working directory to: {}", dir);
-            cmd.current_dir(dir);
-        } else {
-            println!("⚠️  PIPE: No working directory - using system default");
-        }
-
-        match cmd.spawn() {
-            Ok(mut child) => {
-                // Stream stdout
-                if let Some(stdout) = child.stdout.take() {
-                    let app_for_stdout = app_clone.clone();
-                    let session_id_for_stdout = session_id_clone.clone();
-                    let agent_for_stdout = agent_name.clone();
-                    tokio::spawn(async move {
-                        if agent_for_stdout.eq_ignore_ascii_case("codex") {
-                            let mut reader = BufReader::new(stdout);
-                            let mut buf = vec![0u8; 4096];
-                            let mut accumulator = CodexStreamAccumulator::new();
-
-                            loop {
-                                match reader.read(&mut buf).await {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        let text = String::from_utf8_lossy(&buf[..n]);
-                                        for segment in accumulator.push_chunk(text.as_ref()) {
-                                            if let Some(filtered) = sanitize_cli_output_line(
-                                                &agent_for_stdout,
-                                                &segment,
-                                            ) {
-                                                let chunk = StreamChunk {
-                                                    session_id: session_id_for_stdout.clone(),
-                                                    content: filtered,
-                                                    finished: false,
-                                                };
-                                                let _ = app_for_stdout.emit("cli-stream", chunk);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let chunk = StreamChunk {
-                                            session_id: session_id_for_stdout.clone(),
-                                            content: format!("ERROR: {}\n", e),
-                                            finished: false,
-                                        };
-                                        let _ = app_for_stdout.emit("cli-stream", chunk);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if let Some(remaining) = accumulator.flush() {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stdout, &remaining)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stdout,
-                                        content: filtered,
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stdout.emit("cli-stream", chunk);
-                                }
-                            }
-                        } else {
-                            let reader = BufReader::new(stdout);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stdout, &line)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stdout.clone(),
-                                        content: filtered + "\n",
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stdout.emit("cli-stream", chunk);
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Stream stderr
-                if let Some(stderr) = child.stderr.take() {
-                    let app_for_stderr = app_clone.clone();
-                    let session_id_for_stderr = session_id_clone.clone();
-                    let agent_for_stderr = agent_name.clone();
-                    tokio::spawn(async move {
-                        if agent_for_stderr.eq_ignore_ascii_case("codex") {
-                            let mut reader = BufReader::new(stderr);
-                            let mut buf = vec![0u8; 4096];
-                            let mut accumulator = CodexStreamAccumulator::new();
-
-                            loop {
-                                match reader.read(&mut buf).await {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        let text = String::from_utf8_lossy(&buf[..n]);
-                                        for segment in accumulator.push_chunk(text.as_ref()) {
-                                            if let Some(filtered) = sanitize_cli_output_line(
-                                                &agent_for_stderr,
-                                                &segment,
-                                            ) {
-                                                let chunk = StreamChunk {
-                                                    session_id: session_id_for_stderr.clone(),
-                                                    content: format!("ERROR: {}\n", filtered),
-                                                    finished: false,
-                                                };
-                                                let _ = app_for_stderr.emit("cli-stream", chunk);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let chunk = StreamChunk {
-                                            session_id: session_id_for_stderr.clone(),
-                                            content: format!("ERROR: {}\n", e),
-                                            finished: false,
-                                        };
-                                        let _ = app_for_stderr.emit("cli-stream", chunk);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if let Some(remaining) = accumulator.flush() {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stderr, &remaining)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stderr,
-                                        content: format!("ERROR: {}\n", filtered),
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stderr.emit("cli-stream", chunk);
-                                }
-                            }
-                        } else {
-                            let reader = BufReader::new(stderr);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stderr, &line)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stderr.clone(),
-                                        content: format!("ERROR: {}\n", filtered),
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stderr.emit("cli-stream", chunk);
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Wait for completion
-                match child.wait().await {
-                    Ok(status) => {
-                        let final_chunk = StreamChunk {
-                            session_id: session_id_clone,
-                            content: if status.success() {
-                                String::new()
-                            } else {
-                                format!(
-                                    "\n❌ Command failed with exit code: {}\n",
-                                    status.code().unwrap_or(-1)
-                                )
-                            },
-                            finished: true,
-                        };
-                        let _ = app_clone.emit("cli-stream", final_chunk);
-                    }
-                    Err(e) => {
-                        let error_chunk = StreamChunk {
-                            session_id: session_id_clone,
-                            content: format!("❌ Process error: {}\n", e),
-                            finished: true,
-                        };
-                        let _ = app_clone.emit("cli-stream", error_chunk);
-                    }
-                }
-            }
-            Err(e) => {
-                let error_message = if e.kind() == std::io::ErrorKind::NotFound {
-                    format!("Command '{}' not found. Please make sure it's installed and available in your PATH.", agent_name)
-                } else {
-                    format!("Failed to start {}: {}", agent_name, e)
-                };
-
-                let error_chunk = StreamChunk {
-                    session_id: session_id_clone.clone(),
-                    content: format!("❌ {}\n", error_message),
-                    finished: true,
-                };
-                let _ = app_clone.emit("cli-stream", error_chunk);
-                return;
-            }
+            wd,
+            &agent_settings,
+            None,
+        ).await {
+            let error_chunk = StreamChunk {
+                session_id: session_id_clone.clone(),
+                content: format!("❌ Executor error: {}\n", e),
+                finished: true,
+            };
+            let _ = app_clone.emit("cli-stream", error_chunk);
         }
     });
 
