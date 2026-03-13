@@ -19,7 +19,7 @@ pub enum ProtocolError {
     /// Failed to parse a message from the agent.
     ParseError(String),
     /// The agent returned an application-level error.
-    AgentError(String),
+    AgentError { code: i32, message: String },
     /// Writing to the agent's stdin failed.
     WriteFailed(String),
     /// A request timed out.
@@ -33,7 +33,9 @@ impl fmt::Display for ProtocolError {
                 write!(f, "process_died: exit code {}", code)
             }
             ProtocolError::ParseError(msg) => write!(f, "parse_error: {}", msg),
-            ProtocolError::AgentError(msg) => write!(f, "agent_error: {}", msg),
+            ProtocolError::AgentError { code, message } => {
+                write!(f, "agent_error (code {}): {}", code, message)
+            }
             ProtocolError::WriteFailed(msg) => write!(f, "write_failed: {}", msg),
             ProtocolError::Timeout(msg) => write!(f, "timeout: {}", msg),
         }
@@ -45,12 +47,13 @@ impl From<ProtocolError> for CommanderError {
         let kind = match &err {
             ProtocolError::ProcessDied(_) => "process_died",
             ProtocolError::ParseError(_) => "parse_error",
-            ProtocolError::AgentError(_) => "agent_error",
+            ProtocolError::AgentError { .. } => "agent_error",
             ProtocolError::WriteFailed(_) => "write_failed",
             ProtocolError::Timeout(_) => "timeout",
         };
         let code = match &err {
             ProtocolError::ProcessDied(c) => Some(*c),
+            ProtocolError::AgentError { code, .. } => Some(*code),
             _ => None,
         };
         CommanderError::protocol(kind, code, err.to_string())
@@ -95,44 +98,47 @@ pub enum ProtocolEvent {
     ToolStart {
         session_id: String,
         tool_id: String,
-        kind: ToolKind,
-        input: serde_json::Value,
+        tool_name: String,
+        tool_kind: ToolKind,
+        args: Option<serde_json::Value>,
     },
     /// A running tool produced incremental output.
     ToolUpdate {
         session_id: String,
         tool_id: String,
-        output: String,
+        tool_name: String,
+        output: Option<String>,
     },
     /// A tool invocation has finished.
     ToolEnd {
         session_id: String,
         tool_id: String,
-        success: bool,
+        tool_name: String,
         output: Option<String>,
+        success: bool,
+        duration_ms: Option<u64>,
     },
     /// The agent is requesting user permission before proceeding.
     PermissionRequest {
         session_id: String,
-        tool_id: String,
+        request_id: String,
+        tool_name: String,
         description: String,
     },
     /// Arbitrary state changed in the session.
     StateChange {
         session_id: String,
-        key: String,
-        value: serde_json::Value,
+        status: String,
+        context_percent: Option<f64>,
     },
     /// A protocol-level error occurred.
     Error {
         session_id: String,
-        kind: String,
-        code: Option<i32>,
         message: String,
     },
     /// Session lifecycle notification.
     SessionEvent {
         session_id: String,
-        kind: SessionEventKind,
+        event: SessionEventKind,
     },
 }
