@@ -10,6 +10,7 @@ mod tests {
 
     fn all_enabled() -> HashMap<String, bool> {
         HashMap::from([
+            ("autohand".to_string(), true),
             ("claude".to_string(), true),
             ("codex".to_string(), true),
             ("gemini".to_string(), true),
@@ -124,6 +125,7 @@ mod tests {
     #[tokio::test]
     async fn agents_report_versions_without_false_upgrade_flag() {
         let probe = FakeProbe::new()
+            .with_command("autohand", true, Ok(Some("0.1.0".into())))
             .with_command("claude", true, Ok(Some("2.0.5 (Claude Code)".to_string())))
             .with_command("codex", true, Ok(Some("codex-cli 0.41.0".to_string())))
             .with_command("gemini", true, Ok(Some("0.6.1".to_string())))
@@ -181,6 +183,7 @@ mod tests {
     #[tokio::test]
     async fn newer_latest_version_triggers_upgrade_flag() {
         let probe = FakeProbe::new()
+            .with_command("autohand", true, Ok(Some("0.1.0".into())))
             .with_command("claude", true, Ok(Some("1.0.0".to_string())))
             .with_command("codex", true, Ok(Some("codex-cli 0.40.0".to_string())))
             .with_command("gemini", true, Ok(Some("0.6.0".to_string())))
@@ -220,6 +223,7 @@ mod tests {
     #[tokio::test]
     async fn missing_agent_surfaces_error_message() {
         let probe = FakeProbe::new()
+            .with_command("autohand", true, Ok(Some("0.1.0".into())))
             .with_command("claude", true, Ok(Some("1.0.0".to_string())))
             .with_command("codex", false, Err("command failed".to_string()))
             .with_command("gemini", true, Ok(Some("0.8.0".to_string())))
@@ -263,6 +267,7 @@ mod tests {
         enabled.insert("codex".to_string(), false);
 
         let probe = FakeProbe::new()
+            .with_command("autohand", true, Ok(Some("0.1.0".into())))
             .with_command("claude", true, Ok(Some("1.0.0".to_string())))
             .with_command("gemini", true, Ok(Some("0.9.0".to_string())))
             .with_package("@anthropic-ai/claude-code", Ok(None))
@@ -281,5 +286,33 @@ mod tests {
             0,
             "disabled agent should not trigger version probe"
         );
+    }
+
+    #[tokio::test]
+    async fn autohand_is_first_agent_and_non_removable() {
+        let probe = FakeProbe::new()
+            .with_command("autohand", true, Ok(Some("0.1.0".into())))
+            .with_command("claude", true, Ok(Some("2.0.0".into())))
+            .with_command("codex", true, Ok(Some("1.0.0".into())))
+            .with_command("gemini", true, Ok(Some("1.0.0".into())))
+            .with_package("@anthropic-ai/claude-code", Ok(None))
+            .with_installed_package("@anthropic-ai/claude-code", Ok(None))
+            .with_package("@openai/codex", Ok(None))
+            .with_installed_package("@openai/codex", Ok(None))
+            .with_package("@google/gemini-cli", Ok(None))
+            .with_installed_package("@google/gemini-cli", Ok(None));
+
+        let service = AgentStatusService::with_probe(probe);
+        let mut enabled = HashMap::new();
+        enabled.insert("autohand".to_string(), true);
+        enabled.insert("claude".to_string(), true);
+        enabled.insert("codex".to_string(), true);
+        enabled.insert("gemini".to_string(), true);
+
+        let status = service.check_agents(&enabled).await.unwrap();
+        let autohand = &status.agents[0];
+        assert_eq!(autohand.name, "autohand");
+        assert!(autohand.is_default);
+        assert!(!autohand.removable);
     }
 }

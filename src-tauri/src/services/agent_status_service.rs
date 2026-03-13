@@ -11,22 +11,32 @@ use crate::models::ai_agent::{AIAgent, AgentStatus};
 
 const AGENT_DEFINITIONS: &[AgentDefinition] = &[
     AgentDefinition {
+        id: "autohand",
+        command: "autohand",
+        display_name: "Autohand",
+        package: None,
+        removable: false,
+    },
+    AgentDefinition {
         id: "claude",
         command: "claude",
         display_name: "Claude Code CLI",
         package: Some("@anthropic-ai/claude-code"),
+        removable: true,
     },
     AgentDefinition {
         id: "codex",
         command: "codex",
         display_name: "Codex",
         package: Some("@openai/codex"),
+        removable: true,
     },
     AgentDefinition {
         id: "gemini",
         command: "gemini",
         display_name: "Gemini",
         package: Some("@google/gemini-cli"),
+        removable: true,
     },
 ];
 
@@ -36,6 +46,7 @@ struct AgentDefinition {
     command: &'static str,
     display_name: &'static str,
     package: Option<&'static str>,
+    removable: bool,
 }
 
 pub struct AgentStatusService<P: AgentProbe = SystemAgentProbe> {
@@ -76,8 +87,8 @@ impl<P: AgentProbe> AgentStatusService<P> {
                     latest_version: None,
                     upgrade_available: false,
                     protocol: None,
-                    is_default: false,
-                    removable: true,
+                    is_default: definition.id == "autohand",
+                    removable: definition.removable,
                 });
                 continue;
             }
@@ -199,8 +210,8 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 latest_version,
                 upgrade_available,
                 protocol: None,
-                is_default: false,
-                removable: true,
+                is_default: definition.id == "autohand",
+                removable: definition.removable,
             });
         }
 
