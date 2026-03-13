@@ -5,6 +5,7 @@ pub mod cli_command_builder;
 pub mod cli_output_service;
 pub mod codex_sdk_service;
 pub mod execution_mode_service;
+pub mod executor_tests;
 pub mod file_service;
 pub mod git_service_enhanced;
 pub mod prompt_service;
