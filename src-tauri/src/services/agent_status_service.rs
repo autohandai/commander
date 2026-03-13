@@ -8,6 +8,7 @@ use tokio::process::Command;
 use which::which;
 
 use crate::models::ai_agent::{AIAgent, AgentStatus};
+use crate::models::protocol::ProtocolMode;
 
 const AGENT_DEFINITIONS: &[AgentDefinition] = &[
     AgentDefinition {
@@ -51,23 +52,28 @@ struct AgentDefinition {
 
 pub struct AgentStatusService<P: AgentProbe = SystemAgentProbe> {
     probe: P,
+    protocol_cache: ProtocolCache,
 }
 
 impl AgentStatusService<SystemAgentProbe> {
     pub fn new() -> Self {
         Self {
             probe: SystemAgentProbe,
+            protocol_cache: ProtocolCache::new(),
         }
     }
 }
 
 impl<P: AgentProbe> AgentStatusService<P> {
     pub fn with_probe(probe: P) -> Self {
-        Self { probe }
+        Self {
+            probe,
+            protocol_cache: ProtocolCache::new(),
+        }
     }
 
     pub async fn check_agents(
-        &self,
+        &mut self,
         enabled: &HashMap<String, bool>,
     ) -> Result<AgentStatus, String> {
         let mut agents = Vec::new();
@@ -199,6 +205,19 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 }
             }
 
+            // Protocol probing: detect protocol if version changed or not yet cached
+            let version_str = command_version.clone().unwrap_or_default();
+            if available && self.protocol_cache.needs_reprobe(definition.id, &version_str) {
+                if let Ok(detected) = self.probe.detect_protocol(definition.command).await {
+                    let entry = ProtocolCacheEntry {
+                        protocol: detected.as_ref().map(|(mode, _)| *mode),
+                        agent_version: version_str.clone(),
+                        flag_variant: detected.map(|(_, flag)| flag),
+                    };
+                    self.protocol_cache.set(definition.id, entry);
+                }
+            }
+
             agents.push(AIAgent {
                 name: definition.id.to_string(),
                 command: definition.command.to_string(),
@@ -209,7 +228,7 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 installed_version,
                 latest_version,
                 upgrade_available,
-                protocol: None,
+                protocol: self.protocol_cache.get(definition.id).and_then(|e| e.protocol),
                 is_default: definition.id == "autohand",
                 removable: definition.removable,
             });
@@ -239,6 +258,7 @@ pub trait AgentProbe: Send + Sync {
     async fn command_version(&self, command: &str) -> Result<Option<String>, String>;
     async fn latest_package_version(&self, package: &str) -> Result<Option<String>, String>;
     async fn installed_package_version(&self, package: &str) -> Result<Option<String>, String>;
+    async fn detect_protocol(&self, command: &str) -> Result<Option<(ProtocolMode, String)>, String>;
 }
 
 pub struct SystemAgentProbe;
@@ -363,5 +383,74 @@ impl AgentProbe for SystemAgentProbe {
             .map(|s| s.to_string());
 
         Ok(version)
+    }
+
+    async fn detect_protocol(&self, command: &str) -> Result<Option<(ProtocolMode, String)>, String> {
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            tokio::process::Command::new(command)
+                .arg("--help")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output(),
+        )
+        .await
+        .map_err(|_| "Help probe timed out".to_string())?
+        .map_err(|e| format!("Failed to run --help: {e}"))?;
+
+        let combined = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+
+        // Check for ACP flags first (prefer ACP over RPC if both present)
+        if combined.contains("--mode acp") {
+            return Ok(Some((ProtocolMode::Acp, "--mode acp".to_string())));
+        }
+        if combined.contains("--acp") {
+            return Ok(Some((ProtocolMode::Acp, "--acp".to_string())));
+        }
+        if combined.contains("--mode rpc") {
+            return Ok(Some((ProtocolMode::Rpc, "--mode rpc".to_string())));
+        }
+        if combined.contains("--rpc") {
+            return Ok(Some((ProtocolMode::Rpc, "--rpc".to_string())));
+        }
+
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProtocolCacheEntry {
+    pub protocol: Option<ProtocolMode>,
+    pub agent_version: String,
+    pub flag_variant: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct ProtocolCache {
+    entries: HashMap<String, ProtocolCacheEntry>,
+}
+
+impl ProtocolCache {
+    pub fn new() -> Self {
+        Self { entries: HashMap::new() }
+    }
+
+    pub fn get(&self, agent: &str) -> Option<&ProtocolCacheEntry> {
+        self.entries.get(agent)
+    }
+
+    pub fn set(&mut self, agent: &str, entry: ProtocolCacheEntry) {
+        self.entries.insert(agent.to_string(), entry);
+    }
+
+    pub fn needs_reprobe(&self, agent: &str, current_version: &str) -> bool {
+        match self.entries.get(agent) {
+            Some(entry) => entry.agent_version != current_version,
+            None => true,
+        }
     }
 }

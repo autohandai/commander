@@ -345,9 +345,8 @@ pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, Strin
         ])
     });
 
-    AgentStatusService::new()
-        .check_agents(&enabled_agents)
-        .await
+    let mut service = AgentStatusService::new();
+    service.check_agents(&enabled_agents).await
 }
 
 #[tauri::command]

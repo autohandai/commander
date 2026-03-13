@@ -6,7 +6,10 @@ mod tests {
     use async_trait::async_trait;
 
     use crate::models::ai_agent::AIAgent;
-    use crate::services::agent_status_service::{AgentProbe, AgentStatusService};
+    use crate::models::protocol::ProtocolMode;
+    use crate::services::agent_status_service::{
+        AgentProbe, AgentStatusService, ProtocolCache, ProtocolCacheEntry,
+    };
 
     fn all_enabled() -> HashMap<String, bool> {
         HashMap::from([
@@ -29,6 +32,7 @@ mod tests {
         latest_packages: HashMap<String, Result<Option<String>, String>>,
         installed_packages: HashMap<String, Result<Option<String>, String>>,
         version_calls: Arc<Mutex<HashMap<String, usize>>>,
+        help_outputs: HashMap<String, String>,
     }
 
     impl FakeProbe {
@@ -38,6 +42,7 @@ mod tests {
                 latest_packages: HashMap::new(),
                 installed_packages: HashMap::new(),
                 version_calls: Arc::new(Mutex::new(HashMap::new())),
+                help_outputs: HashMap::new(),
             }
         }
 
@@ -63,6 +68,11 @@ mod tests {
             version: Result<Option<String>, String>,
         ) -> Self {
             self.installed_packages.insert(package.to_string(), version);
+            self
+        }
+
+        fn with_help_output(mut self, command: &str, output: &str) -> Self {
+            self.help_outputs.insert(command.to_string(), output.to_string());
             self
         }
 
@@ -113,6 +123,23 @@ mod tests {
                 .unwrap_or_else(|| panic!("unexpected package call for {package}"))
                 .clone()
         }
+
+        async fn detect_protocol(&self, command: &str) -> Result<Option<(ProtocolMode, String)>, String> {
+            let help = self.help_outputs.get(command).cloned().unwrap_or_default();
+            if help.contains("--mode acp") {
+                return Ok(Some((ProtocolMode::Acp, "--mode acp".into())));
+            }
+            if help.contains("--acp") {
+                return Ok(Some((ProtocolMode::Acp, "--acp".into())));
+            }
+            if help.contains("--mode rpc") {
+                return Ok(Some((ProtocolMode::Rpc, "--mode rpc".into())));
+            }
+            if help.contains("--rpc") {
+                return Ok(Some((ProtocolMode::Rpc, "--rpc".into())));
+            }
+            Ok(None)
+        }
     }
 
     fn find_agent<'a>(agents: &'a [AIAgent], name: &str) -> &'a AIAgent {
@@ -137,7 +164,7 @@ mod tests {
         let probe =
             probe.with_installed_package("@google/gemini-cli", Ok(Some("0.6.1".to_string())));
 
-        let service = AgentStatusService::with_probe(probe.clone());
+        let mut service = AgentStatusService::with_probe(probe.clone());
         let status = service
             .check_agents(&all_enabled())
             .await
@@ -195,7 +222,7 @@ mod tests {
         let probe =
             probe.with_installed_package("@google/gemini-cli", Ok(Some("0.6.0".to_string())));
 
-        let service = AgentStatusService::with_probe(probe);
+        let mut service = AgentStatusService::with_probe(probe);
         let status = service
             .check_agents(&all_enabled())
             .await
@@ -235,7 +262,7 @@ mod tests {
         let probe =
             probe.with_installed_package("@google/gemini-cli", Ok(Some("0.8.0".to_string())));
 
-        let service = AgentStatusService::with_probe(probe);
+        let mut service = AgentStatusService::with_probe(probe);
         let status = service
             .check_agents(&all_enabled())
             .await
@@ -275,7 +302,7 @@ mod tests {
             .with_package("@google/gemini-cli", Ok(None))
             .with_installed_package("@google/gemini-cli", Ok(Some("0.9.0".to_string())));
 
-        let service = AgentStatusService::with_probe(probe.clone());
+        let mut service = AgentStatusService::with_probe(probe.clone());
         let status = service.check_agents(&enabled).await.expect("status ok");
 
         let codex = find_agent(&status.agents, "codex");
@@ -302,7 +329,7 @@ mod tests {
             .with_package("@google/gemini-cli", Ok(None))
             .with_installed_package("@google/gemini-cli", Ok(None));
 
-        let service = AgentStatusService::with_probe(probe);
+        let mut service = AgentStatusService::with_probe(probe);
         let mut enabled = HashMap::new();
         enabled.insert("autohand".to_string(), true);
         enabled.insert("claude".to_string(), true);
@@ -314,5 +341,46 @@ mod tests {
         assert_eq!(autohand.name, "autohand");
         assert!(autohand.is_default);
         assert!(!autohand.removable);
+    }
+
+    #[tokio::test]
+    async fn detect_protocol_finds_acp_in_help_output() {
+        let probe = FakeProbe::new()
+            .with_command("autohand", true, Ok(Some("0.1.0".into())))
+            .with_help_output("autohand", "Usage: autohand [OPTIONS]\n  --mode acp   Use ACP protocol\n  --mode rpc   Use RPC protocol\n");
+
+        let result = probe.detect_protocol("autohand").await.unwrap();
+        assert_eq!(result, Some((ProtocolMode::Acp, "--mode acp".to_string())));
+    }
+
+    #[tokio::test]
+    async fn detect_protocol_finds_rpc_flag() {
+        let probe = FakeProbe::new()
+            .with_help_output("myagent", "Options:\n  --rpc   Enable JSON-RPC mode\n");
+
+        let result = probe.detect_protocol("myagent").await.unwrap();
+        assert_eq!(result, Some((ProtocolMode::Rpc, "--rpc".to_string())));
+    }
+
+    #[tokio::test]
+    async fn detect_protocol_returns_none_when_no_flags() {
+        let probe = FakeProbe::new()
+            .with_help_output("basic", "Usage: basic [prompt]\n  --verbose  Enable verbose output\n");
+
+        let result = probe.detect_protocol("basic").await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn protocol_cache_invalidates_on_version_change() {
+        let mut cache = ProtocolCache::new();
+        cache.set("autohand", ProtocolCacheEntry {
+            protocol: Some(ProtocolMode::Acp),
+            agent_version: "0.1.0".into(),
+            flag_variant: Some("--mode acp".into()),
+        });
+
+        assert!(cache.needs_reprobe("autohand", "0.2.0"));
+        assert!(!cache.needs_reprobe("autohand", "0.1.0"));
     }
 }
