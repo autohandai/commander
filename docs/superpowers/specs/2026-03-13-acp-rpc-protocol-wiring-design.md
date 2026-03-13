@@ -19,6 +19,11 @@ Wire ACP (Agentic Communication Protocol) and RPC (JSON-RPC 2.0) support into Co
 | Session resumption | Pass `--resume <session_id>` on reconnect | Agent-side context restoration, zero replay |
 | Default protocol for autohand | Let autohand decide (probe `--help`) | No hardcoded preference for ACP vs RPC |
 | autohand status | Default agent, non-removable, always first in status bar | First-citizen treatment |
+| Concurrency model | Executors run inside `tokio::spawn` (fire-and-forget), errors emitted as events | Matches existing pattern in `execute_persistent_cli_command()` |
+| Session state | New `SessionManager` replaces existing `SESSIONS` global entirely | Single source of truth, no dual ownership |
+| Executor spawn contract | `execute()` always spawns a fresh process; callers may call it again after failure | Stateless between calls, safe for reconnect |
+| autohand runtime | External CLI binary, must be on PATH; Commander does not bundle it | Same model as Claude/Codex/Gemini |
+| Reconnect timeout | 10 seconds max for reconnect attempt before PTY fallback | Prevents indefinite hangs |
 
 ---
 
@@ -82,9 +87,13 @@ pub trait AgentProbe: Send + Sync {
 }
 ```
 
-`detect_protocol()` runs `<command> --help` and parses for `--acp`, `--rpc`, `--mode acp`, `--mode rpc` keywords. Returns `Some(Acp)`, `Some(Rpc)`, or `None` (PTY only).
+`detect_protocol()` runs `<command> --help` (capturing both stdout and stderr) and parses for `--acp`, `--rpc`, `--mode acp`, `--mode rpc` keywords. Returns `Some(Acp)`, `Some(Rpc)`, or `None` (PTY only).
 
 Accepted flags from any CLI: `--acp`, `--rpc`, `--mode acp`, `--mode rpc`.
+
+Additionally, the `ProtocolCacheEntry` stores the detected flag variant (e.g., `"--acp"` vs `"--mode acp"`) so executors know which flag to pass at spawn time. If `--help` fails or times out (3-second limit), the agent is treated as PTY-only.
+
+Settings override: users can manually configure a protocol per agent in settings, which takes precedence over the probe result.
 
 ### Protocol Cache
 
@@ -96,6 +105,7 @@ struct ProtocolCache {
 struct ProtocolCacheEntry {
     protocol: Option<ProtocolMode>,
     agent_version: String,
+    flag_variant: Option<String>,   // e.g., "--acp", "--mode acp", "--rpc", "--mode rpc"
 }
 ```
 
@@ -127,11 +137,20 @@ pub struct AIAgent {
 
 ## Section 2: Executor Trait & Implementations
 
+### Concurrency Model
+
+Executors run inside `tokio::spawn`, matching the existing fire-and-forget pattern. The Tauri command returns `Ok(())` immediately; all results and errors are communicated via event emissions. This is unchanged from how `execute_persistent_cli_command()` works today.
+
+### Executor Spawn Contract
+
+Each call to `execute()` spawns a **fresh child process**. Executors hold no state between calls — they are effectively stateless factories for process lifecycles. This means calling `execute()` again after a failure is safe and triggers a new process spawn (with `--resume <session_id>` if available).
+
 ### AgentExecutor Trait
 
 ```rust
 #[async_trait]
 pub trait AgentExecutor: Send + Sync {
+    /// Spawn a fresh process and stream events. Each call creates a new child process.
     async fn execute(
         &mut self,
         app: &tauri::AppHandle,
@@ -140,9 +159,13 @@ pub trait AgentExecutor: Send + Sync {
         message: &str,
         working_dir: &str,
         settings: &AgentSettings,
+        resume_session_id: Option<&str>,    // for --resume on reconnect
     ) -> Result<(), CommanderError>;
 
     async fn abort(&self) -> Result<(), CommanderError>;
+
+    /// Write a permission response to the agent's stdin
+    async fn respond_permission(&self, request_id: &str, approved: bool) -> Result<(), CommanderError>;
 
     fn is_alive(&self) -> bool;
 
@@ -192,26 +215,34 @@ impl ExecutorFactory {
 
 ### Fallback Flow
 
+Runs inside `tokio::spawn` (fire-and-forget). Errors are emitted as events, not returned.
+
 ```rust
 let mut executor = ExecutorFactory::create(&agent, &protocol_cache);
-let result = executor.execute(&app, &session_id, &agent, &message, &dir, &settings).await;
+let result = executor.execute(&app, &session_id, &agent, &message, &dir, &settings, None).await;
 
 if let Err(e) = result {
     if executor.protocol().is_some() {
         // Surface error
         emit_error(&app, &session_id, &format!("Protocol error: {e}"));
 
-        // Try reconnect with session ID
-        let reconnect = executor.execute(&app, &session_id, &agent, &message, &dir, &settings).await;
+        // Try reconnect with session ID (10-second timeout)
+        let agent_sid = session_manager.get_agent_session_id(&session_id);
+        let reconnect = tokio::time::timeout(
+            Duration::from_secs(10),
+            executor.execute(&app, &session_id, &agent, &message, &dir, &settings, agent_sid.as_deref()),
+        ).await;
 
         if reconnect.is_err() {
             // Final fallback to PTY
             emit_notice(&app, &session_id, "Falling back to raw mode");
             let mut pty = PtyExecutor::new();
-            pty.execute(&app, &session_id, &agent, &message, &dir, &settings).await?;
+            pty.execute(&app, &session_id, &agent, &message, &dir, &settings, None).await?;
+            // Update session with new executor
+            session_manager.replace_executor(&session_id, Box::new(pty));
         }
     } else {
-        return Err(e);
+        emit_error(&app, &session_id, &format!("Execution error: {e}"));
     }
 }
 ```
@@ -249,17 +280,20 @@ pub enum ProtocolEvent {
     },
     ToolStart {
         session_id: String,
+        tool_id: String,            // unique ID for correlating Start/Update/End
         tool_name: String,
         tool_kind: ToolKind,
         args: Option<Value>,
     },
     ToolUpdate {
         session_id: String,
+        tool_id: String,
         tool_name: String,
         output: Option<String>,
     },
     ToolEnd {
         session_id: String,
+        tool_id: String,
         tool_name: String,
         output: Option<String>,
         success: bool,
@@ -403,6 +437,10 @@ No changes to the 10-second polling loop logic. `AgentStatusService::check_agent
 
 ### Session Tracking
 
+`SessionManager` **fully replaces** the existing `static SESSIONS: Lazy<Arc<Mutex<HashMap<...>>>>` global in `cli_commands.rs`. The old `ActiveSession` struct (which held `process: Arc<Mutex<Option<Child>>>` and `stdin_sender`) is superseded — the executor now owns the child process internally.
+
+`SessionManager` is registered as Tauri managed state (`app.manage(Arc::new(Mutex::new(SessionManager::new())))`) so that all Tauri commands (including `respond_permission`) can access it via `State<Arc<Mutex<SessionManager>>>`.
+
 ```rust
 pub struct SessionManager {
     sessions: HashMap<String, ActiveSession>,
@@ -416,11 +454,39 @@ pub struct ActiveSession {
     pub agent_session_id: Option<String>,   // for --resume
     pub started_at: Instant,
 }
+
+impl SessionManager {
+    pub fn get_agent_session_id(&self, session_id: &str) -> Option<String>;
+    pub fn replace_executor(&mut self, session_id: &str, executor: Box<dyn AgentExecutor>);
+    pub fn close_session(&mut self, session_id: &str);
+}
 ```
 
 - Created when `execute_persistent_cli_command()` spawns an executor.
 - `agent_session_id` captured from the agent's first response (ACP `state_change` or RPC `agent_start`).
 - Destroyed when session ends or user closes the chat.
+
+### Permission Response Routing
+
+The `respond_permission` Tauri command accesses `SessionManager` via Tauri managed state:
+
+```rust
+#[tauri::command]
+pub async fn respond_permission(
+    session_manager: State<'_, Arc<Mutex<SessionManager>>>,
+    session_id: String,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    let manager = session_manager.lock().await;
+    if let Some(session) = manager.sessions.get(&session_id) {
+        session.executor.respond_permission(&request_id, approved).await
+            .map_err(|e| e.to_string())
+    } else {
+        Err(format!("No active session: {session_id}"))
+    }
+}
+```
 
 ### Reconnection Flow
 
@@ -473,3 +539,68 @@ if let Some(session) = self.sessions.remove(&session_id) {
 ```
 
 ACP sends `{"type":"command","data":{"command":"shutdown"}}`. RPC sends `shutdown()` JSON-RPC request. If no response within 2 seconds, SIGKILL.
+
+---
+
+## Section 6: Integration Points
+
+### Autohand Runtime Identity
+
+`autohand` is an **external CLI binary** that must be installed on the user's system and present in PATH. Commander does not bundle it. If `which autohand` fails, it shows as "unavailable" in the status bar (red dot) with an installation hint — same behavior as Claude/Codex/Gemini today.
+
+### AllAgentSettings Update
+
+The existing `AllAgentSettings` struct adds an `autohand` field:
+
+```rust
+pub struct AllAgentSettings {
+    pub autohand: AgentSettings,    // new — always present
+    pub claude: AgentSettings,
+    pub codex: AgentSettings,
+    pub gemini: AgentSettings,
+    pub max_concurrent_sessions: usize,
+}
+```
+
+### Frontend Agent Registration
+
+The following frontend files must be updated to include `autohand`:
+
+- `src/components/chat/agents.ts`:
+  - Add `"autohand"` to `allowedAgentIds`
+  - Add entry to `AGENTS` array, `DISPLAY_TO_ID`, and `AGENT_CAPABILITIES`
+- `src/components/chat/hooks/useChatExecution.ts`:
+  - Add `autohand` to `agentCommandMap` pointing to `execute_persistent_cli_command`
+- `src/components/AIAgentStatusBar.tsx`:
+  - Render autohand first, with non-removable styling
+  - Add protocol badge rendering
+- `src/components/ChatInterface.tsx`:
+  - Wire `useProtocolEvents` alongside existing `useCLIEvents`
+
+### CommanderError Extension
+
+Add a `Protocol` variant to the existing `CommanderError` enum:
+
+```rust
+pub enum CommanderError {
+    // existing variants...
+    Git(String),
+    Project(String),
+    FileSystem(String),
+    Llm(String),
+    // new
+    Protocol(ProtocolError),
+}
+```
+
+### ProtocolError with Timeout
+
+```rust
+pub enum ProtocolError {
+    ProcessDied(i32),
+    ParseError(String),
+    AgentError { code: i32, message: String },
+    WriteFailed(String),
+    Timeout(String),            // handshake or mid-stream timeout
+}
+```
