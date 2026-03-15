@@ -13,3 +13,4 @@ pub mod rpc_executor_tests;
 pub mod git_service_enhanced;
 pub mod prompt_service;
 pub mod recent_projects;
+pub mod session_manager_tests;

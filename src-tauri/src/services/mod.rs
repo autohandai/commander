@@ -10,4 +10,5 @@ pub mod git_service;
 pub mod llm_service;
 pub mod project_service;
 pub mod prompt_service;
+pub mod session_manager;
 pub mod sub_agent_service;
