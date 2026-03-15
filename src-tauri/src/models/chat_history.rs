@@ -32,6 +32,27 @@ pub struct ChatSession {
     pub branch: Option<String>,
     pub message_count: usize,
     pub summary: String, // First user message or auto-generated summary
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub custom_title: Option<String>,
+    #[serde(default)]
+    pub ai_summary: Option<String>,
+    #[serde(default)]
+    pub forked_from: Option<String>,
+    /// "local" or "indexed" — default "local"
+    #[serde(default = "default_source_local")]
+    pub source: String,
+    /// Path to agent source file (indexed sessions only)
+    #[serde(default)]
+    pub source_file: Option<String>,
+    /// LLM model name (e.g., "opus", "codex")
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+fn default_source_local() -> String {
+    "local".to_string()
 }
 
 /// Sessions index for efficient loading
@@ -169,6 +190,33 @@ impl ChatSession {
             branch: None,
             message_count: 0,
             summary: generate_summary(first_message),
+            archived: false,
+            custom_title: None,
+            ai_summary: None,
+            forked_from: None,
+            source: "local".to_string(),
+            source_file: None,
+            model: None,
+        }
+    }
+
+    /// Convert from an IndexedSession (from the indexer DB) to a ChatSession
+    pub fn from_indexed(idx: &crate::models::indexer::IndexedSession) -> Self {
+        Self {
+            id: format!("idx-{}-{}", idx.agent_id, idx.original_id),
+            start_time: idx.session_start,
+            end_time: idx.session_end.unwrap_or(idx.session_start),
+            agent: idx.agent_id.clone(),
+            branch: None,
+            message_count: idx.message_count as usize,
+            summary: format!("{} messages", idx.message_count),
+            archived: false,
+            custom_title: None,
+            ai_summary: None,
+            forked_from: None,
+            source: "indexed".to_string(),
+            source_file: Some(idx.source_file.clone()),
+            model: idx.model.clone(),
         }
     }
 

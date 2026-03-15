@@ -127,11 +127,11 @@ pub struct McpConfig {
 /// Provider-specific details (API key, model override, base URL).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderDetails {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "apiKey")]
     pub api_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "baseUrl")]
     pub base_url: Option<String>,
 }
 
@@ -146,7 +146,7 @@ pub struct PermissionsConfig {
     pub blacklist: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "rememberSession")]
     pub remember_session: bool,
 }
 

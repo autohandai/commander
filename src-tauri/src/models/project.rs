@@ -1,7 +1,7 @@
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
-const ALLOWED_DEFAULT_CLI_AGENTS: &[&str] = &["claude", "codex", "gemini", "ollama"];
+const ALLOWED_DEFAULT_CLI_AGENTS: &[&str] = &["autohand", "claude", "codex", "gemini"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecentProject {
@@ -16,6 +16,20 @@ pub struct RecentProject {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectsData {
     pub projects: Vec<RecentProject>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectGitWorktree {
+    pub path: String,
+    pub branch: Option<String>,
+    pub is_main: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectApplicationTarget {
+    pub id: String,
+    pub label: String,
+    pub installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +66,20 @@ pub struct AppSettings {
     #[serde(default = "default_has_completed_onboarding")]
     /// Whether the user has completed the onboarding guide
     pub has_completed_onboarding: bool,
+    #[serde(default = "default_dashboard_time_range")]
+    pub dashboard_time_range: u32,
+    #[serde(default = "default_time_saved_multiplier")]
+    pub time_saved_multiplier: f32,
+    #[serde(default = "default_dashboard_color_palette")]
+    pub dashboard_color_palette: String,
+    #[serde(default)]
+    pub show_dashboard_activity: Option<bool>,
+    #[serde(default = "default_dashboard_chart_type")]
+    /// Dashboard chart type: "scatter" | "knowledge-base"
+    pub dashboard_chart_type: String,
+    #[serde(default = "default_show_onboarding_on_start")]
+    /// Whether to show the onboarding guide on every app start
+    pub show_onboarding_on_start: bool,
 }
 
 fn default_show_console_output() -> bool {
@@ -125,6 +153,11 @@ fn default_auto_collapse_sidebar() -> bool {
 fn default_show_file_explorer() -> bool { true }
 fn default_suggest_create_agents_md() -> bool { true }
 fn default_has_completed_onboarding() -> bool { false }
+fn default_dashboard_time_range() -> u32 { 30 }
+fn default_time_saved_multiplier() -> f32 { 5.0 }
+fn default_dashboard_color_palette() -> String { "default".to_string() }
+fn default_dashboard_chart_type() -> String { "scatter".to_string() }
+fn default_show_onboarding_on_start() -> bool { false }
 
 impl Default for CodeSettings {
     fn default() -> Self {
@@ -151,6 +184,12 @@ impl Default for AppSettings {
             code_settings: CodeSettings::default(),
             suggest_create_agents_md: default_suggest_create_agents_md(),
             has_completed_onboarding: default_has_completed_onboarding(),
+            dashboard_time_range: default_dashboard_time_range(),
+            time_saved_multiplier: default_time_saved_multiplier(),
+            dashboard_color_palette: default_dashboard_color_palette(),
+            show_dashboard_activity: None,
+            dashboard_chart_type: default_dashboard_chart_type(),
+            show_onboarding_on_start: default_show_onboarding_on_start(),
         }
     }
 }
