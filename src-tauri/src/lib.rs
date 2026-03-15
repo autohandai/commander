@@ -3,8 +3,10 @@
 // appear "unused" to the compiler during test compilation.
 #![cfg_attr(test, allow(dead_code, unused_imports))]
 
+use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::Emitter;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
 
 // Import all modules
 mod commands;
@@ -106,6 +108,100 @@ fn create_native_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>,
     Ok(menu)
 }
 
+/// Build the tray context menu with agent statuses.
+/// `agents` is a list of (display_name, available) tuples.
+pub fn build_tray_menu(
+    app: &tauri::AppHandle,
+    agents: &[(String, bool)],
+) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
+    let show_item = MenuItemBuilder::with_id("show_commander", "Show Commander").build(app)?;
+    let settings_item = MenuItemBuilder::with_id("tray_preferences", "Settings...").build(app)?;
+    let updates_item =
+        MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("tray_quit", "Quit Commander").build(app)?;
+
+    let mut builder = MenuBuilder::new(app)
+        .item(&show_item)
+        .item(&settings_item)
+        .separator();
+
+    // Add agent status items (display-only)
+    for (name, available) in agents {
+        let icon = if *available { "\u{25CF}" } else { "\u{25CB}" };
+        let status_text = if *available { "available" } else { "not found" };
+        let label = format!("{} {}  {}", icon, name, status_text);
+        let item = MenuItemBuilder::with_id(format!("agent_{}", name.to_lowercase()), &label)
+            .enabled(false)
+            .build(app)?;
+        builder = builder.item(&item);
+    }
+
+    builder = builder
+        .separator()
+        .item(&updates_item)
+        .separator()
+        .item(&quit_item);
+
+    builder.build()
+}
+
+/// Create the system tray icon with initial menu.
+fn create_tray(app: &tauri::App) -> Result<(), tauri::Error> {
+    let handle = app.handle();
+
+    // Initial agent list (will be updated by monitor_ai_agents)
+    let initial_agents: Vec<(String, bool)> = vec![
+        ("Claude".to_string(), false),
+        ("Codex".to_string(), false),
+        ("Gemini".to_string(), false),
+        ("Ollama".to_string(), false),
+    ];
+
+    let menu = build_tray_menu(handle, &initial_agents)?;
+
+    let _tray = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("Commander")
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show_commander" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "tray_preferences" => {
+                let _ = app.emit("tray://open-settings", ());
+            }
+            "check_updates" => {
+                let _ = app.emit("tray://check-updates", ());
+            }
+            "tray_quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[cfg(not(test))]
 pub fn run() {
@@ -160,6 +256,7 @@ pub fn run() {
             fetch_agent_models,
             check_ai_agents,
             monitor_ai_agents,
+            detect_cli_agents,
             generate_plan,
             load_prompts,
             save_prompts,
@@ -175,6 +272,10 @@ pub fn run() {
             add_project_to_recent,
             refresh_recent_projects,
             clear_recent_projects,
+            open_project_directory,
+            get_available_project_applications,
+            open_project_with_application,
+            delete_project,
             open_existing_project,
             check_project_name_conflict,
             create_new_project_with_git,
@@ -192,8 +293,11 @@ pub fn run() {
             get_git_worktree_preference,
             set_git_worktree_enabled,
             get_git_worktrees,
+            get_project_git_worktrees,
             create_workspace_worktree,
             remove_workspace_worktree,
+            switch_project_git_branch,
+            create_project_git_branch,
             get_git_log,
             diff_workspace_vs_main,
             merge_workspace_to_main,
@@ -208,13 +312,21 @@ pub fn run() {
             load_chat_sessions,
             get_session_messages,
             delete_chat_session,
+            archive_chat_session,
+            unarchive_chat_session,
+            fork_chat_session,
+            rename_chat_session,
+            update_session_summary,
             get_chat_history_stats,
+            get_dashboard_stats,
             export_chat_history,
             migrate_legacy_chat_data,
             append_chat_message,
             search_chat_history,
             cleanup_old_sessions,
             validate_chat_history_structure,
+            load_unified_chat_sessions,
+            load_indexed_session_messages,
             migrate_project_chat_to_enhanced,
             check_migration_needed,
             backup_existing_chat_data,
@@ -257,7 +369,14 @@ pub fn run() {
             respond_autohand_permission,
             execute_autohand_command,
             terminate_autohand_session,
-            get_autohand_state
+            get_autohand_state,
+            get_indexer_status,
+            trigger_reindex,
+            sync_autohand_docs,
+            search_autohand_docs,
+            get_autohand_doc,
+            get_autohand_docs_status,
+            clear_autohand_docs_cache
         ])
         .setup(|app| {
             // Handle command line arguments for opening projects
@@ -300,6 +419,11 @@ pub fn run() {
             let menu = create_native_menu(app)?;
             app.set_menu(menu.clone())?;
             println!("✅ Native menu created and set successfully!");
+
+            // Create system tray icon
+            println!("🔧 Creating system tray icon...");
+            create_tray(app)?;
+            println!("✅ System tray icon created successfully!");
 
             // Handle menu events
             app.on_menu_event({
@@ -379,6 +503,26 @@ pub fn run() {
                 }
             });
 
+            // Initialize SQLite indexer database
+            let app_data_dir = app.path().app_data_dir().map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                    as Box<dyn std::error::Error>
+            })?;
+            let db_path = app_data_dir.join("commander_index.db");
+            let index_db = Arc::new(
+                services::indexer::db::IndexDb::open(&db_path).map_err(|e| {
+                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                        as Box<dyn std::error::Error>
+                })?,
+            );
+            app.manage(index_db.clone());
+
+            // Spawn background indexer loop
+            let indexer_app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                services::indexer::indexer_service::run_indexer_loop(index_db, indexer_app_handle).await;
+            });
+
             // Register Cmd+, shortcut for Settings on macOS
             let shortcut_manager = app.global_shortcut();
             let settings_shortcut = Shortcut::new(
@@ -406,6 +550,36 @@ pub fn run() {
                 if event.state() == ShortcutState::Pressed {
                     // Emit an event to the frontend to toggle chat
                     app.emit("shortcut://toggle-chat", ()).unwrap();
+                }
+            })?;
+
+            // Register Cmd+Shift+H shortcut for Chat History panel
+            let history_shortcut = Shortcut::new(
+                Some(
+                    tauri_plugin_global_shortcut::Modifiers::SUPER
+                        | tauri_plugin_global_shortcut::Modifiers::SHIFT,
+                ),
+                tauri_plugin_global_shortcut::Code::KeyH,
+            );
+
+            shortcut_manager.on_shortcut(history_shortcut, move |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    app.emit("shortcut://toggle-chat-history", ()).ok();
+                }
+            })?;
+
+            // Register Cmd+Shift+C shortcut for Copy Path
+            let copy_path_shortcut = Shortcut::new(
+                Some(
+                    tauri_plugin_global_shortcut::Modifiers::SUPER
+                        | tauri_plugin_global_shortcut::Modifiers::SHIFT,
+                ),
+                tauri_plugin_global_shortcut::Code::KeyC,
+            );
+
+            shortcut_manager.on_shortcut(copy_path_shortcut, move |app, _shortcut, event| {
+                if event.state() == ShortcutState::Pressed {
+                    app.emit("shortcut://copy-project-path", ()).ok();
                 }
             })?;
 
