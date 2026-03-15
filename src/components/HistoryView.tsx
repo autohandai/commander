@@ -4,7 +4,6 @@ import { RecentProject } from '@/hooks/use-recent-projects'
 import { assignLanes, enhanceWithConnections, type DagRow } from '@/lib/commit-graph'
 import { GitGraph } from '@/components/GitGraph'
 import { DiffViewer } from '@/components/DiffViewer'
-import { ChatHistoryPanel } from '@/components/ChatHistoryPanel'
 import { HistoryControls } from '@/components/HistoryControls'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -94,8 +93,8 @@ export function HistoryView({ project }: Props) {
     <div className="relative flex h-full min-w-0">
     
 
-      {/* Left: Git Graph (65%) */}
-      <div className="basis-[65%] min-w-0 bg-muted/10 border-r overflow-hidden h-full">
+      {/* Git Graph (full width) */}
+      <div className="flex-1 min-w-0 bg-muted/10 overflow-hidden h-full">
         <div className="h-full flex flex-col">
           <div className="p-3 border-b bg-background flex items-center justify-between gap-2">
             <div>
@@ -165,10 +164,6 @@ export function HistoryView({ project }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Right: Chat History (35%) */}
-      <div className="basis-[35%] min-w-0 h-full">
-        <ChatHistoryPanel project={project} />
-      </div>
     </div>
   )
 }

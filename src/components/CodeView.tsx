@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Folder, FolderOpen, File, ChevronRight, ChevronDown, Plus } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -122,14 +122,27 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
   }, [project.path, rootPath]);
 
   // Auto-refresh when CLI sessions stream finishes.
+  // Use a ref for the refresh callback so the listener stays stable and
+  // there's no re-registration gap when rootPath changes.
+  const refreshFilesRef = useRef(() => {
+    listFiles({ directory_path: rootPath || project.path, max_depth: 10, extensions: [] });
+  });
+  useEffect(() => {
+    refreshFilesRef.current = () => {
+      listFiles({ directory_path: rootPath || project.path, max_depth: 10, extensions: [] });
+    };
+  }, [rootPath, project.path, listFiles]);
+
   useEffect(() => {
     let unlisten: (() => void) | null = null;
+    let mounted = true;
     (async () => {
       try {
         const { listen } = await import('@tauri-apps/api/event');
+        if (!mounted) return;
         unlisten = await listen<{ session_id: string; content: string; finished: boolean }>('cli-stream', (e) => {
           if (e.payload?.finished) {
-            listFiles({ directory_path: rootPath || project.path, max_depth: 10, extensions: [] });
+            refreshFilesRef.current();
           }
         });
       } catch {
@@ -137,9 +150,12 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
       }
     })();
     return () => {
+      mounted = false;
       try { unlisten?.() } catch {}
     };
-  }, [project.path, rootPath, listFiles]);
+    // Register only once — the ref keeps the callback up-to-date
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.path]);
 
   useEffect(() => {
     // Build tree structure from flat file list

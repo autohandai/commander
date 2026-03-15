@@ -2,15 +2,8 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarProvider, SidebarTrigger, SidebarInset, useSidebar } from "@/components/ui/sidebar"
 import { SidebarWidthProvider } from "@/contexts/sidebar-width-context"
 import { Separator } from "@/components/ui/separator"
-import { 
-  Breadcrumb, 
-  BreadcrumbItem, 
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator 
-} from "@/components/ui/breadcrumb"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { GitBranch, Plus, Copy, Code, MessageCircle, FolderOpen, Folder, History as HistoryIcon } from "lucide-react"
+import { Tabs, TabsContent } from "@/components/ui/tabs"
+import { Folder } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import React, { useState, useEffect, useRef } from "react"
@@ -22,12 +15,17 @@ import { ToastProvider, useToast } from "@/components/ToastProvider"
 import { SettingsProvider } from "@/contexts/settings-context"
 import { AuthProvider, useAuth } from "@/contexts/auth-context"
 import { LoginScreen } from "@/components/LoginScreen"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { AIAgentStatusBar } from "@/components/AIAgentStatusBar"
 import { ChatInterface } from "@/components/ChatInterface"
 import { CodeView } from "@/components/CodeView"
 import { HistoryView } from "@/components/HistoryView"
+import { ChatHistoryManager } from "@/components/chat-history/ChatHistoryManager"
 import { OnboardingModal } from "@/components/OnboardingModal"
-import { Button } from "@/components/ui/button"
+import { ProjectIdentityHeader } from "@/components/project-identity-header"
+import { ProjectChooserModal } from "@/components/ProjectChooserModal"
+import { DashboardView } from "@/components/dashboard/DashboardView"
+import { DocsViewer } from "@/components/DocsViewer"
 import { useRecentProjects, RecentProject } from "@/hooks/use-recent-projects"
 import { useSettings } from "@/contexts/settings-context"
 import type { MenuEventPayload } from "@/types/menu"
@@ -38,65 +36,69 @@ interface ProjectViewProps {
   selectedAgent?: string
   activeTab: string
   onTabChange: (tab: string) => void
+  onExecutingChange?: (projectPath: string, sessionIds: string[]) => void
+  pendingChatPrompt?: string | null
+  onPendingChatPromptConsumed?: () => void
 }
 
-function ProjectView({ project, selectedAgent, activeTab, onTabChange }: ProjectViewProps) {
+function ProjectView({ project, selectedAgent, activeTab, onTabChange, onExecutingChange, pendingChatPrompt, onPendingChatPromptConsumed }: ProjectViewProps) {
   const handleTabChange = React.useCallback((value: string) => {
     onTabChange(value)
   }, [onTabChange])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0">
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col min-h-0 min-w-0">
-        <div className="px-4 pt-4">
-          <TabsList className="grid max-w-[600px] mx-auto grid-cols-3">
-            <TabsTrigger value="chat" className="flex items-center justify-center gap-2">
-              <MessageCircle className="h-4 w-4" />
-              Chat
-            </TabsTrigger>
-            <TabsTrigger value="code" className="flex items-center justify-center gap-2">
-              <Code className="h-4 w-4" />
-              Code
-            </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center justify-center gap-2">
-              <HistoryIcon className="h-4 w-4" />
-              History
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        
-        <TabsContent value="chat" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
-          <ChatInterface
-            isOpen={true}
-            selectedAgent={selectedAgent}
-            project={project}
-          />
-        </TabsContent>
-        
-        <TabsContent value="code" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
-          <CodeView project={project} />
-        </TabsContent>
-        
-        <TabsContent value="history" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
-          <HistoryView project={project} />
-        </TabsContent>
-      </Tabs>
+    <div className="flex-1 flex min-h-0 min-w-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col min-h-0 min-w-0">
+          <TabsContent value="chat" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
+            <ChatInterface
+              isOpen={true}
+              selectedAgent={selectedAgent}
+              project={project}
+              onExecutingChange={onExecutingChange}
+              pendingPrompt={pendingChatPrompt}
+              onPendingPromptConsumed={onPendingChatPromptConsumed}
+            />
+          </TabsContent>
+
+          <TabsContent value="code" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
+            <CodeView project={project} />
+          </TabsContent>
+
+          <TabsContent value="history" className="flex-1 flex flex-col m-0 min-h-0 min-w-0" forceMount>
+            <HistoryView project={project} />
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   )
 }
 
-function SidebarAutoCollapseManager({ activeTab, enabled, projectActive }: { activeTab: string; enabled: boolean; projectActive: boolean }) {
+function SidebarAutoCollapseManager({ activeTab, enabled, projectActive, chatHistoryOpen }: { activeTab: string; enabled: boolean; projectActive: boolean; chatHistoryOpen: boolean }) {
   const { setOpen } = useSidebar()
   // Use a ref so the effect only fires on tab/setting/project changes,
   // NOT when setOpen's reference changes due to sidebar state toggling.
-  // Without this, Cmd+B toggle is immediately undone by the effect re-running.
   const setOpenRef = useRef(setOpen)
   setOpenRef.current = setOpen
 
+  // Track chatHistoryOpen in a ref so the tab-based effect can read it
+  // without having it in its dependency array (avoids re-opening sidebar
+  // when chat history closes).
+  const chatHistoryOpenRef = useRef(chatHistoryOpen)
+  chatHistoryOpenRef.current = chatHistoryOpen
+
+  // Collapse sidebar when chat history panel opens
   useEffect(() => {
-    // Only auto-manage sidebar when auto-collapse is enabled AND a project is open.
-    // Otherwise let the user freely toggle via CMD+B / sidebar trigger.
+    if (chatHistoryOpen) {
+      setOpenRef.current(false)
+    }
+  }, [chatHistoryOpen])
+
+  // Auto-manage sidebar based on tab changes only
+  useEffect(() => {
     if (!enabled || !projectActive) return
+    // Don't re-open sidebar if chat history is currently open
+    if (chatHistoryOpenRef.current) return
 
     setOpenRef.current(activeTab !== 'code')
   }, [activeTab, enabled, projectActive])
@@ -112,11 +114,40 @@ function AppContent() {
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
+  const [isProjectChooserOpen, setIsProjectChooserOpen] = useState(false)
   const [currentProject, setCurrentProject] = useState<RecentProject | null>(null)
   const [activeTab, setActiveTab] = useState<string>('chat')
+  const [executingProjectPaths, setExecutingProjectPaths] = useState<Set<string>>(new Set())
+  const projectSessionsRef = useRef<Map<string, Set<string>>>(new Map())
+  const projectContextKey = currentProject ? `${currentProject.path}::${currentProject.git_branch ?? 'detached'}` : null
+
+  const handleExecutingChange = React.useCallback((projectPath: string, sessionIds: string[]) => {
+    projectSessionsRef.current.set(projectPath, new Set(sessionIds))
+    const executing = new Set<string>()
+    for (const [path, sessions] of projectSessionsRef.current) {
+      if (sessions.size > 0) executing.add(path)
+    }
+    setExecutingProjectPaths(executing)
+  }, [])
+  const handleProjectDeleted = React.useCallback((projectPath: string) => {
+    if (currentProject?.path === projectPath) {
+      setCurrentProject(null)
+      setActiveTab('chat')
+    }
+    projectSessionsRef.current.delete(projectPath)
+    setExecutingProjectPaths((prev) => {
+      const next = new Set(prev)
+      next.delete(projectPath)
+      return next
+    })
+  }, [currentProject])
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>(undefined)
   const [welcomePhrase, setWelcomePhrase] = useState<string>("")
+  const [dashboardDays, setDashboardDays] = useState(30)
   const { showSuccess, showError, showToast } = useToast()
+  const [pendingChatPrompt, setPendingChatPrompt] = useState<string | null>(null)
+  const [activeDocSlug, setActiveDocSlug] = useState<string | null>(null)
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(false)
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
   const { projects: allRecentProjects } = useRecentProjects()
   const [homeDir, setHomeDir] = useState<string>("")
@@ -213,13 +244,70 @@ function AppContent() {
     setActiveTab('chat')
   }
 
-  const handleProjectSelect = (project: RecentProject) => {
-    setActiveTab('chat') // Default to chat tab when project is selected
-    // Ensure backend marks it active and updates recents and use returned project info
-    invoke<RecentProject>('open_existing_project', { project_path: project.path, projectPath: project.path })
-      .then(setCurrentProject)
-      .catch(console.error)
-  }
+  const openProjectPath = React.useCallback(async (
+    projectPath: string,
+    options?: { refreshProjectsList?: boolean }
+  ) => {
+    const opened = await invoke<RecentProject>('open_existing_project', { project_path: projectPath, projectPath })
+    setCurrentProject(opened)
+    setActiveTab('chat')
+    if (options?.refreshProjectsList && projectsRefreshRef.current?.refresh) {
+      projectsRefreshRef.current.refresh()
+    }
+    return opened
+  }, [])
+
+  const handleProjectSelect = React.useCallback((project: RecentProject) => {
+    void openProjectPath(project.path, { refreshProjectsList: false }).catch((error) => {
+      console.error('❌ Failed to select project:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to switch project'
+      showError(errorMessage, 'Project Switch Error')
+    })
+  }, [openProjectPath, showError])
+
+  const handleProjectBranchSelect = React.useCallback(async (project: RecentProject, branch: string) => {
+    try {
+      await invoke('switch_project_git_branch', { projectPath: project.path, branch })
+      await openProjectPath(project.path, { refreshProjectsList: false })
+    } catch (error) {
+      console.error('❌ Failed to switch branch:', error)
+      const detail = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
+      const errorMessage = detail || `Failed to switch to ${branch}`
+      showError(errorMessage, 'Branch Switch Error')
+    }
+  }, [openProjectPath, showError])
+
+  const handleProjectWorktreeSelect = React.useCallback(async (_project: RecentProject, worktree: { path: string }) => {
+    try {
+      await openProjectPath(worktree.path, { refreshProjectsList: false })
+    } catch (error) {
+      console.error('❌ Failed to open worktree:', error)
+      const detail = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
+      const errorMessage = detail || `Failed to open worktree at ${worktree.path}`
+      showError(errorMessage, 'Worktree Switch Error')
+    }
+  }, [openProjectPath, showError])
+
+  const handleProjectBranchCreated = React.useCallback(async (project: RecentProject, branch: string) => {
+    // Optimistic update — the backend already switched branches via `git checkout -b`.
+    // Just update the current project state; the sidebar's ref-cache refresh handles the tree.
+    if (currentProject?.path === project.path) {
+      setCurrentProject(prev => prev ? { ...prev, git_branch: branch } : prev)
+    }
+  }, [currentProject?.path])
+
+  const handleProjectWorktreeCreated = React.useCallback(async (_project: RecentProject, worktreePath: string) => {
+    try {
+      // Open the worktree path as current project but skip the full project list refresh.
+      // The sidebar's ref-cache refresh handles showing the new worktree in the tree.
+      await openProjectPath(worktreePath, { refreshProjectsList: false })
+    } catch (error) {
+      console.error('❌ Failed to open newly created worktree:', error)
+      const detail = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
+      const errorMessage = detail || `Failed to open new worktree at ${worktreePath}`
+      showError(errorMessage, 'Worktree Creation Error')
+    }
+  }, [openProjectPath, showError])
 
   useEffect(() => {
     setSelectedAgent(undefined)
@@ -230,11 +318,11 @@ function AppContent() {
     setActiveTab('chat') // Reset to chat tab when going back to welcome
   }
 
-  const toggleChat = () => {
+  const toggleChat = React.useCallback(() => {
     if (currentProject) {
-      setActiveTab(activeTab === 'chat' ? 'code' : 'chat')
+      setActiveTab(prev => prev === 'chat' ? 'code' : 'chat')
     }
-  }
+  }, [currentProject])
 
   const copyProjectPath = async () => {
     if (!currentProject) return
@@ -259,18 +347,32 @@ function AppContent() {
     }
   }
 
-  // Generate breadcrumb segments from project path
-  const getBreadcrumbSegments = (path: string) => {
-    const segments = path.split('/').filter(Boolean)
-    return segments.map((segment, index) => ({
-      name: segment,
-      path: '/' + segments.slice(0, index + 1).join('/')
-    }))
-  }
+  // Global listener: catch session completions even when viewing a different project
+  useEffect(() => {
+    const unlisten = listen<{ session_id: string; content: string; finished: boolean }>('cli-stream', (event) => {
+      if (!event.payload.finished) return
+      const sid = event.payload.session_id
+      for (const [path, sessions] of projectSessionsRef.current) {
+        if (sessions.has(sid)) {
+          sessions.delete(sid)
+          if (sessions.size === 0) {
+            projectSessionsRef.current.delete(path)
+            setExecutingProjectPaths(prev => {
+              const next = new Set(prev)
+              next.delete(path)
+              return next
+            })
+          }
+          break
+        }
+      }
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
 
   // Compute recent projects limited to 5 and within last 30 days
   const recentProjectsForWelcome = React.useMemo(() => {
-    const show = settings?.show_welcome_recent_projects ?? true
+    const show = settings?.show_welcome_recent_projects ?? false
     if (!show) return [] as RecentProject[]
     const nowSec = Math.floor(Date.now() / 1000)
     const thirtyDaysSec = 30 * 24 * 60 * 60
@@ -301,18 +403,26 @@ function AppContent() {
         const shouldSuggest = settings.suggest_create_agents_md ?? true
         if (!agents && !claude && !gemini && shouldSuggest) {
           showToast({
-            title: 'Project Prompt Files Missing',
-            message: 'We couldn\'t find AGENTS.md, CLAUDE.md, or GEMINI.md. Create an AGENTS.md with a recommended software engineer prompt?',
+            title: 'No AGENTS.md found',
+            message: 'This project has no AGENTS.md, CLAUDE.md, or GEMINI.md. Want us to craft one tailored to your codebase?',
             type: 'info',
-            actionLabel: 'Create',
-            onAction: async () => {
-              try {
-                await invoke<string>('create_default_agents_docs', { projectPath: base })
-                showSuccess('AGENTS.md created successfully', 'Created')
-              } catch (e) {
-                console.error(e)
-                showError('Failed to create AGENTS.md', 'Error')
-              }
+            duration: 0, // persistent — let the user close manually
+            actionLabel: 'Generate',
+            onAction: () => {
+              setActiveTab('chat')
+              setPendingChatPrompt(
+                `Analyze this project at ${base} and create an AGENTS.md file in the project root. ` +
+                `Inspect the directory structure, detect the language(s), framework(s), package manager (package.json, Cargo.toml, pyproject.toml, etc.), ` +
+                `test runner, and existing conventions. Then write a comprehensive AGENTS.md that includes:\n\n` +
+                `1. Project overview — what the project does, its architecture layers\n` +
+                `2. Tech stack — languages, frameworks, build tools, and package manager detected\n` +
+                `3. Coding conventions — naming, file organization, import style observed in the codebase\n` +
+                `4. Development workflow — how to build, test, and run the project\n` +
+                `5. TDD expectations — test-first approach, where tests live, how to run them\n` +
+                `6. Git practices — commit style, branch naming, PR expectations\n` +
+                `7. Architecture boundaries — which directories hold models, services, commands, etc.\n\n` +
+                `Make the file specific to THIS project, not a generic template. Reference actual directories and files you find. Write it to ${base}/AGENTS.md.`
+              )
             }
           })
         }
@@ -344,9 +454,15 @@ function AppContent() {
       toggleChat()
     })
 
+    const unlistenCopyPath = listen('shortcut://copy-project-path', () => {
+      copyProjectPath()
+    })
+
+    // Chat history shortcut is handled by ChatHistoryManager internally
+
     // Menu event listeners
     const unlistenMenuNewProject = listen<MenuEventPayload<'menu://new-project'>>('menu://new-project', () => {
-      setIsNewProjectModalOpen(true)
+      setIsProjectChooserOpen(true)
     })
 
     const unlistenMenuCloneProject = listen<MenuEventPayload<'menu://clone-project'>>('menu://clone-project', () => {
@@ -394,6 +510,15 @@ function AppContent() {
       setIsAboutOpen(true)
     })
 
+    // Tray icon event listeners
+    const unlistenTraySettings = listen('tray://open-settings', () => {
+      setSettingsInitialTab(undefined)
+      setIsSettingsOpen(true)
+    })
+    const unlistenTrayUpdates = listen('tray://check-updates', () => {
+      showToast({ title: 'Check for Updates', message: 'You are running the latest version.', type: 'info' })
+    })
+
     // Check for CLI project path on startup
     const checkCliProject = async () => {
       try {
@@ -432,6 +557,7 @@ function AppContent() {
     return () => {
       unlistenSettings.then(fn => fn())
       unlistenChat.then(fn => fn())
+      unlistenCopyPath.then(fn => fn())
       unlistenMenuSettings.then(fn => fn())
       unlistenMenuShortcuts.then(fn => fn())
       unlistenMenuNewProject.then(fn => fn())
@@ -440,8 +566,17 @@ function AppContent() {
       unlistenMenuCloseProject.then(fn => fn())
       unlistenMenuDeleteProject.then(fn => fn())
       unlistenMenuAbout.then(fn => fn())
+      unlistenTraySettings.then(fn => fn())
+      unlistenTrayUpdates.then(fn => fn())
     }
   }, [activeTab, currentProject, toggleChat])
+
+  // Auto-sync docs on launch if enabled
+  useEffect(() => {
+    if (settings.docs_auto_sync) {
+      invoke('sync_autohand_docs').catch(() => {})
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initialize a phrase on first load
   useEffect(() => {
@@ -456,12 +591,12 @@ function AppContent() {
     }
   }, [currentProject])
 
-  // Show onboarding modal when settings load and user hasn't completed it
+  // Show onboarding modal when settings load and user hasn't completed it, or when forced on start
   useEffect(() => {
-    if (!isLoading && settings.has_completed_onboarding === false) {
+    if (!isLoading && (settings.has_completed_onboarding === false || settings.show_onboarding_on_start === true)) {
       setIsOnboardingOpen(true)
     }
-  }, [isLoading, settings.has_completed_onboarding])
+  }, [isLoading, settings.has_completed_onboarding, settings.show_onboarding_on_start])
 
   return (
     <SidebarWidthProvider>
@@ -470,130 +605,88 @@ function AppContent() {
           activeTab={activeTab}
           enabled={Boolean(settings.code_settings?.auto_collapse_sidebar)}
           projectActive={Boolean(currentProject)}
+          chatHistoryOpen={chatSidebarOpen}
         />
-        <AppSidebar 
-          isSettingsOpen={isSettingsOpen} 
+        <AppSidebar
+          isSettingsOpen={isSettingsOpen}
           setIsSettingsOpen={setIsSettingsOpen}
           onRefreshProjects={projectsRefreshRef}
           onProjectSelect={handleProjectSelect}
           currentProject={currentProject}
           onHomeClick={handleBackToWelcome}
+          onAddProjectClick={() => setIsProjectChooserOpen(true)}
+          onProjectDeleted={handleProjectDeleted}
+          executingProjectPaths={executingProjectPaths}
+          onProjectBranchSelect={handleProjectBranchSelect}
+          onProjectWorktreeSelect={handleProjectWorktreeSelect}
+          onProjectBranchCreated={handleProjectBranchCreated}
+          onProjectWorktreeCreated={handleProjectWorktreeCreated}
+          onDocSelect={(slug) => setActiveDocSlug(slug)}
         />
         <SidebarInset className="flex flex-col h-screen">
-        {/* Title bar drag area */}
-        <div 
-          className="h-6 w-full drag-area" 
+        {/* Title bar drag area — just enough for macOS traffic-light clearance */}
+        <div
+          className="h-2 w-full drag-area"
           data-tauri-drag-region
           onMouseDown={handleDragStart}
         ></div>
-        
-        <header 
-          className="flex h-10 shrink-0 items-center gap-2 border-b w-full drag-fallback" 
+
+        <header
+          className="flex min-h-10 min-w-0 shrink-0 items-center overflow-hidden border-b w-full drag-fallback"
           data-tauri-drag-region
           onMouseDown={handleDragStart}
         >
-          <div className="flex items-center gap-2 px-2 w-full">
+          <div className="flex min-w-0 items-center gap-3 px-3 py-1.5 w-full overflow-hidden">
             <SidebarTrigger className="no-drag" />
-            <Separator orientation="vertical" className="mr-2 h-4" />
-            <Breadcrumb>
-              <BreadcrumbList>
-                {currentProject ? (
-                  <>
-                    {getBreadcrumbSegments(currentProject.path).map((segment, index, array) => (
-                      <React.Fragment key={segment.path}>
-                        <BreadcrumbItem>
-                          {index === array.length - 1 ? (
-                            <BreadcrumbPage>{segment.name}</BreadcrumbPage>
-                          ) : (
-                            <span className="text-muted-foreground">{segment.name}</span>
-                          )}
-                        </BreadcrumbItem>
-                        {index < array.length - 1 && <BreadcrumbSeparator />}
-                      </React.Fragment>
-                    ))}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={copyProjectPath}
-                      className="h-6 w-6 p-0 ml-2 no-drag"
-                      title="Copy project path"
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </>
-                ) : (
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>Welcome</BreadcrumbPage>
-                  </BreadcrumbItem>
-                )}
-              </BreadcrumbList>
-            </Breadcrumb>
-            <div className="flex-1" data-tauri-drag-region></div>
+            <Separator orientation="vertical" className="h-6" />
+            {currentProject ? (
+              <ProjectIdentityHeader
+                project={currentProject}
+                homeDir={homeDir}
+                onCopyPath={copyProjectPath}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+            ) : (
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">Welcome</p>
+                <p className="text-xs text-muted-foreground">Open a project to start working.</p>
+              </div>
+            )}
           </div>
         </header>
         <div className="flex-1 flex flex-col min-h-0">
-          {currentProject ? (
-            <ProjectView 
+          {activeDocSlug ? (
+            <DocsViewer slug={activeDocSlug} onBack={() => setActiveDocSlug(null)} />
+          ) : currentProject ? (
+            <ProjectView
+              key={projectContextKey ?? undefined}
               project={currentProject}
               selectedAgent={selectedAgent}
               activeTab={activeTab}
               onTabChange={setActiveTab}
+              onExecutingChange={handleExecutingChange}
+              pendingChatPrompt={pendingChatPrompt}
+              onPendingChatPromptConsumed={() => setPendingChatPrompt(null)}
             />
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-4 pb-10">
-            <div className="max-w-2xl w-full space-y-8">
-              <div className="text-center space-y-2">
+            <ScrollArea className="flex-1">
+            <div className="flex flex-col items-center p-4 pb-10">
+            <div className="max-w-5xl w-full space-y-6">
+              <div className="text-center space-y-2 pt-4">
                 <h1 className="text-4xl font-bold tracking-tight">Welcome to Commander</h1>
                 <p className="text-lg text-muted-foreground">
                   {welcomePhrase || 'Command any AI coding CLI agent from one screen'}
                 </p>
               </div>
-              
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
 
-                <button 
-                  onClick={() => setIsNewProjectModalOpen(true)}
-                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
-                >
-                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
-                    <Plus className="h-8 w-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold">New Project</p>
-                    <p className="text-xs text-muted-foreground">Start from scratch a local git repo</p>
-                  </div>
-                </button>
+              <DashboardView
+                timeSavedMultiplier={settings?.time_saved_multiplier ?? 5}
+                days={dashboardDays}
+                onDaysChange={setDashboardDays}
+              />
 
-                
-
-                <button 
-                  onClick={handleOpenProject}
-                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
-                >
-                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
-                    <FolderOpen className="h-8 w-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold">Open Project</p>
-                    <p className="text-xs text-muted-foreground">Open existing git repository</p>
-                  </div>
-                </button>
-
-                <button 
-                  onClick={() => setIsCloneModalOpen(true)}
-                  className="group relative flex flex-col items-center gap-3 px-8 py-6 rounded-xl border-2 border-neutral-800 bg-neutral-900/50 hover:border-neutral-600 hover:bg-neutral-900 transition-all duration-200 min-w-[200px]"
-                >
-                  <div className="p-3 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 transition-colors">
-                    <GitBranch className="h-8 w-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold">Clone</p>
-                    <p className="text-xs text-muted-foreground">Clone from GitHub, GitLab, Bitbucket, etc.</p>
-                  </div>
-                </button>
-              </div>
-
-              {(settings?.show_welcome_recent_projects ?? true) && (
+              {(settings?.show_welcome_recent_projects ?? false) && (
                 <div className="pt-2" data-testid="welcome-recents">
                   <h3 className="text-xs font-medium text-muted-foreground mb-2" data-testid="welcome-recents-title">Recent</h3>
                   {recentProjectsForWelcome.length === 0 ? (
@@ -621,8 +714,23 @@ function AppContent() {
               )}
             </div>
             </div>
+            </ScrollArea>
           )}
         </div>
+        {currentProject && (
+          <ChatHistoryManager
+            projectPath={currentProject.path}
+            onLoadSession={(messages, sessionId) => {
+              // Session loading will be wired when ChatInterface gains session support
+              console.log('Load session:', sessionId, messages.length, 'messages')
+            }}
+            onNewChat={() => {
+              // New chat will be wired when ChatInterface gains session support
+              console.log('New chat requested')
+            }}
+            onSidebarOverride={setChatSidebarOpen}
+          />
+        )}
       </SidebarInset>
       
       {isSettingsOpen && (
@@ -634,6 +742,14 @@ function AppContent() {
         />
       )}
       
+      <ProjectChooserModal
+        isOpen={isProjectChooserOpen}
+        onClose={() => setIsProjectChooserOpen(false)}
+        onNewProject={() => setIsNewProjectModalOpen(true)}
+        onOpenProject={handleOpenProject}
+        onCloneProject={() => setIsCloneModalOpen(true)}
+      />
+
       <CloneRepositoryModal
         isOpen={isCloneModalOpen}
         onClose={() => setIsCloneModalOpen(false)}

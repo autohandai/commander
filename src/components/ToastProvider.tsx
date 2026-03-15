@@ -41,8 +41,23 @@ export function ToastProvider({ children }: ToastProviderProps) {
   }, [])
 
   const showToast = useCallback((toast: Omit<ToastData, 'id'>) => {
-    const id = Date.now().toString()
-    setToasts(prev => [...prev, { ...toast, id }])
+    setToasts(prev => {
+      // Deduplicate: skip if a toast with the same title and message already exists
+      const isDuplicate = prev.some(
+        existing => existing.title === toast.title && existing.message === toast.message
+      )
+      if (isDuplicate) return prev
+
+      const id = Date.now().toString()
+      const next = [...prev, { ...toast, id }]
+
+      // Cap visible toasts at 2
+      if (next.length > 2) {
+        return next.slice(next.length - 2)
+      }
+
+      return next
+    })
   }, [])
 
   const showSuccess = useCallback((message: string, title?: string) => {

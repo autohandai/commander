@@ -203,9 +203,14 @@ const upgradeHints: Record<string, { command: string; packageName: string }> = {
 
 function AgentVersionCard({ agent, onClose }: AgentVersionCardProps) {
   const hint = upgradeHints[agent.name];
-  const installedVersion = agent.installed_version ?? 'Not detected';
-  const latestVersion = agent.latest_version ?? 'Unknown';
+  const isCustom = !hint; // custom agents aren't in the upgradeHints map
   const showUpgrade = agent.upgrade_available;
+
+  // For custom agents: show "Available" when found on PATH, otherwise "Not found"
+  // For built-in agents: show version info as before
+  const installedDisplay = isCustom
+    ? (agent.available ? 'Available on PATH' : 'Not found on PATH')
+    : (agent.installed_version ?? 'Not detected');
 
   return (
     <div className="fixed bottom-8 right-4 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-lg p-4 flex flex-col gap-2 z-[60]">
@@ -226,25 +231,47 @@ function AgentVersionCard({ agent, onClose }: AgentVersionCardProps) {
       </div>
 
       <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
-        <span className="text-foreground">Installed: <strong>{installedVersion}</strong></span>
-        <span className="text-foreground">Latest: <strong>{latestVersion}</strong></span>
-        {!agent.available && (
-          <span className="text-red-500">Agent not detected on PATH.</span>
+        <span className="text-foreground">Status: <strong>{installedDisplay}</strong></span>
+        {!isCustom && (
+          <>
+            {agent.installed_version && (
+              <span className="text-foreground">Installed: <strong>{agent.installed_version}</strong></span>
+            )}
+            {agent.latest_version && (
+              <span className="text-foreground">Latest: <strong>{agent.latest_version}</strong></span>
+            )}
+          </>
+        )}
+        {!agent.available && !isCustom && (
+          <span className="text-destructive">Agent not detected on PATH.</span>
         )}
         {agent.error_message && (
-          <span className="text-red-500">{agent.error_message}</span>
+          <span className="text-destructive">{agent.error_message}</span>
         )}
       </div>
 
       {hint && (
         <div className="bg-muted/60 p-2 rounded text-xs">
           {showUpgrade ? (
-            <p className="text-amber-600 font-medium">
+            <p className="text-[hsl(var(--warning))] font-medium">
               New version available — run <code>{hint.command}</code> to upgrade.
             </p>
-          ) : (
-            <p className="text-green-600 font-medium">Agent is up to date.</p>
-          )}
+          ) : agent.available ? (
+            <p className="text-[hsl(var(--success))] font-medium">Agent is up to date.</p>
+          ) : null}
+        </div>
+      )}
+
+      {isCustom && agent.available && (
+        <div className="bg-muted/60 p-2 rounded text-xs">
+          <p className="text-[hsl(var(--success))] font-medium">Custom agent ready.</p>
+        </div>
+      )}
+      {isCustom && !agent.available && (
+        <div className="bg-muted/60 p-2 rounded text-xs">
+          <p className="text-destructive font-medium">
+            Binary not found. Check the command in Settings &gt; Coding Agents.
+          </p>
         </div>
       )}
     </div>

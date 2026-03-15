@@ -42,7 +42,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Homepage</span>
-              <a href="https://autohand.ai" target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">autohand.ai</a>
+              <a href="https://autohand.ai" target="_blank" rel="noreferrer" className="text-[hsl(var(--link))] hover:underline">autohand.ai</a>
             </div>
           </div>
 
