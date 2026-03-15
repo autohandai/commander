@@ -1,16 +1,316 @@
-import { Loader2, XCircle, AlertCircle, RefreshCw, Clock } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { invoke } from "@tauri-apps/api/core"
+import { AlertCircle, Bot, Loader2, Plus, RefreshCw, Search, Settings2, Trash2, Wand2, XCircle } from "lucide-react"
+
 import { ErrorBoundary } from "@/components/ErrorBoundary"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
+import { AutohandSettingsTab } from "@/components/settings/AutohandSettingsTab"
+import {
+  BUILTIN_AGENT_PROFILES,
+  customAgentCapabilities,
+  defaultCustomAgentDefinition,
+  type AgentCapabilityMap,
+  type AgentPromptMode,
+  type AgentTransportKind,
+  type CustomAgentDefinition,
+} from "@/components/settings/agent-registry"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import type { AgentSettingsProps, AgentInfo } from "@/types/settings"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type { AgentSettingsProps } from "@/types/settings"
+
+type GenericAgentSettings = {
+  model?: string
+  output_format?: string
+  session_timeout_minutes?: number
+  max_tokens?: number | null
+  temperature?: number | null
+  sandbox_mode?: boolean
+  auto_approval?: boolean
+  debug_mode?: boolean
+}
+
+const OUTPUT_FORMAT_OPTIONS = [
+  { value: "markdown", label: "Markdown" },
+  { value: "json", label: "JSON" },
+  { value: "plain", label: "Plain Text" },
+  { value: "code", label: "Code Only" },
+]
+
+const TRANSPORT_OPTIONS: Array<{ value: AgentTransportKind; label: string }> = [
+  { value: "cli-flags", label: "CLI Flags" },
+  { value: "slash-commands", label: "Slash Commands" },
+  { value: "json-rpc", label: "JSON-RPC" },
+  { value: "acp", label: "ACP" },
+]
+
+function normalizeAgentId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+function transportToPromptMode(transport: AgentTransportKind): AgentPromptMode {
+  if (transport === "slash-commands") return "slash"
+  if (transport === "json-rpc" || transport === "acp") return "protocol"
+  return "flag"
+}
+
+function defaultAgentSettings() {
+  return {
+    model: "",
+    output_format: "markdown",
+    session_timeout_minutes: 30,
+    max_tokens: null,
+    temperature: null,
+    sandbox_mode: false,
+    auto_approval: false,
+    debug_mode: false,
+  }
+}
+
+function CapabilityBadge({ source }: { source: string }) {
+  return (
+    <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+      {source}
+    </Badge>
+  )
+}
+
+function Section({
+  title,
+  description,
+  children,
+  actions,
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+  actions?: React.ReactNode
+}) {
+  return (
+    <section className="space-y-4 border-t border-border/70 pt-5 first:border-t-0 first:pt-0">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
+          {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+        </div>
+        {actions}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function FieldRow({
+  label,
+  hint,
+  badge,
+  children,
+}: {
+  label: string
+  hint: string
+  badge?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] md:items-start">
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <Label className="text-sm font-medium">{label}</Label>
+          {badge}
+        </div>
+        <p className="text-xs leading-5 text-muted-foreground">{hint}</p>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+function GenericAgentFields({
+  capabilities,
+  settings,
+  modelOptions,
+  isFetchingModels,
+  onFetchModels,
+  onUpdate,
+}: {
+  capabilities: AgentCapabilityMap
+  settings: GenericAgentSettings
+  modelOptions: string[]
+  isFetchingModels: boolean
+  onFetchModels: () => void
+  onUpdate: (key: string, value: unknown) => void
+}) {
+  return (
+    <div className="space-y-5">
+      {capabilities.model ? (
+        <FieldRow
+          label="Model"
+          hint={capabilities.model.hint}
+          badge={<CapabilityBadge source={capabilities.model.source} />}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Input
+                value={settings.model || ""}
+                onChange={(e) => onUpdate("model", e.target.value)}
+                placeholder="Default model"
+              />
+              {capabilities.model.fetchModels && !capabilities.model.autoFetch ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onFetchModels}
+                  disabled={isFetchingModels}
+                  className="shrink-0"
+                >
+                  {isFetchingModels ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+                  Fetch Models
+                </Button>
+              ) : null}
+            </div>
+            {modelOptions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {modelOptions.slice(0, 6).map((model) => (
+                  <button
+                    key={model}
+                    type="button"
+                    onClick={() => onUpdate("model", model)}
+                    className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+                  >
+                    {model}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </FieldRow>
+      ) : null}
+
+      {capabilities.output_format ? (
+        <FieldRow
+          label="Output Format"
+          hint={capabilities.output_format.hint}
+          badge={<CapabilityBadge source={capabilities.output_format.source} />}
+        >
+          <Select value={settings.output_format || "markdown"} onValueChange={(value) => onUpdate("output_format", value)}>
+            <SelectTrigger aria-label="Output Format">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {OUTPUT_FORMAT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldRow>
+      ) : null}
+
+      {capabilities.session_timeout_minutes ? (
+        <FieldRow
+          label="Session Timeout"
+          hint={capabilities.session_timeout_minutes.hint}
+          badge={<CapabilityBadge source={capabilities.session_timeout_minutes.source} />}
+        >
+          <Input
+            type="number"
+            min={1}
+            max={120}
+            value={settings.session_timeout_minutes ?? 30}
+            onChange={(e) => onUpdate("session_timeout_minutes", parseInt(e.target.value, 10) || 30)}
+            className="max-w-xs"
+          />
+        </FieldRow>
+      ) : null}
+
+      {capabilities.max_tokens ? (
+        <FieldRow
+          label="Max Tokens"
+          hint={capabilities.max_tokens.hint}
+          badge={<CapabilityBadge source={capabilities.max_tokens.source} />}
+        >
+          <Input
+            type="number"
+            min={1}
+            value={settings.max_tokens ?? ""}
+            onChange={(e) => onUpdate("max_tokens", e.target.value ? parseInt(e.target.value, 10) : null)}
+            placeholder="Default"
+            className="max-w-xs"
+          />
+        </FieldRow>
+      ) : null}
+
+      {capabilities.temperature ? (
+        <FieldRow
+          label="Temperature"
+          hint={capabilities.temperature.hint}
+          badge={<CapabilityBadge source={capabilities.temperature.source} />}
+        >
+          <Input
+            type="number"
+            min={0}
+            max={2}
+            step="0.1"
+            value={settings.temperature ?? ""}
+            onChange={(e) => onUpdate("temperature", e.target.value ? parseFloat(e.target.value) : null)}
+            placeholder="Default"
+            className="max-w-xs"
+          />
+        </FieldRow>
+      ) : null}
+
+      {capabilities.sandbox_mode ? (
+        <FieldRow
+          label="Sandbox Mode"
+          hint={capabilities.sandbox_mode.hint}
+          badge={<CapabilityBadge source={capabilities.sandbox_mode.source} />}
+        >
+          <Switch checked={!!settings.sandbox_mode} onCheckedChange={(checked) => onUpdate("sandbox_mode", checked)} aria-label="Sandbox Mode" />
+        </FieldRow>
+      ) : null}
+
+      {capabilities.auto_approval ? (
+        <FieldRow
+          label="Auto Approval"
+          hint={capabilities.auto_approval.hint}
+          badge={<CapabilityBadge source={capabilities.auto_approval.source} />}
+        >
+          <Switch checked={!!settings.auto_approval} onCheckedChange={(checked) => onUpdate("auto_approval", checked)} aria-label="Auto Approval" />
+        </FieldRow>
+      ) : null}
+
+      {capabilities.debug_mode ? (
+        <FieldRow
+          label="Debug Mode"
+          hint={capabilities.debug_mode.hint}
+          badge={<CapabilityBadge source={capabilities.debug_mode.source} />}
+        >
+          <Switch checked={!!settings.debug_mode} onCheckedChange={(checked) => onUpdate("debug_mode", checked)} aria-label="Debug Mode" />
+        </FieldRow>
+      ) : null}
+    </div>
+  )
+}
 
 const SafeAgentSettings = ({
-  agentSettings: _agentSettings,
   tempAgentSettings,
-  allAgentSettings: _allAgentSettings,
   tempAllAgentSettings,
   agentModels,
   fetchingAgentModels,
@@ -18,427 +318,511 @@ const SafeAgentSettings = ({
   agentSettingsError,
   onToggleAgent,
   onUpdateAgentSetting,
-  onFetchAgentModels
+  onFetchAgentModels,
+  onCreateCustomAgent,
+  onUpdateCustomAgent,
+  onDeleteCustomAgent,
+  workingDir,
 }: AgentSettingsProps) => {
-  // settings diagnostics removed
+  const [activeAgentId, setActiveAgentId] = useState<string>(BUILTIN_AGENT_PROFILES[0].id)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [draftAgent, setDraftAgent] = useState<CustomAgentDefinition>(defaultCustomAgentDefinition())
+  const [isScanning, setIsScanning] = useState(false)
+  const [detectedAgents, setDetectedAgents] = useState<Array<{
+    binary: string
+    display_name: string
+    version: string | null
+    supports_rpc: boolean
+    supports_acp: boolean
+  }>>([])
 
-  // Show loading state while agent settings are being loaded
+  const scanForAgents = async () => {
+    setIsScanning(true)
+    try {
+      const agents = await invoke<typeof detectedAgents>('detect_cli_agents')
+      setDetectedAgents(agents)
+    } catch (error) {
+      console.error('Failed to scan for agents:', error)
+      setDetectedAgents([])
+    } finally {
+      setIsScanning(false)
+    }
+  }
+
+  const addDetectedAgent = (agent: typeof detectedAgents[number]) => {
+    const id = normalizeAgentId(agent.binary)
+    const transport: AgentTransportKind = agent.supports_rpc ? 'json-rpc' : agent.supports_acp ? 'acp' : 'cli-flags'
+    const newAgent: CustomAgentDefinition = {
+      ...defaultCustomAgentDefinition(),
+      id,
+      name: agent.display_name,
+      command: agent.binary,
+      transport,
+      protocol: agent.supports_rpc ? 'rpc' : agent.supports_acp ? 'acp' : undefined,
+      prompt_mode: transportToPromptMode(transport),
+    }
+    onCreateCustomAgent(newAgent)
+    setActiveAgentId(id)
+    // Remove from detected list
+    setDetectedAgents((prev) => prev.filter((a) => a.binary !== agent.binary))
+  }
+
+  // Auto-scan for agents when the tab loads (non-blocking)
+  useEffect(() => {
+    scanForAgents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const customAgents = useMemo(
+    () => (Array.isArray(tempAllAgentSettings?.custom_agents) ? tempAllAgentSettings.custom_agents : []),
+    [tempAllAgentSettings]
+  )
+  const tabs = useMemo(
+    () => [
+      ...BUILTIN_AGENT_PROFILES.map((profile) => ({
+        id: profile.id,
+        label: profile.shortLabel,
+        description: profile.description,
+        kind: "builtin" as const,
+      })),
+      ...customAgents.map((agent) => ({
+        id: agent.id,
+        label: agent.name,
+        description: `${agent.transport} transport`,
+        kind: "custom" as const,
+      })),
+    ],
+    [customAgents]
+  )
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeAgentId)) {
+      setActiveAgentId(tabs[0]?.id ?? BUILTIN_AGENT_PROFILES[0].id)
+    }
+  }, [activeAgentId, tabs])
+
   if (agentSettingsLoading) {
-    // loading state
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        Loading CLI agent settings...
+      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Loading coding agent settings...
       </div>
     )
   }
 
-  // Show error state if there was an error loading settings
   if (agentSettingsError && !tempAllAgentSettings) {
-    // error state
     return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
-        <XCircle className="h-8 w-8 text-destructive" />
-        <div className="text-center">
-          <p className="text-destructive font-medium">Failed to load CLI agent settings</p>
-          <p className="text-sm text-muted-foreground mt-1">{agentSettingsError}</p>
-          <Button
-            variant="outline"
-            onClick={() => window.location.reload()}
-            className="mt-4"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Reload Settings
-          </Button>
+      <div className="space-y-3 py-8">
+        <div className="flex items-center gap-2 text-destructive">
+          <XCircle className="h-5 w-5" />
+          <span className="font-medium">Failed to load coding agent settings</span>
         </div>
+        <p className="text-sm text-muted-foreground">{agentSettingsError}</p>
       </div>
     )
   }
 
-  // Ensure we have valid settings before rendering
-  if (!tempAllAgentSettings || typeof tempAllAgentSettings !== 'object') {
-    // no agent settings available
+  if (!tempAllAgentSettings) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <AlertCircle className="h-6 w-6 text-muted-foreground mr-2" />
-        <span className="text-muted-foreground">No CLI agent settings available</span>
+      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <AlertCircle className="h-5 w-5" />
+        No coding agent settings available.
       </div>
     )
   }
 
-  // Ensure tempAgentSettings is valid
-  if (!tempAgentSettings || typeof tempAgentSettings !== 'object') {
-    // invalid tempAgentSettings
-    return (
-      <div className="flex items-center justify-center py-8">
-        <AlertCircle className="h-6 w-6 text-muted-foreground mr-2" />
-        <span className="text-muted-foreground">Invalid CLI agent configuration</span>
-      </div>
-    )
+  const getBuiltInSettings = (agentId: string) =>
+    (tempAllAgentSettings?.[agentId as keyof typeof tempAllAgentSettings] as GenericAgentSettings | undefined) || defaultAgentSettings()
+
+  const selectedBuiltIn = BUILTIN_AGENT_PROFILES.find((profile) => profile.id === activeAgentId)
+  const selectedCustom = customAgents.find((agent) => agent.id === activeAgentId)
+
+  const createAgent = () => {
+    const id = normalizeAgentId(draftAgent.id || draftAgent.name)
+    if (!draftAgent.name.trim() || !id || !draftAgent.command.trim()) {
+      return
+    }
+
+    const nextAgent: CustomAgentDefinition = {
+      ...draftAgent,
+      id,
+      name: draftAgent.name.trim(),
+      command: draftAgent.command.trim(),
+      prompt_mode: transportToPromptMode(draftAgent.transport),
+    }
+
+    onCreateCustomAgent(nextAgent)
+    setActiveAgentId(id)
+    setDraftAgent(defaultCustomAgentDefinition())
+    setIsCreateDialogOpen(false)
   }
 
-  // proceed with render
-
-  // Define constants and functions outside JSX
-  const agents: AgentInfo[] = [
-    { id: 'claude', name: 'Claude Code CLI', description: 'Official Claude CLI tool for coding assistance' },
-    { id: 'codex', name: 'Codex', description: 'GitHub Copilot and OpenAI Codex integration' },
-    { id: 'gemini', name: 'Gemini', description: 'Google Gemini AI coding assistant' }
-  ]
-
-  const updateAgentSetting = (agentId: string, key: string, value: any) => {
-    onUpdateAgentSetting(agentId, key, value)
-  }
-
-
-  try {
-    return (
-    <div className="space-y-8">
-      {/* Global Session Settings */}
-      <div>
-        <h3 className="text-lg font-medium mb-4">Global Session Settings</h3>
-        <div className="space-y-4 p-4 border rounded-lg">
-          <div className="space-y-2">
-            <Label htmlFor="max-sessions">Maximum Concurrent Sessions</Label>
-            <Input
-              id="max-sessions"
-              type="number"
-              min="1"
-              max="20"
-              value={tempAllAgentSettings?.max_concurrent_sessions || 10}
-              onChange={(e) => {
-                const newValue = parseInt(e.target.value) || 10
-                onUpdateAgentSetting('global', 'max_concurrent_sessions', newValue)
-              }}
-              className="w-32"
-            />
-            <p className="text-xs text-muted-foreground">
-              Maximum number of CLI sessions that can run simultaneously.
-            </p>
+  return (
+    <div className="space-y-6">
+      <Section
+        title="Coding Agents"
+        description="Built-in and custom agents share one registry. Each tab only exposes settings backed by that agent’s transport."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={scanForAgents} disabled={isScanning}>
+              {isScanning ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Search className="mr-2 h-3.5 w-3.5" />}
+              {isScanning ? 'Scanning...' : 'Detect Agents'}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setIsCreateDialogOpen(true)}>
+              <Plus className="mr-2 h-3.5 w-3.5" />
+              Add Agent
+            </Button>
           </div>
-        </div>
-      </div>
-
-      {/* Agent-Specific Settings */}
-      {agents.map((agent) => {
-        try {
-          // processing agent
-          
-          // Safely access agent settings with fallbacks
-          const agentSettings = tempAllAgentSettings?.[agent.id] || {
-            model: '',
-            output_format: 'markdown',
-            session_timeout_minutes: 30,
-            max_tokens: null,
-            temperature: null,
-            sandbox_mode: false,
-            auto_approval: false,
-            debug_mode: false
-          }
-          
-          // Ensure all required properties exist
-          const safeAgentSettings = {
-            model: agentSettings.model || '',
-            output_format: agentSettings.output_format || 'markdown',
-            session_timeout_minutes: agentSettings.session_timeout_minutes || 30,
-            max_tokens: agentSettings.max_tokens || null,
-            temperature: agentSettings.temperature || null,
-            sandbox_mode: agentSettings.sandbox_mode || false,
-            auto_approval: agentSettings.auto_approval || false,
-            debug_mode: agentSettings.debug_mode || false
-          }
-          
-          const isEnabled = tempAgentSettings?.[agent.id] || false
-          const agentModelsArray = agentModels[agent.id] || []
-          const isFetchingModels = fetchingAgentModels[agent.id] || false
-          
-          // agent state
-
-          return (
-            <div key={agent.id} className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-lg font-medium">{agent.name}</h3>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isEnabled ? 'bg-green-500' : 'bg-neutral-500'
-                  }`} />
-                </div>
-                <Switch
-                  checked={isEnabled}
-                  onCheckedChange={(checked) => {
-                    try {
-                      // toggling agent
-                      onToggleAgent(agent.id, checked)
-                    } catch (error) {
-                      console.error(`❌ Failed to toggle agent ${agent.id}:`, error)
-                    }
-                  }}
-                />
-              </div>
-              
-              <p className="text-sm text-muted-foreground mb-4">{agent.description}</p>
-              
-              {isEnabled && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 border rounded-lg bg-muted/30">
-                {/* Model Selection */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor={`${agent.id}-model`}>Model</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onFetchAgentModels(agent.id)}
-                      disabled={isFetchingModels}
-                      className="h-6 px-2 text-xs"
-                    >
-                      {isFetchingModels ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3 w-3 mr-1" />
-                      )}
-                      Fetch Models
-                    </Button>
-                  </div>
-                  
-                  {agentModelsArray && agentModelsArray.length > 0 ? (
-                    <Select 
-                      value={safeAgentSettings.model || ''} 
-                      onValueChange={(value) => updateAgentSetting(agent.id, 'model', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Default (use CLI default)</SelectItem>
-                        {agentModelsArray.map((model) => (
-                          <SelectItem key={model} value={model}>
-                            {model}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      id={`${agent.id}-model`}
-                      value={safeAgentSettings.model || ''}
-                      onChange={(e) => updateAgentSetting(agent.id, 'model', e.target.value)}
-                      placeholder="e.g., claude-3-opus, gpt-4, gemini-pro"
-                    />
-                  )}
-                  
-                  <p className="text-xs text-muted-foreground">
-                    {agentModelsArray && agentModelsArray.length > 0 
-                      ? `Found ${agentModelsArray.length} available models. Select one or leave default.`
-                      : 'Specific model to use for this agent (optional). Click "Fetch Models" to get available models from CLI.'}
-                  </p>
-                  
-                  {agentModelsArray && agentModelsArray.length === 0 && (
-                    <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-                      No models found. This might indicate the CLI agent is not installed or not responding correctly.
-                    </div>
-                  )}
-                </div>
-
-                {/* Output Format */}
-                <div className="space-y-2">
-                  <Label htmlFor={`${agent.id}-format`}>Output Format</Label>
-                  <Select 
-                    value={safeAgentSettings.output_format || 'markdown'} 
-                    onValueChange={(value) => updateAgentSetting(agent.id, 'output_format', value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="markdown">Markdown</SelectItem>
-                      <SelectItem value="json">JSON</SelectItem>
-                      <SelectItem value="plain">Plain Text</SelectItem>
-                      <SelectItem value="code">Code Only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Session Timeout */}
-                <div className="space-y-2">
-                  <Label htmlFor={`${agent.id}-timeout`}>
-                    <Clock className="h-4 w-4 inline mr-1" />
-                    Session Timeout (minutes)
-                  </Label>
-                  <Input
-                    id={`${agent.id}-timeout`}
-                    type="number"
-                    min="1"
-                    max="120"
-                    value={safeAgentSettings.session_timeout_minutes}
-                    onChange={(e) => updateAgentSetting(agent.id, 'session_timeout_minutes', parseInt(e.target.value) || 30)}
-                    className="w-32"
-                  />
-                </div>
-
-                {/* Max Tokens */}
-                <div className="space-y-2">
-                  <Label htmlFor={`${agent.id}-tokens`}>Max Tokens</Label>
-                  <Input
-                    id={`${agent.id}-tokens`}
-                    type="number"
-                    min="100"
-                    max="100000"
-                    value={safeAgentSettings.max_tokens || ''}
-                    onChange={(e) => updateAgentSetting(agent.id, 'max_tokens', e.target.value ? parseInt(e.target.value) : null)}
-                    placeholder="Default"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Maximum tokens per response (leave empty for default)
-                  </p>
-                </div>
-
-                {/* Temperature */}
-                <div className="space-y-2">
-                  <Label htmlFor={`${agent.id}-temperature`}>Temperature</Label>
-                  <Input
-                    id={`${agent.id}-temperature`}
-                    type="number"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    value={safeAgentSettings.temperature || ''}
-                    onChange={(e) => updateAgentSetting(agent.id, 'temperature', e.target.value ? parseFloat(e.target.value) : null)}
-                    placeholder="Default"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Creativity level (0.0 - 2.0, leave empty for default)
-                  </p>
-                </div>
-
-                {/* Boolean Settings */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor={`${agent.id}-sandbox`}>Sandbox Mode</Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Run commands in isolated environment
-                      </p>
-                    </div>
-                    <Switch
-                      id={`${agent.id}-sandbox`}
-                      checked={safeAgentSettings.sandbox_mode || false}
-                      onCheckedChange={(checked) => updateAgentSetting(agent.id, 'sandbox_mode', checked)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor={`${agent.id}-approval`}>Auto-Approval</Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Automatically approve suggested changes
-                      </p>
-                    </div>
-                    <Switch
-                      id={`${agent.id}-approval`}
-                      checked={safeAgentSettings.auto_approval || false}
-                      onCheckedChange={(checked) => updateAgentSetting(agent.id, 'auto_approval', checked)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor={`${agent.id}-debug`}>Debug Mode</Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Show detailed execution information
-                      </p>
-                    </div>
-                    <Switch
-                      id={`${agent.id}-debug`}
-                      checked={safeAgentSettings.debug_mode || false}
-                      onCheckedChange={(checked) => updateAgentSetting(agent.id, 'debug_mode', checked)}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-            </div>
-          )
-        } catch (agentError) {
-          console.error(`❌ Error rendering agent ${agent.id}:`, agentError)
-          return (
-            <div key={agent.id} className="p-4 border border-destructive/20 rounded-lg bg-destructive/5">
-              <div className="flex items-center gap-2">
-                <XCircle className="h-4 w-4 text-destructive" />
-                <span className="text-sm text-destructive">
-                  Error loading {agent.name} settings
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {agentError instanceof Error ? agentError.message : String(agentError)}
-              </p>
-            </div>
-          )
         }
-      })}
+      >
+        {detectedAgents.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              {detectedAgents.length} agent{detectedAgents.length !== 1 ? 's' : ''} detected on your system
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {detectedAgents.map((agent) => (
+                <button
+                  key={agent.binary}
+                  type="button"
+                  onClick={() => addDetectedAgent(agent)}
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-xs transition-colors hover:border-foreground/20 hover:bg-accent"
+                >
+                  <Bot className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="font-medium">{agent.display_name}</span>
+                  {agent.version && <span className="text-muted-foreground">{agent.version}</span>}
+                  {(agent.supports_rpc || agent.supports_acp) && (
+                    <Badge variant="outline" className="rounded-full px-1.5 py-0 text-[9px] uppercase">
+                      {agent.supports_rpc ? 'RPC' : 'ACP'}
+                    </Badge>
+                  )}
+                  <Plus className="h-3 w-3 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Tabs value={activeAgentId} onValueChange={setActiveAgentId} className="space-y-5">
+          <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+            {tabs.map((tab) => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="rounded-t-md rounded-b-none border border-transparent border-b-0 px-3 py-2 text-sm text-muted-foreground data-[state=active]:border-border data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none"
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {BUILTIN_AGENT_PROFILES.map((profile) => {
+            const settings = getBuiltInSettings(profile.id)
+            const isEnabled = tempAgentSettings?.[profile.id] !== false
+            const modelOptions = agentModels[profile.id] || []
+            const isFetchingModels = fetchingAgentModels[profile.id] || false
+
+            return (
+              <TabsContent key={profile.id} value={profile.id} className="mt-0 space-y-5">
+                <Section
+                  title={profile.label}
+                  description={profile.description}
+                  actions={
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {profile.transport}
+                      </Badge>
+                      <Switch checked={isEnabled} onCheckedChange={(checked) => onToggleAgent(profile.id, checked)} aria-label={`${profile.label} enabled`} />
+                    </div>
+                  }
+                >
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
+                      <Bot className="h-3.5 w-3.5" />
+                      {profile.command}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
+                      <Wand2 className="h-3.5 w-3.5" />
+                      {profile.promptMode}
+                    </span>
+                    {profile.protocol ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
+                        <Settings2 className="h-3.5 w-3.5" />
+                        {profile.protocol}
+                      </span>
+                    ) : null}
+                  </div>
+                </Section>
+
+                {profile.specialView === "autohand" ? (
+                  <AutohandSettingsTab workingDir={workingDir ?? null} />
+                ) : (
+                  <Section
+                    title="Supported Settings"
+                    description="Only controls with real transport support are shown here."
+                  >
+                    <GenericAgentFields
+                      capabilities={profile.capabilities}
+                      settings={settings}
+                      modelOptions={modelOptions}
+                      isFetchingModels={isFetchingModels}
+                      onFetchModels={() => onFetchAgentModels(profile.id)}
+                      onUpdate={(key, value) => onUpdateAgentSetting(profile.id, key, value)}
+                    />
+                  </Section>
+                )}
+              </TabsContent>
+            )
+          })}
+
+          {customAgents.map((agent) => {
+            const capabilities = customAgentCapabilities(agent)
+            const modelOptions = agentModels[agent.id] || []
+            const isFetchingModels = fetchingAgentModels[agent.id] || false
+            const isEnabled = tempAgentSettings?.[agent.id] !== false
+
+            return (
+              <TabsContent key={agent.id} value={agent.id} className="mt-0 space-y-5">
+                <Section
+                  title={agent.name}
+                  description="Custom agents persist here first so Commander can adopt new transports without another UI rewrite."
+                  actions={
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {agent.transport}
+                      </Badge>
+                      <Switch checked={isEnabled} onCheckedChange={(checked) => onToggleAgent(agent.id, checked)} aria-label={`${agent.name} enabled`} />
+                    </div>
+                  }
+                >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor={`${agent.id}-name`}>Agent Name</Label>
+                      <Input
+                        id={`${agent.id}-name`}
+                        value={agent.name}
+                        onChange={(e) => onUpdateCustomAgent(agent.id, { name: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`${agent.id}-command`}>Command</Label>
+                      <Input
+                        id={`${agent.id}-command`}
+                        value={agent.command}
+                        onChange={(e) => onUpdateCustomAgent(agent.id, { command: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`${agent.id}-transport`}>Transport</Label>
+                      <Select
+                        value={agent.transport}
+                        onValueChange={(value: AgentTransportKind) =>
+                          onUpdateCustomAgent(agent.id, (current) => ({
+                            ...current,
+                            transport: value,
+                            prompt_mode: transportToPromptMode(value),
+                            protocol: value === "json-rpc" ? "rpc" : value === "acp" ? "acp" : current.protocol,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id={`${agent.id}-transport`} aria-label="Transport">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TRANSPORT_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {(agent.transport === "json-rpc" || agent.transport === "acp") ? (
+                      <div className="space-y-2">
+                        <Label htmlFor={`${agent.id}-protocol`}>Protocol</Label>
+                        <Select
+                          value={agent.protocol || (agent.transport === "acp" ? "acp" : "rpc")}
+                          onValueChange={(value: "rpc" | "acp") => onUpdateCustomAgent(agent.id, { protocol: value })}
+                        >
+                          <SelectTrigger id={`${agent.id}-protocol`} aria-label="Protocol">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="rpc">JSON-RPC</SelectItem>
+                            <SelectItem value="acp">ACP</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
+                  </div>
+                </Section>
+
+                <Section
+                  title="Supported Settings"
+                  description="Toggle which defaults Commander should expose for this custom agent."
+                  actions={
+                    <Button type="button" variant="ghost" size="sm" onClick={() => onDeleteCustomAgent(agent.id)} className="text-destructive hover:text-destructive">
+                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                      Delete
+                    </Button>
+                  }
+                >
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {[
+                      ["supports_model", "Model"],
+                      ["supports_output_format", "Output Format"],
+                      ["supports_session_timeout", "Session Timeout"],
+                      ["supports_max_tokens", "Max Tokens"],
+                      ["supports_temperature", "Temperature"],
+                      ["supports_sandbox_mode", "Sandbox Mode"],
+                      ["supports_auto_approval", "Auto Approval"],
+                      ["supports_debug_mode", "Debug Mode"],
+                    ].map(([key, label]) => (
+                      <div key={key} className="flex items-center justify-between border-b border-border/60 py-2">
+                        <span className="text-sm">{label}</span>
+                        <Switch
+                          checked={Boolean(agent[key as keyof CustomAgentDefinition])}
+                          onCheckedChange={(checked) => onUpdateCustomAgent(agent.id, { [key]: checked } as Partial<CustomAgentDefinition>)}
+                          aria-label={label}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+
+                <Section
+                  title="Default Values"
+                  description="These defaults are stored with the agent definition and only appear when the transport supports them."
+                >
+                  <GenericAgentFields
+                    capabilities={capabilities}
+                    settings={agent.settings}
+                    modelOptions={modelOptions}
+                    isFetchingModels={isFetchingModels}
+                    onFetchModels={() => onFetchAgentModels(agent.id)}
+                    onUpdate={(key, value) =>
+                      onUpdateCustomAgent(agent.id, (current) => ({
+                        ...current,
+                        settings: {
+                          ...current.settings,
+                          [key]: value,
+                        },
+                      }))
+                    }
+                  />
+                </Section>
+              </TabsContent>
+            )
+          })}
+        </Tabs>
+      </Section>
+
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add Custom Agent</DialogTitle>
+            <DialogDescription>
+              Define how Commander should describe and persist a custom CLI, JSON-RPC, or ACP agent.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="custom-agent-name">Agent Name</Label>
+              <Input
+                id="custom-agent-name"
+                aria-label="Agent Name"
+                value={draftAgent.name}
+                onChange={(e) => setDraftAgent((current) => ({ ...current, name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="custom-agent-id">Agent ID</Label>
+              <Input
+                id="custom-agent-id"
+                aria-label="Agent ID"
+                value={draftAgent.id}
+                onChange={(e) => setDraftAgent((current) => ({ ...current, id: e.target.value }))}
+                placeholder="auto-generated if empty"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="custom-agent-command">Command</Label>
+              <Input
+                id="custom-agent-command"
+                aria-label="Command"
+                value={draftAgent.command}
+                onChange={(e) => setDraftAgent((current) => ({ ...current, command: e.target.value }))}
+                placeholder="agent executable or wrapper command"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="custom-agent-transport">Transport</Label>
+              <Select
+                value={draftAgent.transport}
+                onValueChange={(value: AgentTransportKind) =>
+                  setDraftAgent((current) => ({
+                    ...current,
+                    transport: value,
+                    prompt_mode: transportToPromptMode(value),
+                    protocol: value === "json-rpc" ? "rpc" : value === "acp" ? "acp" : current.protocol,
+                  }))
+                }
+              >
+                <SelectTrigger id="custom-agent-transport" aria-label="Transport">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRANSPORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {(draftAgent.transport === "json-rpc" || draftAgent.transport === "acp") ? (
+              <div className="space-y-2">
+                <Label htmlFor="custom-agent-protocol">Protocol</Label>
+                <Select
+                  value={draftAgent.protocol || (draftAgent.transport === "acp" ? "acp" : "rpc")}
+                  onValueChange={(value: "rpc" | "acp") => setDraftAgent((current) => ({ ...current, protocol: value }))}
+                >
+                  <SelectTrigger id="custom-agent-protocol" aria-label="Protocol">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rpc">JSON-RPC</SelectItem>
+                    <SelectItem value="acp">ACP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={createAgent}
+              disabled={!draftAgent.name.trim() || !draftAgent.command.trim()}
+            >
+              Create Agent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
-  } catch (error) {
-    console.error('💥 CRITICAL ERROR in SafeAgentSettings:', error)
-    console.error('💥 Error stack:', error instanceof Error ? error.stack : 'No stack trace')
-    console.error('💥 Current state when error occurred:', {
-      tempAllAgentSettings,
-      tempAgentSettings,
-      agentModels,
-      agentSettingsLoading,
-      agentSettingsError
-    })
-    
-    return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
-        <XCircle className="h-8 w-8 text-destructive" />
-        <div className="text-center">
-          <p className="text-destructive font-medium">Error rendering CLI agent settings</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            An unexpected error occurred while displaying the CLI agent settings.
-          </p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Check browser console for details: {error instanceof Error ? error.message : String(error)}
-          </p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              // Try to reset to defaults
-              window.location.reload()
-            }}
-            className="mt-4"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Reset to Defaults
-          </Button>
-        </div>
-      </div>
-    )
-  }
 }
 
 export function AgentSettings(props: AgentSettingsProps) {
   return (
     <ErrorBoundary
-      onError={(error, errorInfo) => {
-        console.error('🚨 ErrorBoundary caught error in CLI agent settings:', error, errorInfo)
-      }}
       fallback={
-        <div className="flex flex-col items-center justify-center py-8 space-y-4">
-          <XCircle className="h-8 w-8 text-destructive" />
-          <div className="text-center">
-            <p className="text-destructive font-medium">CLI Agent Settings Error</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              The CLI agent settings component crashed unexpectedly.
-            </p>
-            <Button
-              variant="outline"
-              onClick={() => window.location.reload()}
-              className="mt-4"
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Reload Application
-            </Button>
-          </div>
+        <div className="flex items-center gap-2 py-8 text-destructive">
+          <XCircle className="h-5 w-5" />
+          Coding Agent Settings Error
         </div>
       }
     >

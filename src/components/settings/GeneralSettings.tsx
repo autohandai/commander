@@ -2,7 +2,6 @@ import { FolderOpen } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import type { GeneralSettingsProps } from "@/types/settings"
@@ -24,7 +23,6 @@ export function GeneralSettings({
   tempShowConsoleOutput,
   systemPrompt,
   saving,
-  tempUiTheme = 'auto',
   tempShowWelcomeRecentProjects = true,
   tempSuggestCreateAgentsMd = true,
   onFolderChange,
@@ -32,9 +30,12 @@ export function GeneralSettings({
   onConsoleOutputChange,
   onSystemPromptChange,
   onClearRecentProjects,
-  onUiThemeChange,
   onShowWelcomeRecentProjectsChange,
   onSuggestCreateAgentsMdChange,
+  tempShowOnboardingOnStart = false,
+  onShowOnboardingOnStartChange,
+  maxConcurrentSessions = 10,
+  onMaxConcurrentSessionsChange,
 }: GeneralSettingsProps) {
   const { showSuccess, showError } = useToast()
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -75,6 +76,7 @@ export function GeneralSettings({
       setPendingWelcomeToggle(null)
     }
   }
+
   return (
     <div className="space-y-6">
       <div>
@@ -102,17 +104,19 @@ export function GeneralSettings({
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="theme">Theme</Label>
-            <Select value={tempUiTheme} onValueChange={(v) => onUiThemeChange?.(v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select theme" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Auto (System)</SelectItem>
-                <SelectItem value="light">Light</SelectItem>
-                <SelectItem value="dark">Dark</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="max-concurrent-sessions">Maximum Concurrent Sessions</Label>
+            <Input
+              id="max-concurrent-sessions"
+              type="number"
+              min={1}
+              max={20}
+              value={maxConcurrentSessions}
+              onChange={(e) => onMaxConcurrentSessionsChange?.(parseInt(e.target.value, 10) || 10)}
+              className="max-w-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              Maximum number of CLI sessions that can run simultaneously across all configured agents.
+            </p>
           </div>
           <div className="space-y-4">
             <h4 className="text-sm font-medium">Welcome Screen</h4>
@@ -127,6 +131,19 @@ export function GeneralSettings({
                 id="welcome-recent-toggle"
                 checked={!!tempShowWelcomeRecentProjects}
                 onCheckedChange={(val) => requestToggleWelcome(val)}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="onboarding-on-start-toggle">Show Onboarding on Start</Label>
+                <p className="text-xs text-muted-foreground">
+                  Show the onboarding guide every time the app starts, even if already completed.
+                </p>
+              </div>
+              <Switch
+                id="onboarding-on-start-toggle"
+                checked={!!tempShowOnboardingOnStart}
+                onCheckedChange={(val) => onShowOnboardingOnStartChange?.(val)}
               />
             </div>
           </div>
@@ -176,7 +193,7 @@ export function GeneralSettings({
               />
             </div>
           </div>
-          
+
           <div className="space-y-4">
             <h4 className="text-sm font-medium">Development Tools</h4>
             <div className="p-4 bg-muted/30 rounded-lg space-y-3">

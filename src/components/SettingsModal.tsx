@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react"
-import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard, Code2, MessageSquare, Terminal } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Settings as SettingsIcon, AlertCircle, Loader2, Monitor, Bot, MessageCircle, GitBranch, ExternalLink, Keyboard, Code2, MessageSquare, BookOpen, Palette } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
+  AppearanceSettings,
   ChatSettings,
   GeneralSettings,
   GitSettings,
@@ -12,8 +13,7 @@ import {
   ShortCutsUISettings,
   CodeSettings,
   SubAgentsSettings,
-  PromptsUISettings,
-  AutohandSettingsTab
+  PromptsUISettings
 } from "@/components/settings"
 import {
   Dialog,
@@ -32,9 +32,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { DocsSettings } from "@/components/settings/DocsSettings"
 import { useLLMSettings } from "@/hooks/use-llm-settings"
 import { useSettings as useAppSettingsContext } from "@/contexts/settings-context"
 import type { SettingsModalProps, SettingsTab } from "@/types/settings"
+import {
+  defaultCustomAgentDefinition,
+  defaultEnabledAgentsMap,
+  type CustomAgentDefinition,
+} from "@/components/settings/agent-registry"
 
 const DEFAULT_CLI_AGENT_CHOICES = ['autohand', 'claude', 'codex', 'gemini', 'ollama'] as const
 type DefaultCliAgentChoice = typeof DEFAULT_CLI_AGENT_CHOICES[number]
@@ -44,6 +50,27 @@ const normalizeDefaultCliAgent = (value?: string | null): DefaultCliAgentChoice 
   const normalized = value.toLowerCase() as DefaultCliAgentChoice
   return DEFAULT_CLI_AGENT_CHOICES.includes(normalized) ? normalized : 'autohand'
 }
+
+const createDefaultAgentSettings = () => ({
+  model: '',
+  output_format: 'markdown',
+  session_timeout_minutes: 30,
+  max_tokens: null,
+  temperature: null,
+  sandbox_mode: false,
+  auto_approval: false,
+  debug_mode: false,
+})
+
+const createDefaultAllAgentSettings = () => ({
+  max_concurrent_sessions: 10,
+  autohand: createDefaultAgentSettings(),
+  claude: createDefaultAgentSettings(),
+  codex: createDefaultAgentSettings(),
+  gemini: createDefaultAgentSettings(),
+  ollama: createDefaultAgentSettings(),
+  custom_agents: [] as CustomAgentDefinition[],
+})
 
 if (typeof window !== 'undefined' && typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = function (_arg?: boolean | ScrollIntoViewOptions) {
@@ -91,6 +118,17 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
   const [tempShowWelcomeRecentProjects, setTempShowWelcomeRecentProjects] = useState<boolean>(true)
   const [suggestCreateAgentsMd, setSuggestCreateAgentsMd] = useState<boolean>(true)
   const [tempSuggestCreateAgentsMd, setTempSuggestCreateAgentsMd] = useState<boolean>(true)
+  const [dashboardColorPalette, setDashboardColorPalette] = useState<string>('default')
+  const [tempDashboardColorPalette, setTempDashboardColorPalette] = useState<string>('default')
+  const [showDashboardActivity, setShowDashboardActivity] = useState<boolean>(true)
+  const [tempShowDashboardActivity, setTempShowDashboardActivity] = useState<boolean>(true)
+  const [dashboardChartType, setDashboardChartType] = useState<'scatter' | 'knowledge-base'>('scatter')
+  const [tempDashboardChartType, setTempDashboardChartType] = useState<'scatter' | 'knowledge-base'>('scatter')
+  const [showOnboardingOnStart, setShowOnboardingOnStart] = useState<boolean>(false)
+  const [tempShowOnboardingOnStart, setTempShowOnboardingOnStart] = useState<boolean>(false)
+  const [tempDocsAutoSync, setTempDocsAutoSync] = useState<boolean>(false)
+  const [chatHistoryStyle, setChatHistoryStyle] = useState<'palette' | 'sidebar' | 'strip'>('palette')
+  const [tempChatHistoryStyle, setTempChatHistoryStyle] = useState<'palette' | 'sidebar' | 'strip'>('palette')
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false)
   const [agentSettings, setAgentSettings] = useState<Record<string, boolean>>({})
@@ -99,6 +137,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
   const [tempAllAgentSettings, setTempAllAgentSettings] = useState<any>(null)
   const [agentModels, setAgentModels] = useState<Record<string, string[]>>({})
   const [fetchingAgentModels, setFetchingAgentModels] = useState<Record<string, boolean>>({})
+  const autoLoadedClaudeModelsRef = useRef(false)
   const [agentSettingsLoading, setAgentSettingsLoading] = useState(true)
   const [agentSettingsError, setAgentSettingsError] = useState<string | null>(null)
   const [settingsHydrated, setSettingsHydrated] = useState(false)
@@ -171,6 +210,23 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
             const suggest = (appSettings as any).suggest_create_agents_md ?? true
             setSuggestCreateAgentsMd(Boolean(suggest))
             setTempSuggestCreateAgentsMd(Boolean(suggest))
+            const palette = (appSettings as any).dashboard_color_palette || 'default'
+            setDashboardColorPalette(palette)
+            setTempDashboardColorPalette(palette)
+            const dashActivity = (appSettings as any).show_dashboard_activity ?? true
+            setShowDashboardActivity(Boolean(dashActivity))
+            setTempShowDashboardActivity(Boolean(dashActivity))
+            const chartType = (appSettings as any).dashboard_chart_type || 'scatter'
+            setDashboardChartType(chartType)
+            setTempDashboardChartType(chartType)
+            const onboardingOnStart = (appSettings as any).show_onboarding_on_start ?? false
+            setShowOnboardingOnStart(Boolean(onboardingOnStart))
+            setTempShowOnboardingOnStart(Boolean(onboardingOnStart))
+            const docsAutoSync = (appSettings as any).docs_auto_sync ?? false
+            setTempDocsAutoSync(Boolean(docsAutoSync))
+            const histStyle = (appSettings as any).chat_history_style || 'palette'
+            setChatHistoryStyle(histStyle)
+            setTempChatHistoryStyle(histStyle)
           }
         } catch (appError) {
           console.warn('⚠️ Failed to load app settings (using defaults):', appError)
@@ -193,19 +249,19 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
         
         // Load agent settings
         try {
-          const agents = await invoke<Record<string, boolean> | null>('load_agent_settings')
+            const agents = await invoke<Record<string, boolean> | null>('load_agent_settings')
           // Load agent enablement flags if present
           if (agents) {
             setAgentSettings(agents)
             setTempAgentSettings({...agents})
           } else {
-            const defaultAgents = { autohand: false, claude: false, codex: false, gemini: false }
+            const defaultAgents = defaultEnabledAgentsMap()
             setAgentSettings(defaultAgents)
             setTempAgentSettings(defaultAgents)
           }
         } catch (agentError) {
           console.warn('⚠️ Failed to load basic agent settings:', agentError)
-          const defaultAgents = { autohand: false, claude: false, codex: false, gemini: false }
+          const defaultAgents = defaultEnabledAgentsMap()
           setAgentSettings(defaultAgents)
           setTempAgentSettings(defaultAgents)
         }
@@ -234,12 +290,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
         } else {
           // No agent settings found; use defaults
           // Set sensible defaults
-          const defaultAllSettings = {
-            max_concurrent_sessions: 10,
-            claude: { model: '', output_format: 'markdown', session_timeout_minutes: 30, max_tokens: null, temperature: null, sandbox_mode: false, auto_approval: false, debug_mode: false },
-            codex: { model: '', output_format: 'markdown', session_timeout_minutes: 30, max_tokens: null, temperature: null, sandbox_mode: false, auto_approval: false, debug_mode: false },
-            gemini: { model: '', output_format: 'markdown', session_timeout_minutes: 30, max_tokens: null, temperature: null, sandbox_mode: false, auto_approval: false, debug_mode: false }
-          }
+          const defaultAllSettings = createDefaultAllAgentSettings()
           setAllAgentSettings(defaultAllSettings)
           setTempAllAgentSettings({ ...defaultAllSettings })
         }
@@ -259,7 +310,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
   // Switch to an externally requested tab when opening
   useEffect(() => {
     if (isOpen && initialTab && initialTab !== activeTab) {
-      setActiveTab(initialTab)
+      setActiveTab(initialTab === 'autohand' ? 'agents' : initialTab)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialTab])
@@ -311,6 +362,11 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
       tempCodeTheme !== codeTheme ||
       tempCodeFontSize !== codeFontSize ||
       tempSuggestCreateAgentsMd !== suggestCreateAgentsMd ||
+      tempDashboardColorPalette !== dashboardColorPalette ||
+      tempShowDashboardActivity !== showDashboardActivity ||
+      tempDashboardChartType !== dashboardChartType ||
+      tempShowOnboardingOnStart !== showOnboardingOnStart ||
+      tempChatHistoryStyle !== chatHistoryStyle ||
       JSON.stringify(tempAgentSettings) !== JSON.stringify(agentSettings) ||
       (tempAllAgentSettings && allAgentSettings && JSON.stringify(tempAllAgentSettings) !== JSON.stringify(allAgentSettings))
     
@@ -338,6 +394,16 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
     codeFontSize,
     tempSuggestCreateAgentsMd,
     suggestCreateAgentsMd,
+    tempDashboardColorPalette,
+    dashboardColorPalette,
+    tempShowDashboardActivity,
+    showDashboardActivity,
+    tempDashboardChartType,
+    dashboardChartType,
+    tempShowOnboardingOnStart,
+    showOnboardingOnStart,
+    tempChatHistoryStyle,
+    chatHistoryStyle,
     tempAgentSettings,
     agentSettings,
     tempAllAgentSettings,
@@ -437,6 +503,66 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
     saveSuggest()
   }, [tempSuggestCreateAgentsMd, settingsHydrated, suggestCreateAgentsMd])
 
+  // Auto-save dashboard color palette for immediate reflection on dashboard
+  useEffect(() => {
+    const savePalette = async () => {
+      if (!settingsHydrated) return
+      if (tempDashboardColorPalette === dashboardColorPalette) return
+      try {
+        await updateAppSettings({ dashboard_color_palette: tempDashboardColorPalette })
+        setDashboardColorPalette(tempDashboardColorPalette)
+      } catch (e) {
+        console.error('Failed to auto-save dashboard_color_palette:', e)
+      }
+    }
+    savePalette()
+  }, [tempDashboardColorPalette, settingsHydrated, dashboardColorPalette])
+
+  // Auto-save show dashboard activity toggle
+  useEffect(() => {
+    const saveActivity = async () => {
+      if (!settingsHydrated) return
+      if (tempShowDashboardActivity === showDashboardActivity) return
+      try {
+        await updateAppSettings({ show_dashboard_activity: tempShowDashboardActivity })
+        setShowDashboardActivity(tempShowDashboardActivity)
+      } catch (e) {
+        console.error('Failed to auto-save show_dashboard_activity:', e)
+      }
+    }
+    saveActivity()
+  }, [tempShowDashboardActivity, settingsHydrated, showDashboardActivity])
+
+  // Auto-save dashboard chart type
+  useEffect(() => {
+    const saveChartType = async () => {
+      if (!settingsHydrated) return
+      if (tempDashboardChartType === dashboardChartType) return
+      try {
+        await updateAppSettings({ dashboard_chart_type: tempDashboardChartType })
+        setDashboardChartType(tempDashboardChartType)
+      } catch (e) {
+        console.error('Failed to auto-save dashboard_chart_type:', e)
+      }
+    }
+    saveChartType()
+  }, [tempDashboardChartType, settingsHydrated, dashboardChartType])
+
+  // Auto-save show onboarding on start toggle
+  useEffect(() => {
+    const saveOnboarding = async () => {
+      if (!settingsHydrated) return
+      if (tempShowOnboardingOnStart === showOnboardingOnStart) return
+      try {
+        await updateAppSettings({ show_onboarding_on_start: tempShowOnboardingOnStart })
+        setShowOnboardingOnStart(tempShowOnboardingOnStart)
+      } catch (e) {
+        console.error('Failed to auto-save show_onboarding_on_start:', e)
+      }
+    }
+    saveOnboarding()
+  }, [tempShowOnboardingOnStart, settingsHydrated, showOnboardingOnStart])
+
   // Default CLI agent changes are persisted via explicit Save action to respect unsaved-changes workflow.
 
   // Load git config when tab is activated
@@ -516,16 +642,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
       const safePrev = prev || {}
       
       // Create default agent config if it doesn't exist
-      const defaultAgentConfig = {
-        model: '',
-        output_format: 'markdown',
-        session_timeout_minutes: 30,
-        max_tokens: null,
-        temperature: null,
-        sandbox_mode: false,
-        auto_approval: false,
-        debug_mode: false
-      }
+      const defaultAgentConfig = createDefaultAgentSettings()
       
       // Safely get existing agent config or use defaults
       const existingAgentConfig = safePrev[agentId] || defaultAgentConfig
@@ -537,6 +654,51 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
           [key]: value
         }
       }
+    })
+  }
+
+  const handleCreateCustomAgent = (agent: CustomAgentDefinition) => {
+    setTempAllAgentSettings((prev: any) => {
+      const safePrev = prev || createDefaultAllAgentSettings()
+      const existing = Array.isArray(safePrev.custom_agents) ? safePrev.custom_agents : []
+      return {
+        ...safePrev,
+        custom_agents: [...existing, agent],
+      }
+    })
+    setTempAgentSettings((prev) => ({ ...prev, [agent.id]: true }))
+  }
+
+  const handleUpdateCustomAgent = (
+    agentId: string,
+    updater: Partial<CustomAgentDefinition> | ((agent: CustomAgentDefinition) => CustomAgentDefinition)
+  ) => {
+    setTempAllAgentSettings((prev: any) => {
+      const safePrev = prev || createDefaultAllAgentSettings()
+      const existing = Array.isArray(safePrev.custom_agents) ? safePrev.custom_agents : []
+      return {
+        ...safePrev,
+        custom_agents: existing.map((agent: CustomAgentDefinition) => {
+          if (agent.id !== agentId) return agent
+          return typeof updater === 'function' ? updater(agent) : { ...agent, ...updater }
+        }),
+      }
+    })
+  }
+
+  const handleDeleteCustomAgent = (agentId: string) => {
+    setTempAllAgentSettings((prev: any) => {
+      const safePrev = prev || createDefaultAllAgentSettings()
+      const existing = Array.isArray(safePrev.custom_agents) ? safePrev.custom_agents : []
+      return {
+        ...safePrev,
+        custom_agents: existing.filter((agent: CustomAgentDefinition) => agent.id !== agentId),
+      }
+    })
+    setTempAgentSettings((prev) => {
+      const next = { ...prev }
+      delete next[agentId]
+      return next
     })
   }
 
@@ -556,6 +718,22 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
       setFetchingAgentModels(prev => ({ ...prev, [agentId]: false }))
     }
   }
+
+  useEffect(() => {
+    if (!isOpen) {
+      autoLoadedClaudeModelsRef.current = false
+      return
+    }
+    if (autoLoadedClaudeModelsRef.current) return
+    if (fetchingAgentModels.claude) return
+    if ((agentModels.claude || []).length > 0) {
+      autoLoadedClaudeModelsRef.current = true
+      return
+    }
+
+    autoLoadedClaudeModelsRef.current = true
+    void fetchAgentModels('claude')
+  }, [agentModels, fetchingAgentModels, fetchAgentModels, isOpen])
 
   const fetchModels = async (providerId: string) => {
     setFetchingModels(prev => ({ ...prev, [providerId]: true }))
@@ -619,7 +797,12 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
         chat_send_shortcut: tempChatSendShortcut,
         show_welcome_recent_projects: tempShowWelcomeRecentProjects,
         default_cli_agent: tempDefaultCliAgent,
-        code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar }
+        code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
+        dashboard_color_palette: tempDashboardColorPalette,
+        show_dashboard_activity: tempShowDashboardActivity,
+        dashboard_chart_type: tempDashboardChartType,
+        show_onboarding_on_start: tempShowOnboardingOnStart,
+        chat_history_style: tempChatHistoryStyle,
       }
       await updateAppSettings(appSettings)
       
@@ -646,9 +829,25 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
       setCodeFontSize(tempCodeFontSize)
       setAgentSettings(tempAgentSettings)
       setAllAgentSettings(tempAllAgentSettings)
+      setDashboardColorPalette(tempDashboardColorPalette)
+      setShowDashboardActivity(tempShowDashboardActivity)
+      setDashboardChartType(tempDashboardChartType)
+      setShowOnboardingOnStart(tempShowOnboardingOnStart)
+      setChatHistoryStyle(tempChatHistoryStyle)
       // Apply theme immediately
       applyUiTheme(tempUiTheme)
-      
+
+      // Trigger an immediate agent status refresh so the status bar
+      // reflects added/removed custom agents without waiting for the
+      // 10-second polling interval.
+      invoke('check_ai_agents').then((status) => {
+        if (status) {
+          import('@tauri-apps/api/event').then(({ emit }) => {
+            emit('ai-agent-status', status)
+          })
+        }
+      }).catch(() => {})
+
       // Settings saved successfully
     } catch (error) {
       console.error('❌ Error saving settings:', error)
@@ -675,6 +874,10 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
     setTempShowWelcomeRecentProjects(showWelcomeRecentProjects)
     setTempCodeTheme(codeTheme)
     setTempCodeFontSize(codeFontSize)
+    setTempDashboardColorPalette(dashboardColorPalette)
+    setTempShowDashboardActivity(showDashboardActivity)
+    setTempShowOnboardingOnStart(showOnboardingOnStart)
+    setTempChatHistoryStyle(chatHistoryStyle)
     setTempAgentSettings({ ...agentSettings })
     if (allAgentSettings) {
       setTempAllAgentSettings({ ...allAgentSettings })
@@ -688,6 +891,11 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
       id: 'general' as const,
       label: 'General',
       icon: Monitor,
+    },
+    {
+      id: 'appearance' as const,
+      label: 'Appearance',
+      icon: Palette,
     },
     {
       id: 'code' as const,
@@ -721,7 +929,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
     },
     {
       id: 'agents' as const,
-      label: 'CLI Agents',
+      label: 'Coding Agents',
       icon: Bot,
     },
     {
@@ -730,9 +938,9 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
       icon: ExternalLink,
     },
     {
-      id: 'autohand' as const,
-      label: 'Autohand',
-      icon: Terminal,
+      id: 'docs' as const,
+      label: 'Docs',
+      icon: BookOpen,
     },
   ]
 
@@ -807,7 +1015,6 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                   tempShowConsoleOutput={tempShowConsoleOutput}
                   systemPrompt={tempSystemPromptText}
                   saving={saving}
-                  tempUiTheme={tempUiTheme}
                   tempShowWelcomeRecentProjects={tempShowWelcomeRecentProjects}
                   tempSuggestCreateAgentsMd={tempSuggestCreateAgentsMd}
                   onFolderChange={setTempDefaultProjectsFolder}
@@ -815,9 +1022,30 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                   onConsoleOutputChange={setTempShowConsoleOutput}
                   onSystemPromptChange={handleSystemPromptChange}
                   onClearRecentProjects={handleClearRecentProjects}
-                  onUiThemeChange={setTempUiTheme}
                   onShowWelcomeRecentProjectsChange={setTempShowWelcomeRecentProjects}
                   onSuggestCreateAgentsMdChange={setTempSuggestCreateAgentsMd}
+                  tempShowOnboardingOnStart={tempShowOnboardingOnStart}
+                  onShowOnboardingOnStartChange={setTempShowOnboardingOnStart}
+                  maxConcurrentSessions={tempAllAgentSettings?.max_concurrent_sessions || 10}
+                  onMaxConcurrentSessionsChange={(value) => handleUpdateAgentSetting('global', 'max_concurrent_sessions', value)}
+                />
+              )}
+              {activeTab === 'appearance' && (
+                <AppearanceSettings
+                  tempUiTheme={tempUiTheme}
+                  onUiThemeChange={setTempUiTheme}
+                  tempDashboardColorPalette={tempDashboardColorPalette}
+                  onDashboardColorPaletteChange={setTempDashboardColorPalette}
+                  tempShowDashboardActivity={tempShowDashboardActivity}
+                  onShowDashboardActivityChange={setTempShowDashboardActivity}
+                  tempDashboardChartType={tempDashboardChartType}
+                  onDashboardChartTypeChange={setTempDashboardChartType}
+                  tempCodeTheme={tempCodeTheme}
+                  onCodeThemeChange={setTempCodeTheme}
+                  tempCodeFontSize={tempCodeFontSize}
+                  onCodeFontSizeChange={setTempCodeFontSize}
+                  tempChatHistoryStyle={tempChatHistoryStyle}
+                  onChatHistoryStyleChange={setTempChatHistoryStyle}
                 />
               )}
               {activeTab === 'git' && (
@@ -864,6 +1092,10 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                   onToggleAgent={handleToggleAgent}
                   onUpdateAgentSetting={handleUpdateAgentSetting}
                   onFetchAgentModels={fetchAgentModels}
+                  onCreateCustomAgent={handleCreateCustomAgent}
+                  onUpdateCustomAgent={handleUpdateCustomAgent}
+                  onDeleteCustomAgent={handleDeleteCustomAgent}
+                  workingDir={workingDir ?? null}
                 />
               )}
               {activeTab === 'llms' && (
@@ -886,8 +1118,17 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
                   onUpdateSystemPrompt={updateSystemPrompt}
                 />
               )}
-              {activeTab === 'autohand' && (
-                <AutohandSettingsTab workingDir={workingDir ?? null} />
+              {activeTab === 'docs' && (
+                <DocsSettings
+                  autoSync={tempDocsAutoSync}
+                  onAutoSyncChange={(enabled) => {
+                    setTempDocsAutoSync(enabled)
+                    // Auto-save immediately (like theme)
+                    void invoke('save_app_settings', {
+                      settings: { docs_auto_sync: enabled }
+                    }).catch(() => {})
+                  }}
+                />
               )}
             </div>
           </ScrollArea>

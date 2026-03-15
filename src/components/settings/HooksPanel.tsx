@@ -18,12 +18,13 @@ const HOOK_EVENTS = [
   'file-modified',
   'pre-prompt',
   'post-response',
-]
+] as const
+type HookEvent = (typeof HOOK_EVENTS)[number]
 
 export function HooksPanel({ workingDir }: HooksPanelProps) {
-  const { hooks, loading, saveHook, deleteHook, toggleHook } = useAutohandHooks(workingDir)
+  const { hooks, loading, error, saveHook, deleteHook, toggleHook } = useAutohandHooks(workingDir)
   const [showAdd, setShowAdd] = useState(false)
-  const [newEvent, setNewEvent] = useState('post-tool')
+  const [newEvent, setNewEvent] = useState<HookEvent>('post-tool')
   const [newCommand, setNewCommand] = useState('')
   const [newPattern, setNewPattern] = useState('')
 
@@ -65,7 +66,7 @@ export function HooksPanel({ workingDir }: HooksPanelProps) {
               <select
                 className="w-full rounded-md border bg-background px-2 py-1 text-sm"
                 value={newEvent}
-                onChange={(e) => setNewEvent(e.target.value)}
+                onChange={(e) => setNewEvent(e.target.value as HookEvent)}
               >
                 {HOOK_EVENTS.map((e) => (
                   <option key={e} value={e}>
@@ -109,6 +110,8 @@ export function HooksPanel({ workingDir }: HooksPanelProps) {
           No hooks configured. Hooks run scripts at key lifecycle events (pre-tool, post-tool, file-modified, etc.).
         </p>
       )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
       <div className="space-y-2">
         {hooks.map((hook) => (

@@ -12,13 +12,11 @@ const baseProps = {
   tempShowConsoleOutput: true,
   systemPrompt: '',
   saving: false,
-  tempUiTheme: 'auto',
   onFolderChange: vi.fn(),
   onSelectFolder: vi.fn(async () => {}),
   onConsoleOutputChange: vi.fn(),
   onSystemPromptChange: vi.fn(),
   onClearRecentProjects: vi.fn(async () => {}),
-  onUiThemeChange: vi.fn(),
 }
 
 if (typeof document !== 'undefined') describe('GeneralSettings clear recent projects confirmation', () => {

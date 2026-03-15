@@ -1,3 +1,4 @@
+export { AppearanceSettings } from './AppearanceSettings'
 export { ChatSettings } from './ChatSettings'
 export { GeneralSettings } from './GeneralSettings'
 export { GitSettings } from './GitSettings'

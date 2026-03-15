@@ -9,14 +9,12 @@ if (typeof document !== 'undefined') describe('GeneralSettings welcome recent pr
     tempShowConsoleOutput: true,
     systemPrompt: '',
     saving: false,
-    tempUiTheme: 'auto',
     tempShowWelcomeRecentProjects: true,
     onFolderChange: vi.fn(),
     onSelectFolder: vi.fn(),
     onConsoleOutputChange: vi.fn(),
     onSystemPromptChange: vi.fn(),
     onClearRecentProjects: vi.fn(),
-    onUiThemeChange: vi.fn(),
   }
 
   it('prompts for confirmation and calls change handler on confirm', async () => {

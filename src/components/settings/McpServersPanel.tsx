@@ -12,7 +12,7 @@ interface McpServersPanelProps {
 }
 
 export function McpServersPanel({ workingDir }: McpServersPanelProps) {
-  const { servers, loading, saveServer, deleteServer } = useAutohandMcpServers(workingDir)
+  const { servers, loading, error, saveServer, deleteServer } = useAutohandMcpServers(workingDir)
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [newTransport, setNewTransport] = useState('stdio')
@@ -197,6 +197,8 @@ export function McpServersPanel({ workingDir }: McpServersPanelProps) {
           No MCP servers configured. MCP servers provide additional tools and context to the agent.
         </p>
       )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
       <div className="space-y-2">
         {servers.map((server) => (

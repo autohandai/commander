@@ -1,6 +1,4 @@
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/contexts/settings-context";
 import { useState, useEffect } from "react";
@@ -8,8 +6,6 @@ import { Switch } from "@/components/ui/switch";
 
 export function CodeSettings() {
   const { settings, updateSettings } = useSettings();
-  const [tempTheme, setTempTheme] = useState(settings.code_settings.theme);
-  const [tempFontSize, setTempFontSize] = useState(settings.code_settings.font_size);
   const [tempAutoCollapse, setTempAutoCollapse] = useState(settings.code_settings.auto_collapse_sidebar);
   const [tempShowExplorer, setTempShowExplorer] = useState(
     settings.code_settings.show_file_explorer ?? true
@@ -18,31 +14,25 @@ export function CodeSettings() {
 
   // Sync temp values when settings change from external sources
   useEffect(() => {
-    setTempTheme(settings.code_settings.theme);
-    setTempFontSize(settings.code_settings.font_size);
     setTempAutoCollapse(settings.code_settings.auto_collapse_sidebar);
     setTempShowExplorer(settings.code_settings.show_file_explorer ?? true);
   }, [
-    settings.code_settings.theme,
-    settings.code_settings.font_size,
     settings.code_settings.auto_collapse_sidebar,
     settings.code_settings.show_file_explorer,
   ]);
-  
-  const hasChanges = tempTheme !== settings.code_settings.theme || 
-                    tempFontSize !== settings.code_settings.font_size ||
-                    tempAutoCollapse !== settings.code_settings.auto_collapse_sidebar ||
+
+  const hasChanges = tempAutoCollapse !== settings.code_settings.auto_collapse_sidebar ||
                     tempShowExplorer !== (settings.code_settings.show_file_explorer ?? true);
 
   const handleSave = async () => {
     if (!hasChanges) return;
-    
+
     setIsSaving(true);
     try {
       await updateSettings({
         code_settings: {
-          theme: tempTheme,
-          font_size: tempFontSize,
+          theme: settings.code_settings.theme,
+          font_size: settings.code_settings.font_size,
           auto_collapse_sidebar: tempAutoCollapse,
           show_file_explorer: tempShowExplorer,
         }
@@ -55,8 +45,6 @@ export function CodeSettings() {
   };
 
   const handleDiscard = () => {
-    setTempTheme(settings.code_settings.theme);
-    setTempFontSize(settings.code_settings.font_size);
     setTempAutoCollapse(settings.code_settings.auto_collapse_sidebar);
     setTempShowExplorer(settings.code_settings.show_file_explorer ?? true);
   };
@@ -64,35 +52,7 @@ export function CodeSettings() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold">Code</h2>
-        <p className="text-sm text-muted-foreground">Customize code viewer appearance.</p>
-      </div>
-
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Theme</Label>
-          <Select value={tempTheme} onValueChange={setTempTheme}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select a theme" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">Auto (match UI)</SelectItem>
-              <SelectItem value="github">GitHub (light)</SelectItem>
-              <SelectItem value="dracula">Dracula (dark)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="font-size">Font Size (px)</Label>
-          <Input
-            id="font-size"
-            type="number"
-            min={10}
-            max={24}
-            value={tempFontSize}
-            onChange={(e) => setTempFontSize(Number(e.target.value) || 14)}
-          />
-        </div>
+        <p className="text-sm text-muted-foreground">Configure code viewer behavior.</p>
       </div>
 
       <div className="space-y-2">

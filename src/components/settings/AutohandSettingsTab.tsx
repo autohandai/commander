@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -8,43 +8,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ChevronRight } from 'lucide-react'
 import { HooksPanel } from './HooksPanel'
 import { McpServersPanel } from './McpServersPanel'
-
-interface ProviderDetails {
-  api_key?: string
-  model?: string
-  base_url?: string
-}
-
-interface PermissionsConfig {
-  mode: string
-  whitelist: string[]
-  blacklist: string[]
-  rules: string[]
-  remember_session: boolean
-}
-
-interface AgentBehaviorConfig {
-  max_iterations: number
-  enable_request_queue: boolean
-}
-
-interface NetworkConfig {
-  timeout: number
-  max_retries: number
-  retry_delay: number
-}
-
-interface AutohandConfig {
-  protocol: 'rpc' | 'acp'
-  provider: string
-  model?: string
-  permissions_mode: string
-  hooks: unknown[]
-  provider_details?: ProviderDetails
-  permissions?: PermissionsConfig
-  agent?: AgentBehaviorConfig
-  network?: NetworkConfig
-}
+import {
+  parseAutohandConfig,
+  validateAutohandConfigUpdate,
+  type AutohandConfig,
+} from '@/lib/autohand-config-schema'
 
 interface AutohandSettingsTabProps {
   workingDir: string | null
@@ -109,25 +77,94 @@ function TagEditor({
 }
 
 export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
-  const [config, setConfig] = useState<AutohandConfig | null>(null)
+  const [config, setConfig] = useState<AutohandConfig>(() => parseAutohandConfig({}))
+  const [resolvedWorkingDir, setResolvedWorkingDir] = useState<string | null>(workingDir)
+  const [resolvingWorkingDir, setResolvingWorkingDir] = useState(false)
+  const [loadingConfig, setLoadingConfig] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    if (!workingDir) return
-    invoke<AutohandConfig>('get_autohand_config', { workingDir })
-      .then(setConfig)
-      .catch(() => setConfig(null))
+    let cancelled = false
+
+    const resolveWorkingDir = async () => {
+      if (workingDir) {
+        setResolvedWorkingDir(workingDir)
+        return
+      }
+
+      setResolvingWorkingDir(true)
+      try {
+        const homeDir = await invoke<string>('get_user_home_directory')
+        if (!cancelled) {
+          setResolvedWorkingDir(homeDir)
+        }
+      } catch {
+        if (!cancelled) {
+          setResolvedWorkingDir(null)
+          setLoadError('Could not resolve your home directory for ~/.autohand/config.json.')
+        }
+      } finally {
+        if (!cancelled) {
+          setResolvingWorkingDir(false)
+        }
+      }
+    }
+
+    resolveWorkingDir()
+    return () => {
+      cancelled = true
+    }
   }, [workingDir])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const loadConfig = async () => {
+      if (!resolvedWorkingDir) return
+      setLoadingConfig(true)
+      try {
+        const raw = await invoke<unknown>('get_autohand_config', { workingDir: resolvedWorkingDir })
+        if (!cancelled) {
+          setConfig(parseAutohandConfig(raw))
+          setLoadError(null)
+        }
+      } catch {
+        if (!cancelled) {
+          setConfig(parseAutohandConfig({}))
+          setLoadError('Failed to read Autohand config. Showing defaults until you save.')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingConfig(false)
+        }
+      }
+    }
+
+    loadConfig()
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedWorkingDir])
+
   const updateConfig = async (updates: Partial<AutohandConfig>) => {
-    if (!config || !workingDir) return
+    if (!resolvedWorkingDir) return
     const previous = config
     const updated = { ...config, ...updates }
-    setConfig(updated)
+    const validation = validateAutohandConfigUpdate(updated)
+    if (!validation.success) {
+      setSaveError(`Invalid Autohand configuration: ${validation.error}`)
+      return
+    }
+
+    setSaveError(null)
+    setConfig(validation.data)
     try {
-      await invoke('save_autohand_config', { workingDir, config: updated })
+      await invoke('save_autohand_config', { workingDir: resolvedWorkingDir, config: validation.data })
     } catch {
       setConfig(previous)
+      setSaveError('Failed to save Autohand config.')
     }
   }
 
@@ -135,10 +172,19 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }))
   }
 
-  if (!config) {
+  const configTarget = useMemo(() => {
+    if (!resolvedWorkingDir) return '~/.autohand/config.json'
+    return `${resolvedWorkingDir}/.autohand/config.json`
+  }, [resolvedWorkingDir])
+
+  if (resolvingWorkingDir || loadingConfig) {
+    return <p className="text-sm text-muted-foreground">Loading Autohand configuration...</p>
+  }
+
+  if (!resolvedWorkingDir) {
     return (
       <p className="text-sm text-muted-foreground">
-        No autohand configuration found for this project.
+        Unable to load Autohand settings because no configuration location is available.
       </p>
     )
   }
@@ -150,6 +196,14 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
   return (
     <div className="space-y-4">
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground">
+          Config file: <span className="font-mono">{configTarget}</span>
+        </p>
+        {loadError && <p className="text-xs text-amber-500">{loadError}</p>}
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      </div>
+
       {/* Protocol & Model (always visible) */}
       <div className="space-y-4">
         <h3 className="text-sm font-medium">Protocol & Model</h3>
@@ -170,7 +224,11 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
             <select
               className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
               value={config.permissions_mode}
-              onChange={(e) => updateConfig({ permissions_mode: e.target.value })}
+              onChange={(e) =>
+                updateConfig({
+                  permissions_mode: e.target.value as AutohandConfig['permissions_mode'],
+                })
+              }
             >
               <option value="interactive">Interactive</option>
               <option value="auto">Auto-approve</option>
@@ -193,7 +251,7 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
       {/* Provider Settings */}
       <Collapsible
-        open={openSections.provider}
+        open={!!openSections.provider}
         onOpenChange={() => toggleSection('provider')}
       >
         <SectionHeader title="Provider Settings" open={!!openSections.provider} />
@@ -262,12 +320,12 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
       {/* MCP Servers */}
       <Collapsible
-        open={openSections.mcp}
+        open={!!openSections.mcp}
         onOpenChange={() => toggleSection('mcp')}
       >
         <SectionHeader title="MCP Servers" open={!!openSections.mcp} />
         <CollapsibleContent className="pb-2">
-          <McpServersPanel workingDir={workingDir} />
+          <McpServersPanel workingDir={resolvedWorkingDir} />
         </CollapsibleContent>
       </Collapsible>
 
@@ -275,7 +333,7 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
       {/* Permissions */}
       <Collapsible
-        open={openSections.permissions}
+        open={!!openSections.permissions}
         onOpenChange={() => toggleSection('permissions')}
       >
         <SectionHeader title="Permissions" open={!!openSections.permissions} />
@@ -296,7 +354,7 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
                         rules: [],
                         remember_session: false,
                       }),
-                      mode: e.target.value,
+                      mode: e.target.value as NonNullable<AutohandConfig['permissions']>['mode'],
                     },
                   })
                 }
@@ -376,7 +434,7 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
       {/* Agent Behavior */}
       <Collapsible
-        open={openSections.agent}
+        open={!!openSections.agent}
         onOpenChange={() => toggleSection('agent')}
       >
         <SectionHeader title="Agent Behavior" open={!!openSections.agent} />
@@ -420,7 +478,7 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
 
       {/* Network */}
       <Collapsible
-        open={openSections.network}
+        open={!!openSections.network}
         onOpenChange={() => toggleSection('network')}
       >
         <SectionHeader title="Network" open={!!openSections.network} />
@@ -481,7 +539,7 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
       <div className="border-t" />
 
       {/* Lifecycle Hooks (unchanged) */}
-      <HooksPanel workingDir={workingDir} />
+      <HooksPanel workingDir={resolvedWorkingDir} />
     </div>
   )
 }
