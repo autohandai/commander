@@ -7,7 +7,7 @@ use serde_json::Value;
 use tokio::process::Command;
 use which::which;
 
-use crate::models::ai_agent::{AIAgent, AgentStatus};
+use crate::models::ai_agent::{AIAgent, AgentStatus, CustomAgentDefinition};
 
 const AGENT_DEFINITIONS: &[AgentDefinition] = &[
     AgentDefinition {
@@ -44,6 +44,15 @@ struct AgentDefinition {
     package: Option<&'static str>,
 }
 
+/// A dynamic agent definition built from a `CustomAgentDefinition`.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct DynamicAgentDefinition {
+    pub id: String,
+    pub command: String,
+    pub display_name: String,
+}
+
 pub struct AgentStatusService<P: AgentProbe = SystemAgentProbe> {
     probe: P,
 }
@@ -62,9 +71,18 @@ impl<P: AgentProbe> AgentStatusService<P> {
         Self { probe }
     }
 
+    #[cfg(test)]
     pub async fn check_agents(
         &self,
         enabled: &HashMap<String, bool>,
+    ) -> Result<AgentStatus, String> {
+        self.check_agents_with_custom(enabled, &[]).await
+    }
+
+    pub async fn check_agents_with_custom(
+        &self,
+        enabled: &HashMap<String, bool>,
+        custom_agents: &[CustomAgentDefinition],
     ) -> Result<AgentStatus, String> {
         let mut agents = Vec::new();
 
@@ -202,6 +220,60 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 installed_version,
                 latest_version,
                 upgrade_available,
+            });
+        }
+
+        // Process custom (user-defined) agents
+        for custom in custom_agents {
+            let enabled_flag = custom.settings.enabled;
+
+            if !enabled_flag {
+                agents.push(AIAgent {
+                    name: custom.id.clone(),
+                    command: custom.command.clone(),
+                    display_name: custom.name.clone(),
+                    available: false,
+                    enabled: false,
+                    error_message: None,
+                    installed_version: None,
+                    latest_version: None,
+                    upgrade_available: false,
+                });
+                continue;
+            }
+
+            // Extract the binary name (first token of the command string)
+            let binary = custom
+                .command
+                .split_whitespace()
+                .next()
+                .unwrap_or(&custom.command);
+
+            let (available, error_message) = match self.probe.locate(binary).await {
+                Ok(true) => {
+                    // Try to get version but don't fail if it errors
+                    match self.probe.command_version(binary).await {
+                        Ok(_version) => (true, None),
+                        Err(_) => (true, None), // still available even without version
+                    }
+                }
+                Ok(false) => (
+                    false,
+                    Some(format!("{} command not found in PATH", binary)),
+                ),
+                Err(err) => (false, Some(err)),
+            };
+
+            agents.push(AIAgent {
+                name: custom.id.clone(),
+                command: custom.command.clone(),
+                display_name: custom.name.clone(),
+                available,
+                enabled: true,
+                error_message,
+                installed_version: None,
+                latest_version: None,
+                upgrade_available: false,
             });
         }
 

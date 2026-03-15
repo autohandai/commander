@@ -1,8 +1,32 @@
 use crate::models::*;
 use crate::services::git_service::*;
-use std::path::Path;
-use tauri_plugin_store::StoreExt;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use tauri_plugin_store::StoreExt;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProjectApplicationSpec {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub bundle_name: &'static str,
+}
+
+const PROJECT_APPLICATION_SPECS: &[ProjectApplicationSpec] = &[
+    ProjectApplicationSpec { id: "cursor", label: "Cursor", bundle_name: "Cursor.app" },
+    ProjectApplicationSpec { id: "antigravity", label: "Antigravity", bundle_name: "Antigravity.app" },
+    ProjectApplicationSpec { id: "zed", label: "Zed", bundle_name: "Zed.app" },
+    ProjectApplicationSpec { id: "sublime-text", label: "Sublime Text", bundle_name: "Sublime Text.app" },
+    ProjectApplicationSpec { id: "xcode", label: "Xcode", bundle_name: "Xcode.app" },
+    ProjectApplicationSpec { id: "iterm", label: "iTerm", bundle_name: "iTerm.app" },
+    ProjectApplicationSpec { id: "warp", label: "Warp", bundle_name: "Warp.app" },
+    ProjectApplicationSpec { id: "terminal", label: "Terminal", bundle_name: "Terminal.app" },
+    ProjectApplicationSpec { id: "ghostty", label: "Ghostty", bundle_name: "Ghostty.app" },
+    ProjectApplicationSpec { id: "vs-code", label: "VS Code", bundle_name: "Visual Studio Code.app" },
+    ProjectApplicationSpec { id: "jetbrains", label: "JetBrains", bundle_name: "JetBrains Toolbox.app" },
+    ProjectApplicationSpec { id: "windsurf", label: "Windsurf", bundle_name: "Windsurf.app" },
+    ProjectApplicationSpec { id: "trae",     label: "Trae",     bundle_name: "Trae.app" },
+];
 
 /// Pure helper: upsert a recent project into list with MRU ordering and cap
 pub fn upsert_recent_projects(
@@ -35,6 +59,172 @@ pub fn dedup_recent_projects_by_path(projects: Vec<RecentProject>) -> Vec<Recent
         }
     }
     out
+}
+
+pub fn remove_recent_project_by_path(
+    projects: Vec<RecentProject>,
+    target_path: &str,
+) -> Vec<RecentProject> {
+    projects
+        .into_iter()
+        .filter(|project| project.path != target_path)
+        .collect()
+}
+
+pub fn delete_project_directory(project_path: &str) -> Result<(), String> {
+    let path = Path::new(project_path);
+    if !path.exists() {
+        return Err("Project path does not exist".to_string());
+    }
+    if !path.is_dir() {
+        return Err("Project path is not a directory".to_string());
+    }
+
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+
+    if canonical.parent().is_none() {
+        return Err("Refusing to delete an unsafe path".to_string());
+    }
+
+    if let Some(home_dir) = dirs::home_dir() {
+        if canonical == home_dir {
+            return Err("Refusing to delete the home directory".to_string());
+        }
+    }
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        if current_dir.starts_with(&canonical) {
+            let fallback_dir = canonical
+                .parent()
+                .map(|parent| parent.to_path_buf())
+                .or_else(dirs::home_dir)
+                .ok_or_else(|| "Failed to determine a safe working directory".to_string())?;
+            std::env::set_current_dir(&fallback_dir)
+                .map_err(|e| format!("Failed to change working directory before delete: {}", e))?;
+        }
+    }
+
+    std::fs::remove_dir_all(&canonical)
+        .map_err(|e| format!("Failed to delete project directory: {}", e))?;
+
+    Ok(())
+}
+
+pub fn open_directory_in_file_manager(project_path: &str) -> Result<(), String> {
+    let path = Path::new(project_path);
+    if !path.exists() {
+        return Err("Project path does not exist".to_string());
+    }
+    if !path.is_dir() {
+        return Err("Project path is not a directory".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(project_path);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("explorer");
+        command.arg(project_path);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(project_path);
+        command
+    };
+
+    command
+        .spawn()
+        .map_err(|e| format!("Failed to open project directory: {}", e))?;
+
+    Ok(())
+}
+
+pub fn project_application_spec(application_id: &str) -> Result<ProjectApplicationSpec, String> {
+    PROJECT_APPLICATION_SPECS
+        .iter()
+        .copied()
+        .find(|spec| spec.id == application_id)
+        .ok_or_else(|| format!("Unknown application: {}", application_id))
+}
+
+fn mac_application_search_paths(bundle_name: &str) -> Vec<PathBuf> {
+    let mut candidates = vec![PathBuf::from("/Applications").join(bundle_name)];
+    if let Some(home_dir) = dirs::home_dir() {
+        candidates.push(home_dir.join("Applications").join(bundle_name));
+    }
+    candidates
+}
+
+fn find_installed_mac_application_path(spec: &ProjectApplicationSpec) -> Option<PathBuf> {
+    mac_application_search_paths(spec.bundle_name)
+        .into_iter()
+        .find(|path| path.exists())
+}
+
+pub fn list_available_project_applications() -> Vec<ProjectApplicationTarget> {
+    #[cfg(target_os = "macos")]
+    {
+        PROJECT_APPLICATION_SPECS
+            .iter()
+            .map(|spec| ProjectApplicationTarget {
+                id: spec.id.to_string(),
+                label: spec.label.to_string(),
+                installed: find_installed_mac_application_path(spec).is_some(),
+            })
+            .collect()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
+    }
+}
+
+pub fn open_project_with_application(
+    project_path: &str,
+    application_id: &str,
+) -> Result<(), String> {
+    let path = Path::new(project_path);
+    if !path.exists() {
+        return Err("Project path does not exist".to_string());
+    }
+    if !path.is_dir() {
+        return Err("Project path is not a directory".to_string());
+    }
+
+    let spec = project_application_spec(application_id)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let installed_path = find_installed_mac_application_path(&spec);
+        let Some(installed_path) = installed_path else {
+            return Err(format!("Application is not installed: {}", spec.label));
+        };
+
+        let mut command = Command::new("open");
+        command.arg("-a").arg(&installed_path).arg(project_path);
+        command
+            .spawn()
+            .map_err(|e| format!("Failed to open project with {}: {}", spec.label, e))?;
+
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = spec;
+        Err("Opening a project with a specific application is not supported on this platform".to_string())
+    }
 }
 
 /// Check if project name conflicts with existing directories

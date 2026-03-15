@@ -11,6 +11,11 @@ use crate::models::autohand::HookDefinition;
 /// - The file has no `hooks.definitions` key.
 pub fn load_hooks_from_config(workspace: &Path) -> Result<Vec<HookDefinition>, CommanderError> {
     let config_path = workspace.join(".autohand").join("config.json");
+    load_hooks_from_config_file(&config_path)
+}
+
+/// Load all hook definitions from a specific config file path.
+pub fn load_hooks_from_config_file(config_path: &Path) -> Result<Vec<HookDefinition>, CommanderError> {
 
     if !config_path.exists() {
         return Ok(Vec::new());

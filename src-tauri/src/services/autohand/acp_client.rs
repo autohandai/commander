@@ -13,7 +13,7 @@ use crate::models::autohand::{
     PermissionRequest, ToolEvent, ToolPhase,
 };
 use crate::services::autohand::protocol::AutohandProtocol;
-use crate::services::autohand::rpc_client::write_headless_config;
+use crate::services::autohand::rpc_client::write_headless_config_with_mode;
 
 // ---------------------------------------------------------------------------
 // AcpMessage enum -- classified ACP ndJSON messages
@@ -619,7 +619,12 @@ impl AutohandProtocol for AutohandAcpClient {
         working_dir: &str,
         config: &AutohandConfig,
     ) -> Result<(), CommanderError> {
-        let headless_config = write_headless_config(working_dir)?;
+        let mode_override = if config.permissions_mode != "interactive" {
+            Some(config.permissions_mode.as_str())
+        } else {
+            None
+        };
+        let headless_config = write_headless_config_with_mode(working_dir, mode_override)?;
         let args = build_acp_spawn_args(working_dir, config, Some(&headless_config));
 
         let mut child = Command::new("autohand")

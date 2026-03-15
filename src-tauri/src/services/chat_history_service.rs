@@ -147,6 +147,7 @@ pub async fn load_chat_sessions(
     project_path: &str,
     limit: Option<usize>,
     agent_filter: Option<String>,
+    include_archived: Option<bool>,
 ) -> Result<Vec<ChatSession>, String> {
     let chat_dir = ensure_commander_directory(project_path).await?;
     let index_file = chat_dir.join(SESSIONS_INDEX_FILE);
@@ -163,6 +164,12 @@ pub async fn load_chat_sessions(
         .map_err(|e| format!("Failed to parse sessions index: {}", e))?;
 
     let mut sessions = index.sessions;
+
+    // Filter archived unless explicitly included
+    let include = include_archived.unwrap_or(false);
+    if !include {
+        sessions.retain(|s| !s.archived);
+    }
 
     // Apply agent filter
     if let Some(agent) = agent_filter {
@@ -439,7 +446,7 @@ pub async fn export_chat_history(
     project_path: &str,
     request: ExportRequest,
 ) -> Result<String, String> {
-    let sessions = load_chat_sessions(project_path, None, None).await?;
+    let sessions = load_chat_sessions(project_path, None, None, None).await?;
 
     // Filter sessions if specific ones requested
     let sessions_to_export = if let Some(ref session_ids) = request.sessions {
@@ -573,6 +580,152 @@ async fn export_as_html(_sessions: &[ChatSession], _project_path: &str) -> Resul
 async fn export_as_csv(_sessions: &[ChatSession], _project_path: &str) -> Result<String, String> {
     // Placeholder for CSV export
     Err("CSV export not yet implemented".to_string())
+}
+
+/// Load the sessions index from disk
+pub(crate) async fn load_sessions_index(path: &std::path::Path) -> Result<SessionsIndex, String> {
+    if path.exists() {
+        let data = async_fs::read_to_string(path)
+            .await
+            .map_err(|e| format!("Failed to read sessions index: {}", e))?;
+        serde_json::from_str(&data)
+            .map_err(|e| format!("Failed to parse sessions index: {}", e))
+    } else {
+        Ok(SessionsIndex {
+            sessions: vec![],
+            last_updated: Utc::now().timestamp(),
+            version: "1.0".to_string(),
+        })
+    }
+}
+
+/// Save the sessions index to disk
+pub(crate) async fn save_sessions_index(path: &std::path::Path, index: &SessionsIndex) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(index)
+        .map_err(|e| format!("Failed to serialize sessions index: {}", e))?;
+    async_fs::write(path, json)
+        .await
+        .map_err(|e| format!("Failed to write sessions index: {}", e))
+}
+
+/// Set archived flag on a session in the index.
+pub async fn archive_session(project_path: &str, session_id: &str) -> Result<(), String> {
+    let dir = ensure_commander_directory(project_path).await?;
+    let index_path = dir.join("sessions_index.json");
+    let mut index = load_sessions_index(&index_path).await?;
+
+    let session = index.sessions.iter_mut()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    session.archived = true;
+    index.last_updated = Utc::now().timestamp();
+
+    save_sessions_index(&index_path, &index).await?;
+    Ok(())
+}
+
+/// Clear archived flag on a session in the index.
+pub async fn unarchive_session(project_path: &str, session_id: &str) -> Result<(), String> {
+    let dir = ensure_commander_directory(project_path).await?;
+    let index_path = dir.join("sessions_index.json");
+    let mut index = load_sessions_index(&index_path).await?;
+
+    let session = index.sessions.iter_mut()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    session.archived = false;
+    index.last_updated = Utc::now().timestamp();
+
+    save_sessions_index(&index_path, &index).await?;
+    Ok(())
+}
+
+/// Set custom_title on a session in the index.
+pub async fn rename_session(project_path: &str, session_id: &str, title: &str) -> Result<(), String> {
+    let dir = ensure_commander_directory(project_path).await?;
+    let index_path = dir.join("sessions_index.json");
+    let mut index = load_sessions_index(&index_path).await?;
+
+    let session = index.sessions.iter_mut()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    session.custom_title = Some(title.to_string());
+    index.last_updated = Utc::now().timestamp();
+
+    save_sessions_index(&index_path, &index).await?;
+    Ok(())
+}
+
+/// Update the auto-generated summary (used by compact action).
+pub async fn update_summary(project_path: &str, session_id: &str, summary: &str) -> Result<(), String> {
+    let dir = ensure_commander_directory(project_path).await?;
+    let index_path = dir.join("sessions_index.json");
+    let mut index = load_sessions_index(&index_path).await?;
+
+    let session = index.sessions.iter_mut()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| format!("Session {} not found", session_id))?;
+    session.summary = summary.to_string();
+    index.last_updated = Utc::now().timestamp();
+
+    save_sessions_index(&index_path, &index).await?;
+    Ok(())
+}
+
+/// Copy a session's messages into a new session. Returns the new session ID.
+pub async fn fork_session(project_path: &str, session_id: &str) -> Result<String, String> {
+    let dir = ensure_commander_directory(project_path).await?;
+
+    // Load original session messages
+    let messages = load_session_messages(project_path, session_id).await?;
+    if messages.is_empty() {
+        return Err(format!("Session {} has no messages to fork", session_id));
+    }
+
+    // Load index to get original session metadata
+    let index_path = dir.join("sessions_index.json");
+    let mut index = load_sessions_index(&index_path).await?;
+    let original = index.sessions.iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| format!("Session {} not found", session_id))?
+        .clone();
+
+    // Create new session
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+    let new_session = ChatSession {
+        id: new_id.clone(),
+        start_time: now,
+        end_time: now,
+        agent: original.agent,
+        branch: original.branch,
+        message_count: original.message_count,
+        summary: format!("Fork of: {}", original.custom_title.as_deref()
+            .or(original.ai_summary.as_deref())
+            .unwrap_or(&original.summary)),
+        archived: false,
+        custom_title: None,
+        ai_summary: None,
+        forked_from: Some(session_id.to_string()),
+        source: "local".to_string(),
+        source_file: None,
+        model: None,
+    };
+
+    // Write new session messages file
+    let session_file = dir.join(format!("session_{}.json", new_id));
+    let json = serde_json::to_string_pretty(&messages)
+        .map_err(|e| format!("Failed to serialize forked messages: {}", e))?;
+    async_fs::write(&session_file, json)
+        .await
+        .map_err(|e| format!("Failed to write forked session: {}", e))?;
+
+    // Update index
+    index.sessions.insert(0, new_session);
+    index.last_updated = now;
+    save_sessions_index(&index_path, &index).await?;
+
+    Ok(new_id)
 }
 
 #[cfg(test)]

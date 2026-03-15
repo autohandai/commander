@@ -132,8 +132,12 @@ pub fn build_permission_response_params(request_id: &str, approved: bool) -> Val
 /// mode, so we force it to `"dark"` to avoid crashes caused by custom themes
 /// that aren't available outside interactive mode.
 ///
+/// When `permission_mode_override` is provided, it is injected into the
+/// `permissions.mode` field of the headless config, allowing the frontend
+/// dropdown to control the autohand CLI's permission mode.
+///
 /// Returns the path to the temporary config file.
-pub fn write_headless_config(working_dir: &str) -> Result<std::path::PathBuf, CommanderError> {
+pub fn write_headless_config_with_mode(working_dir: &str, permission_mode_override: Option<&str>) -> Result<std::path::PathBuf, CommanderError> {
     // Read the raw global config
     let global_path = dirs::home_dir()
         .map(|h| h.join(".autohand").join("config.json"));
@@ -174,6 +178,16 @@ pub fn write_headless_config(working_dir: &str) -> Result<std::path::PathBuf, Co
         let ui_entry = obj.entry("ui").or_insert(serde_json::json!({}));
         if let Some(ui_obj) = ui_entry.as_object_mut() {
             ui_obj.insert("theme".to_string(), serde_json::json!("dark"));
+        }
+    }
+
+    // Override permission mode if requested by the frontend
+    if let Some(mode) = permission_mode_override {
+        if let Some(obj) = root.as_object_mut() {
+            let perms_entry = obj.entry("permissions").or_insert(serde_json::json!({}));
+            if let Some(perms_obj) = perms_entry.as_object_mut() {
+                perms_obj.insert("mode".to_string(), serde_json::json!(mode));
+            }
         }
     }
 
@@ -745,7 +759,12 @@ impl AutohandProtocol for AutohandRpcClient {
         working_dir: &str,
         config: &AutohandConfig,
     ) -> Result<(), CommanderError> {
-        let headless_config = write_headless_config(working_dir)?;
+        let mode_override = if config.permissions_mode != "interactive" {
+            Some(config.permissions_mode.as_str())
+        } else {
+            None
+        };
+        let headless_config = write_headless_config_with_mode(working_dir, mode_override)?;
         let args = build_spawn_args(working_dir, config, Some(&headless_config));
 
         let mut child = Command::new("autohand")

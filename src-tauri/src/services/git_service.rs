@@ -48,6 +48,54 @@ pub fn get_git_status(project_path: &str) -> Option<String> {
     }
 }
 
+/// Switch the current repository or worktree to the requested branch.
+pub fn switch_git_branch(project_path: &str, branch: &str) -> Result<(), String> {
+    if !is_valid_git_repository(project_path) {
+        return Err("Selected folder is not a valid git repository".to_string());
+    }
+
+    let trimmed_branch = branch.trim();
+    if trimmed_branch.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    let output = Command::new("git")
+        .args(["checkout", trimmed_branch])
+        .current_dir(project_path)
+        .output()
+        .map_err(|e| format!("Failed to switch git branch: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+/// Create and switch to a new git branch from the current HEAD.
+pub fn create_git_branch(project_path: &str, branch: &str) -> Result<(), String> {
+    if !is_valid_git_repository(project_path) {
+        return Err("Selected folder is not a valid git repository".to_string());
+    }
+
+    let trimmed_branch = branch.trim();
+    if trimmed_branch.is_empty() {
+        return Err("Branch name is required".to_string());
+    }
+
+    let output = Command::new("git")
+        .args(["checkout", "-b", trimmed_branch])
+        .current_dir(project_path)
+        .output()
+        .map_err(|e| format!("Failed to create git branch: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 /// Find the root of a git repository, handling worktrees, submodules, and regular repos
 /// Returns the path to the main repository root
 pub fn find_git_root(current_path: &str) -> Option<String> {
