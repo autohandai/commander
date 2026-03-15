@@ -1,0 +1,340 @@
+# Task Plan
+
+- [x] Inspect execution mode dropdown behavior and confirm root cause
+- [x] Write PRD and TDD for dropdown stability and dynamic agent mode updates
+- [x] Add failing frontend regression tests for selector interaction and intended-agent mode switching
+- [x] Replace native select with shared chat-consistent select UI
+- [x] Derive mode options from the effective target agent, including `/agent` input targeting
+- [x] Run targeted verification and record results
+- [ ] Review remaining chat footer issues from screenshot feedback
+- [ ] Add regressions for non-freezing mode menu and visible helper row
+- [ ] Replace modal select interaction with a flatter non-blocking menu
+- [ ] Adjust footer spacing and helper wrapping so bottom text is not cropped
+- [x] Review remaining chat footer issues from screenshot feedback
+- [x] Add regressions for non-freezing mode menu and visible helper row
+- [x] Replace modal select interaction with a flatter non-blocking menu
+- [x] Adjust footer spacing and helper wrapping so bottom text is not cropped
+- [x] Inspect Composer freeze report and isolate likely hot path
+- [x] Write PRD/TDD for Composer interaction freeze regression
+- [x] Add failing regression tests for debounced autocomplete file lookups
+- [x] Debounce and deduplicate Composer file-backed autocomplete requests
+- [x] Run focused verification for Composer responsiveness regressions
+- [x] Identify heavy chat-log rerender path behind streaming freeze
+- [ ] Write PRD/TDD for heavy message render performance regression
+- [ ] Add failing regression test for unchanged heavy message rows during sibling streaming updates
+- [ ] Memoize chat message rows so unchanged heavy content does not rerender
+- [ ] Run focused verification for message list render performance regressions
+- [x] Write PRD/TDD for heavy message render performance regression
+- [x] Add failing regression test for unchanged heavy message rows during sibling streaming updates
+- [x] Memoize chat message rows so unchanged heavy content does not rerender
+- [x] Run focused verification for message list render performance regressions
+- [x] Confirm project-specific freeze comes from persisted heavy chat restoration
+- [ ] Write PRD/TDD for upgrade-safe heavy chat rendering
+- [ ] Add failing regression tests for deferred heavy assistant rendering
+- [ ] Implement progressive rich rendering for heavy persisted chat rows
+- [ ] Run focused verification for persisted heavy chat rendering
+- [x] Write PRD/TDD for upgrade-safe heavy chat rendering
+- [x] Add failing regression tests for deferred heavy assistant rendering
+- [x] Implement progressive rich rendering for heavy persisted chat rows
+- [x] Run focused verification for persisted heavy chat rendering
+- [x] Inspect dashboard legend color regression for autohand
+- [ ] Write PRD/TDD for autohand dashboard legend color
+- [ ] Add failing regression test for autohand palette color
+- [ ] Add dedicated autohand palette color and CSS variable
+- [ ] Run focused verification for dashboard palette rendering
+- [x] Write PRD/TDD for autohand dashboard legend color
+- [x] Add failing regression test for autohand palette color
+- [x] Add dedicated autohand palette color and CSS variable
+- [x] Run focused verification for dashboard palette rendering
+- [x] Inspect sidebar project-row feature surface and backend gaps
+- [ ] Write PRD/TDD for sidebar project actions and git tree
+- [ ] Add failing tests for sidebar menu, expansion, and delete confirmation
+- [ ] Add backend commands/helpers for project-scoped worktrees, directory open, and project deletion
+- [ ] Add settings-backed sidebar git tree UI and confirmation modal
+- [ ] Run focused verification and frontend review for the sidebar changes
+- [x] Audit settings IA and agent configuration model for registry-driven refactor
+- [x] Write PRD/TDD for settings agent registry tabs
+- [x] Add failing tests for General global session settings relocation and agent tab registry rendering
+- [x] Add failing tests for custom agent definition UI and persistence
+- [x] Add backend registry normalization and persistence coverage for custom agents
+- [x] Refactor agent settings models for built-in plus custom registry entries
+- [x] Move global session settings into General and remove the separate Autohand left-nav page
+- [x] Implement Chrome-style agent tabs with capability-driven controls and custom agent creation
+- [x] Run focused verification and frontend review for the settings registry refactor
+- [x] Audit the incorrect agent settings assumptions and confirm the sidebar project menu is still missing in the shipped UI
+- [x] Write PRD/TDD for CLI agent registry corrections and project sidebar completion
+- [x] Add failing regressions for removing Ollama from CLI agent tabs and auto-loading Claude models
+- [x] Implement the corrected CLI agent settings surface with automatic Claude model hydration
+- [x] Add backend/frontend support for sidebar project actions, typed delete confirmation, and branch/worktree expansion
+- [x] Run focused verification for settings corrections and the project sidebar interactions
+- [x] Write PRD/TDD for persistent sidebar project action visibility and click-open behavior
+- [x] Add regression coverage for always-visible project controls and click-open menu behavior
+- [x] Remove hover-only project action visibility and fix normal click opening in the sidebar
+- [x] Run focused sidebar verification after the visibility/click fix
+- [x] Remove the redundant expand chevron and let project-row clicks expand git refs
+- [x] Run focused verification for row-click expansion behavior
+- [x] Write PRD/TDD for project sidebar open-with editor targets
+- [x] Add regression coverage for the sidebar open-with submenu and editor launch action
+- [x] Add backend support for opening a project in a selected application and wire it into the sidebar menu
+- [x] Run focused verification for project open-with actions
+- [x] Write PRD/TDD for sidebar project application icons
+- [x] Add regression coverage for app-specific menu icons
+- [x] Replace generic app menu glyphs with application-specific SVG icons
+- [x] Run focused verification for the sidebar icon pass
+- [x] Write PRD/TDD for flattening the boxed active project row
+- [x] Add regression coverage for the active-row visual treatment
+- [x] Remove the extra boxed active project styling in the sidebar
+- [x] Run focused verification for the active-row styling fix
+- [x] Write PRD/TDD for the project header identity bar
+- [x] Add regression coverage for the identity header and shared project actions menu
+- [x] Replace breadcrumb-style project context with a flatter identity bar and shared right-side actions
+- [x] Run focused verification for the project header redesign
+- [x] Write PRD/TDD for the destructive project delete dialog warning pass
+- [x] Add regression coverage for copy-to-confirm and warning state in the shared delete dialog
+- [x] Replace the read-only project-name input with plain text, copy action, and warning callout
+- [x] Run focused verification for the shared delete dialog refinement
+- [x] Write PRD/TDD for project delete success notification
+- [x] Add regression coverage for the delete success toast
+- [x] Show a success notification after shared project deletion completes
+- [x] Run focused verification for the shared delete notification flow
+- [x] Inspect sidebar execution-state leak and inert branch/worktree rows
+- [x] Write PRD/TDD for sidebar execution scoping and git context switching
+- [x] Add failing regressions for project-scoped running indicators and actionable git refs
+- [x] Add backend branch-switch command coverage
+- [x] Make sidebar branch/worktree rows switch active git context and refresh project state
+- [x] Scope chat persistence/project view remounting to branch/worktree context
+- [x] Run focused verification for sidebar execution scoping and git context switching
+- [x] Inspect sidebar git navigation stability and workspace-branch routing failure
+- [x] Write PRD/TDD for sidebar git navigation stability and workspace-branch routing
+- [x] Add failing regressions for grouped git refs and workspace-branch routing
+- [x] Refine the sidebar nested git navigation hierarchy and spacing
+- [x] Route workspace-backed branch clicks into their matching worktree
+- [x] Run focused verification for sidebar git navigation stability
+- [x] Inspect sidebar dead gap and scrollbar ownership
+- [x] Write PRD/TDD for sidebar scroll region and minimal scrollbar
+- [ ] Add failing regression coverage for sidebar scroll-region hooks
+- [x] Move sidebar scrolling to the real content region and remove the dead gap
+- [x] Apply a minimal sidebar scrollbar treatment
+- [x] Run focused verification for the sidebar scroll pass
+- [x] Inspect sidebar reorder-on-select bug
+- [x] Write PRD/TDD for stable sidebar ordering on project selection
+- [x] Add failing regression coverage for sidebar order stability
+- [x] Preserve visible sidebar order during project selection and context switching
+- [x] Run focused verification for stable sidebar ordering
+- [x] Inspect welcome dashboard palette lag on first theme change
+- [x] Write PRD/TDD for immediate dashboard palette application
+- [x] Add failing regression coverage for first-change dashboard palette sync
+- [x] Apply dashboard palette before dependent chart effects run
+- [x] Run focused verification for dashboard palette sync
+- [x] Inspect dashboard palette system for Ghostty-inspired expansion
+- [x] Write PRD/TDD for Ghostty-inspired dashboard palettes
+- [x] Add failing regression coverage for expanded dashboard palette tokens
+- [x] Add Ghostty-inspired chart palettes and shared chart accent tokens
+- [x] Run focused verification for dashboard palette expansion
+- [x] Inspect dashboard palette labels and requested Dracula/GitHub additions
+- [x] Write PRD/TDD for dashboard palette label cleanup and new presets
+- [x] Add failing regression coverage for renamed labels and new dashboard presets
+- [x] Add Dracula, GitHub Dark, and GitHub Light palettes while shortening public preset labels
+- [x] Run focused verification for dashboard palette label and preset expansion
+- [x] Inspect repeated scrollbar theming regressions across sidebar and shared overflow surfaces
+- [x] Write PRD/TDD for shared scrollbar theming hardening
+- [x] Add failing regression coverage for shared themed scrollbars
+- [x] Replace conflicting scrollbar rules with one shared themed utility
+- [x] Run focused verification for shared scrollbar theming hardening
+- [x] Inspect moving project actions out of the sidebar and into the main project header
+- [x] Write PRD/TDD for header-owned project actions with branch/worktree creation
+- [x] Add failing regression coverage for header-owned project actions
+- [x] Move project actions to the header and add new branch/worktree creation flows
+- [x] Run focused verification for header-owned project actions
+- [x] Inspect restoring project actions to the sidebar and fixing remaining scrollbar color leaks
+- [x] Write PRD/TDD for sidebar project actions and scrollbar repair
+- [x] Add failing regression coverage for sidebar action ownership and scrollbar colors
+- [x] Restore sidebar dots with new branch/worktree/delete and remove header dots
+- [x] Run focused verification for sidebar project actions and scrollbar repair
+- [x] Inspect restoring the header dots as a separate launch-actions surface
+- [x] Write PRD/TDD for header project launch menu restoration
+- [x] Add failing regression coverage for the restored header dots
+- [x] Restore the header dots with launch/open actions only
+- [x] Run focused verification for header project launch menu restoration
+- [ ] NEW FEATURE: Show git diff stats (+N / -N) on sidebar branch/worktree rows (not project name)
+  - Each branch and worktree row should display file change counts (additions/deletions) like "+1046 -20"
+  - Stats should update when expanding the project or switching branches
+  - Requires new backend command to get per-branch diff stats relative to default branch
+  - Reference: Warp-style branch row with green/red change badges
+
+# Review
+
+- Focused frontend regression suite passed:
+  - `src/components/chat/__tests__/ChatControlsBar.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.dynamicModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.executionMode.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.agentModes.test.tsx`
+- `cargo check` passed in `src-tauri/`.
+- `bun run test` fails because Vitest is picking up duplicate tests from `.worktrees/sqlite-indexer/`, causing unrelated React hook errors.
+- `bun x vitest run --exclude '.worktrees/**'` runs the root suite successfully on test assertions, but exits non-zero because of pre-existing unhandled Tauri event rejections in `src/hooks/__tests__/use-dashboard-stats.test.tsx`.
+- `bun run build` fails due pre-existing TypeScript issues unrelated to this change set.
+- Dashboard Ghostty palette expansion pass:
+  - `src/lib/__tests__/dashboard-palettes.test.ts`
+  - `src/components/dashboard/__tests__/MetricsStrip.test.tsx`
+  - `src/components/settings/__tests__/GeneralSettings.dashboardPalette.test.tsx`
+  - `src/components/dashboard/__tests__/SessionScatterChart.test.tsx`
+  - `src/components/dashboard/__tests__/DashboardView.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Dashboard palette naming and preset expansion pass:
+  - `src/lib/__tests__/dashboard-palettes.test.ts`
+  - `src/components/settings/__tests__/GeneralSettings.dashboardPalette.test.tsx`
+  - `src/components/dashboard/__tests__/MetricsStrip.test.tsx`
+  - `src/components/dashboard/__tests__/SessionScatterChart.test.tsx`
+  - `src/components/dashboard/__tests__/DashboardView.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Shared scrollbar theming hardening pass:
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx`
+  - `src/components/ui/__tests__/scrollbar-primitives.test.ts`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Project header action redesign pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `cargo test git_branch_switch --manifest-path src-tauri/Cargo.toml`
+  - `cargo test git_service_enhanced --manifest-path src-tauri/Cargo.toml`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar project action restoration and scrollbar repair pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `cargo test git_branch_switch --manifest-path src-tauri/Cargo.toml`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Header project launch menu restoration pass:
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Follow-up footer pass passed:
+  - `src/components/chat/__tests__/ChatControlsBar.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.dynamicModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.executionMode.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.agentModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.placeholder.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx`
+- Composer freeze regression pass:
+  - `src/components/chat/hooks/__tests__/useChatAutocomplete.test.tsx`
+  - `src/components/chat/__tests__/ChatControlsBar.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.dynamicModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.executionMode.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.agentModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.placeholder.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx`
+- Heavy chat-log render regression pass:
+  - `src/components/chat/__tests__/MessagesList.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.claudeStream.render.test.tsx`
+  - `src/components/chat/hooks/__tests__/useChatAutocomplete.test.tsx`
+  - `src/components/chat/__tests__/ChatControlsBar.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.dynamicModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.executionMode.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.agentModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.placeholder.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx`
+- Upgrade-safe persisted heavy chat rendering pass:
+  - `src/components/chat/__tests__/MessagesList.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.claudeStream.render.test.tsx`
+  - `src/components/chat/hooks/__tests__/useChatAutocomplete.test.tsx`
+  - `src/components/chat/__tests__/ChatControlsBar.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.dynamicModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.executionMode.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.agentModes.test.tsx`
+  - `src/components/chat/__tests__/ChatInput.placeholder.test.tsx`
+  - `src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx`
+- Dashboard autohand legend color pass:
+  - `src/lib/__tests__/dashboard-palettes.test.ts`
+- Settings agent registry refactor pass:
+  - `src/components/settings/__tests__/SettingsModal.agentRegistryTabs.test.tsx`
+  - `src/components/settings/__tests__/SettingsModal.defaultAgent.test.tsx`
+  - `src/components/settings/__tests__/SettingsModal.autosavePersistence.test.tsx`
+  - `src/components/settings/__tests__/SettingsModal.welcomeToggle.autosave.test.tsx`
+  - `src/components/settings/__tests__/AutohandSettingsTab.globalFallback.test.tsx`
+  - `cargo test agent_registry`
+  - `cargo check`
+- Frontend review notes:
+  - The refactor keeps the existing settings shell and switches only the agent configuration surface to a flatter tabbed model.
+  - Built-in agents now expose only settings backed by their real transport path instead of the old generic field dump.
+  - Custom agent definitions persist in settings, but runtime execution for arbitrary custom agents still remains a follow-up.
+- CLI agent/sidebar correction pass:
+  - `src/components/settings/__tests__/SettingsModal.agentRegistryTabs.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/chat/__tests__/agentExecutionModes.registry.test.ts`
+  - `cargo test project_sidebar_actions --manifest-path src-tauri/Cargo.toml`
+  - `cargo test agent_registry --manifest-path src-tauri/Cargo.toml`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar action visibility pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+- Sidebar row expansion simplification pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+- Sidebar project open-with pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `cargo test project_sidebar_actions --manifest-path src-tauri/Cargo.toml`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar active-row flattening pass:
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar application icon and project header pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `src/components/__tests__/App.projectSelection.chatDefault.test.tsx`
+  - `src/components/__tests__/App.sidebar.autoCollapse.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Shared delete dialog warning pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Shared delete success notification pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar execution scoping and git context switching pass:
+  - `src/components/__tests__/App.projectExecutionScope.test.tsx`
+  - `src/components/__tests__/App.projectGitContextSwitch.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/App.projectSelection.chatDefault.test.tsx`
+  - `src/components/__tests__/App.projectHeader.identity.test.tsx`
+  - `cargo test git_branch_switch --manifest-path src-tauri/Cargo.toml`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+  - `bun tauri dev` still fails before app launch because Vite port `1420` is already in use
+- Sidebar git navigation stability pass:
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/App.projectGitContextSwitch.test.tsx`
+  - `src/components/__tests__/App.projectExecutionScope.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar stable-order pass:
+  - `src/components/__tests__/App.projectSelection.sidebarOrder.test.tsx`
+  - `src/components/__tests__/App.projectGitContextSwitch.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar scroll-region pass:
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar scroll-only scrollbar refinement:
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Dashboard palette sync pass:
+  - `src/contexts/__tests__/settings-context-dashboard-palette.test.tsx`
+  - `src/contexts/__tests__/settings-context-agent.test.tsx`
+  - `src/components/dashboard/__tests__/SessionScatterChart.test.tsx`
+  - `src/components/dashboard/__tests__/DashboardView.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Sidebar dark-mode scrollbar theming pass:
+  - `src/components/__tests__/app-sidebar.active.test.tsx`
+  - `src/components/__tests__/app-sidebar.project-actions.test.tsx`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
