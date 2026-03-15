@@ -1,4 +1,4 @@
-import { Bot, Code, Brain } from 'lucide-react'
+import { Bot, Code, Brain, Terminal } from 'lucide-react'
 
 export interface Agent {
   id: string
@@ -15,13 +15,14 @@ export interface AgentCapability {
   category: string
 }
 
-export const allowedAgentIds = ['claude', 'codex', 'gemini', 'ollama', 'test'] as const
+export const allowedAgentIds = ['autohand', 'claude', 'codex', 'gemini', 'ollama', 'test'] as const
 
 export type AllowedAgentId = typeof allowedAgentIds[number]
-export const DEFAULT_CLI_AGENT_IDS = ['claude', 'codex', 'gemini', 'ollama'] as const
+export const DEFAULT_CLI_AGENT_IDS = ['autohand', 'claude', 'codex', 'gemini', 'ollama'] as const
 export type DefaultCliAgentId = typeof DEFAULT_CLI_AGENT_IDS[number]
 
 export const DISPLAY_TO_ID: Record<string, string> = {
+  'Autohand': 'autohand',
   'Claude Code CLI': 'claude',
   'Codex': 'codex',
   'Gemini': 'gemini',
@@ -30,6 +31,13 @@ export const DISPLAY_TO_ID: Record<string, string> = {
 }
 
 export const AGENTS: Agent[] = [
+  {
+    id: 'autohand',
+    name: 'autohand',
+    displayName: 'Autohand',
+    icon: Terminal,
+    description: 'Autohand CLI agent (ACP/RPC)',
+  },
   {
     id: 'claude',
     name: 'claude',
@@ -68,6 +76,10 @@ export const AGENTS: Agent[] = [
 ]
 
 export const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
+  autohand: [
+    { id: 'protocol', name: 'Protocol Support', description: 'Communicates via ACP/RPC protocols', category: 'Protocol' },
+    { id: 'orchestration', name: 'Agent Orchestration', description: 'Coordinates multiple AI agents', category: 'Orchestration' },
+  ],
   claude: [
     { id: 'analysis', name: 'Code Analysis', description: 'Deep code analysis and review', category: 'Analysis' },
     { id: 'refactor', name: 'Refactoring', description: 'Intelligent code refactoring', category: 'Development' },

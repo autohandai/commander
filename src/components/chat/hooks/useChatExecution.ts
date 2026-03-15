@@ -25,6 +25,7 @@ export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingS
       conversationId?: string
     ): Promise<string | null> => {
       const agentCommandMap = {
+        autohand: 'execute_persistent_cli_command',
         claude: 'execute_claude_command',
         codex: 'execute_codex_command',
         gemini: 'execute_gemini_command',
