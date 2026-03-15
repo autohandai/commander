@@ -22,6 +22,30 @@ enum AutohandClient {
 /// An active autohand session tracked by the backend.
 struct AutohandSessionHandle {
     client: AutohandClient,
+    /// Config fingerprint at spawn time — used to detect model/key changes.
+    config_fingerprint: String,
+}
+
+/// Build a fingerprint string from the config fields that affect the running
+/// CLI process.  If any of these change, the session must be restarted.
+fn config_fingerprint(config: &AutohandConfig) -> String {
+    let model = config.model.as_deref().unwrap_or("");
+    let provider = &config.provider;
+    let api_key = config
+        .provider_details
+        .as_ref()
+        .and_then(|d| d.api_key.as_deref())
+        .unwrap_or("");
+    let base_url = config
+        .provider_details
+        .as_ref()
+        .and_then(|d| d.base_url.as_deref())
+        .unwrap_or("");
+    let protocol = match config.protocol {
+        ProtocolMode::Rpc => "rpc",
+        ProtocolMode::Acp => "acp",
+    };
+    format!("{provider}|{model}|{api_key}|{base_url}|{protocol}")
 }
 
 /// Global map of active autohand sessions keyed by session_id.
@@ -52,6 +76,20 @@ fn merge_json(base: &mut serde_json::Value, overlay: &serde_json::Value) {
             base_obj.insert(k.clone(), v.clone());
         }
     }
+}
+
+fn provider_details_to_cli_json(details: &ProviderDetails) -> serde_json::Value {
+    let mut provider_obj = serde_json::Map::new();
+    if let Some(api_key) = &details.api_key {
+        provider_obj.insert("apiKey".to_string(), serde_json::json!(api_key));
+    }
+    if let Some(model) = &details.model {
+        provider_obj.insert("model".to_string(), serde_json::json!(model));
+    }
+    if let Some(base_url) = &details.base_url {
+        provider_obj.insert("baseUrl".to_string(), serde_json::json!(base_url));
+    }
+    serde_json::Value::Object(provider_obj)
 }
 
 /// Internal loader that takes an explicit global config directory (or `None`
@@ -106,7 +144,7 @@ pub fn load_autohand_config_with_global(
     let hooks = match hooks_service::load_hooks_from_config(workspace) {
         Ok(h) if !h.is_empty() => h,
         _ => global_dir
-            .and_then(|dir| hooks_service::load_hooks_from_config(dir).ok())
+            .and_then(|dir| hooks_service::load_hooks_from_config_file(&dir.join("config.json")).ok())
             .unwrap_or_default(),
     };
     config.hooks = hooks;
@@ -163,6 +201,37 @@ pub fn save_autohand_config_internal(working_dir: &str, config: &AutohandConfig)
         // Remove keys for optional fields explicitly set to None
         if config.model.is_none() {
             root_obj.remove("model");
+        }
+
+        // Keep compatibility with CLI-native provider config:
+        // write provider_details into a provider-specific top-level block.
+        if let Some(details) = &config.provider_details {
+            let provider_key = config.provider.trim();
+            if !provider_key.is_empty() {
+                let provider_json = provider_details_to_cli_json(details);
+                if provider_json
+                    .as_object()
+                    .map(|o| !o.is_empty())
+                    .unwrap_or(false)
+                {
+                    root_obj.insert(provider_key.to_string(), provider_json);
+                }
+            }
+        }
+
+        // Keep compatibility with CLI-native permissions key casing.
+        if let Some(permissions) = &config.permissions {
+            if let Some(perms_obj) = root_obj
+                .entry("permissions".to_string())
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+            {
+                perms_obj.insert(
+                    "rememberSession".to_string(),
+                    serde_json::json!(permissions.remember_session),
+                );
+                perms_obj.remove("remember_session");
+            }
         }
     }
 
@@ -316,14 +385,61 @@ pub async fn respond_autohand_permission(
 
 /// Spawn an autohand CLI process, start the event dispatcher, send the initial
 /// prompt, and return the session id.
+///
+/// When `resumeSessionId` is provided and an active session with that id exists,
+/// the prompt is sent to the existing session instead of spawning a new process.
 #[tauri::command]
 pub async fn execute_autohand_command(
     app: tauri::AppHandle,
     session_id: String,
     message: String,
     working_dir: String,
+    #[allow(non_snake_case)] resumeSessionId: Option<String>,
+    #[allow(non_snake_case)] permissionMode: Option<String>,
 ) -> Result<String, String> {
-    let config = load_autohand_config_internal(&working_dir)?;
+    let mut config = load_autohand_config_internal(&working_dir)?;
+
+    // Apply permission mode override from the frontend dropdown (early, so
+    // fingerprint reflects the effective config).
+    if let Some(ref mode) = permissionMode {
+        config.permissions_mode = mode.clone();
+    }
+
+    let current_fp = config_fingerprint(&config);
+
+    // Try to reuse an existing session if a previous session id was provided.
+    // If the config has changed (model, API key, provider, protocol), terminate
+    // the stale session and fall through to spawn a new one.
+    if let Some(ref prev_id) = resumeSessionId {
+        let mut sessions = AUTOHAND_SESSIONS.lock().await;
+        let reuse = if let Some(handle) = sessions.get(prev_id) {
+            if handle.config_fingerprint == current_fp {
+                // Config unchanged — try to reuse
+                let result = match &handle.client {
+                    AutohandClient::Rpc(c) => c.send_prompt(&message, None).await,
+                    AutohandClient::Acp(c) => c.send_prompt(&message, None).await,
+                };
+                result.is_ok()
+            } else {
+                // Config changed — terminate the stale session
+                false
+            }
+        } else {
+            false
+        };
+
+        if reuse {
+            return Ok(prev_id.clone());
+        }
+
+        // Terminate stale session if it exists
+        if let Some(stale) = sessions.remove(prev_id) {
+            let _ = match stale.client {
+                AutohandClient::Rpc(c) => c.shutdown().await,
+                AutohandClient::Acp(c) => c.shutdown().await,
+            };
+        }
+    }
 
     match config.protocol {
         ProtocolMode::Rpc => {
@@ -345,6 +461,7 @@ pub async fn execute_autohand_command(
 
             let handle = AutohandSessionHandle {
                 client: AutohandClient::Rpc(client),
+                config_fingerprint: current_fp.clone(),
             };
 
             AUTOHAND_SESSIONS
@@ -371,6 +488,7 @@ pub async fn execute_autohand_command(
 
             let handle = AutohandSessionHandle {
                 client: AutohandClient::Acp(client),
+                config_fingerprint: current_fp.clone(),
             };
 
             AUTOHAND_SESSIONS

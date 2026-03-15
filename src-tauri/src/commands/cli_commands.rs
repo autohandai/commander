@@ -90,23 +90,21 @@ async fn build_agent_command_args(
     execution_mode: Option<String>,
     dangerous_bypass: bool,
     permission_mode: Option<String>,
+    resume_session_id: Option<String>,
 ) -> Vec<String> {
     let mut args = Vec::new();
 
     // Try to get agent settings to include model preference
     let agent_settings = load_all_agent_settings(app_handle.clone())
         .await
-        .unwrap_or_else(|_| AllAgentSettings {
-            claude: AgentSettings::default(),
-            codex: AgentSettings::default(),
-            gemini: AgentSettings::default(),
-            max_concurrent_sessions: 10,
-        });
+        .unwrap_or_else(|_| AllAgentSettings::default());
 
     let current_agent_settings = match agent {
+        "autohand" => &agent_settings.autohand,
         "claude" => &agent_settings.claude,
         "codex" => &agent_settings.codex,
         "gemini" => &agent_settings.gemini,
+        "ollama" => &agent_settings.ollama,
         _ => &AgentSettings::default(),
     };
 
@@ -118,6 +116,7 @@ async fn build_agent_command_args(
                 message,
                 permission_mode.as_deref(),
                 current_agent_settings,
+                resume_session_id.as_deref(),
             ));
         }
         "codex" => {
@@ -165,8 +164,17 @@ fn build_claude_cli_args(
     message: &str,
     permission_mode: Option<&str>,
     settings: &AgentSettings,
+    resume_session_id: Option<&str>,
 ) -> Vec<String> {
     let mut args = Vec::new();
+
+    // --resume must precede -p so Claude CLI resumes the existing session
+    if let Some(session_id) = resume_session_id {
+        if !session_id.is_empty() {
+            args.push("--resume".to_string());
+            args.push(session_id.to_string());
+        }
+    }
 
     args.push("-p".to_string());
     if !message.is_empty() {
@@ -266,7 +274,7 @@ mod tests {
             ..Default::default()
         };
 
-        let args = build_claude_cli_args("list files", Some("plan"), &settings);
+        let args = build_claude_cli_args("list files", Some("plan"), &settings, None);
 
         assert!(
             args.contains(&"-p".to_string()),
@@ -294,6 +302,51 @@ mod tests {
             args.windows(2)
                 .any(|pair| pair[0] == "--permission-mode" && pair[1] == "plan"),
             "expected permission mode passthrough"
+        );
+    }
+
+    #[test]
+    fn claude_cli_args_include_resume_when_session_id_provided() {
+        let settings = crate::models::AgentSettings::default();
+        let args = build_claude_cli_args("hello", None, &settings, Some("sess-abc-123"));
+
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--resume" && pair[1] == "sess-abc-123"),
+            "expected --resume sess-abc-123, got: {:?}",
+            args
+        );
+    }
+
+    #[test]
+    fn claude_cli_args_omit_resume_when_none() {
+        let settings = crate::models::AgentSettings::default();
+        let args = build_claude_cli_args("hello", None, &settings, None);
+
+        assert!(
+            !args.contains(&"--resume".to_string()),
+            "expected no --resume flag when session_id is None, got: {:?}",
+            args
+        );
+    }
+
+    #[test]
+    fn claude_cli_args_resume_precedes_prompt_flag() {
+        let settings = crate::models::AgentSettings::default();
+        let args = build_claude_cli_args("hi", None, &settings, Some("sess-xyz"));
+
+        let resume_pos = args.iter().position(|a| a == "--resume");
+        let p_pos = args.iter().position(|a| a == "-p");
+
+        assert!(
+            resume_pos.is_some() && p_pos.is_some(),
+            "both --resume and -p must be present"
+        );
+        assert!(
+            resume_pos.unwrap() < p_pos.unwrap(),
+            "--resume ({}) must precede -p ({})",
+            resume_pos.unwrap(),
+            p_pos.unwrap()
         );
     }
 }
@@ -705,15 +758,57 @@ pub async fn execute_persistent_cli_command(
     #[allow(non_snake_case)] executionMode: Option<String>,
     #[allow(non_snake_case)] dangerousBypass: Option<bool>,
     #[allow(non_snake_case)] permissionMode: Option<String>,
+    #[allow(non_snake_case)] resumeSessionId: Option<String>,
 ) -> Result<(), String> {
+    // Normalize working_dir: treat empty/whitespace strings as None,
+    // then fall back to the process CWD (set when a project is opened).
+    let working_dir = working_dir
+        .filter(|d| !d.trim().is_empty())
+        .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()));
+
     println!(
         "🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}",
         agent, working_dir
     );
+
+    // Register session in the global SESSIONS map so get_active_sessions can return it
+    {
+        let now = chrono::Utc::now().timestamp();
+        let session = CLISession {
+            id: session_id.clone(),
+            agent: agent.clone(),
+            command: message.clone(),
+            working_dir: working_dir.clone(),
+            is_active: true,
+            created_at: now,
+            last_activity: now,
+        };
+        let active = ActiveSession {
+            session,
+            process: Arc::new(Mutex::new(None)),
+        };
+        let mut sessions = SESSIONS.lock().await;
+        sessions.insert(session_id.clone(), active);
+    }
+
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
+    let session_id_for_cleanup = session_id.clone();
 
     tokio::spawn(async move {
+        // Ensure session is removed from SESSIONS when the task ends (any exit path)
+        struct SessionCleanup(String);
+        impl Drop for SessionCleanup {
+            fn drop(&mut self) {
+                let id = self.0.clone();
+                tokio::spawn(async move {
+                    let mut sessions = SESSIONS.lock().await;
+                    sessions.remove(&id);
+                });
+            }
+        }
+        let _cleanup = SessionCleanup(session_id_for_cleanup);
+
         // Parse command structure to handle both "/agent subcommand" and direct subcommands
         let (agent_name, actual_message) = parse_command_structure(&agent, &message);
 
@@ -730,12 +825,7 @@ pub async fn execute_persistent_cli_command(
         if agent_name.eq_ignore_ascii_case("codex") {
             let all_agent_settings = load_all_agent_settings(app_clone.clone())
                 .await
-                .unwrap_or_else(|_| AllAgentSettings {
-                    claude: AgentSettings::default(),
-                    codex: AgentSettings::default(),
-                    gemini: AgentSettings::default(),
-                    max_concurrent_sessions: 10,
-                });
+                .unwrap_or_else(|_| AllAgentSettings::default());
 
             let current_agent_settings = all_agent_settings.codex.clone();
             let parsed_execution_mode = executionMode.as_deref().and_then(ExecutionMode::from_str);
@@ -806,6 +896,7 @@ pub async fn execute_persistent_cli_command(
             executionMode.clone(),
             dangerous_bypass,
             permissionMode.clone(),
+            resumeSessionId.clone(),
         )
         .await;
 
@@ -1082,6 +1173,7 @@ pub async fn execute_cli_command(
         executionMode,
         dangerousBypass,
         permissionMode,
+        None,
     )
     .await
 }
@@ -1092,6 +1184,8 @@ pub async fn execute_claude_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
+    #[allow(non_snake_case)] permissionMode: Option<String>,
+    #[allow(non_snake_case)] resumeSessionId: Option<String>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1101,7 +1195,8 @@ pub async fn execute_claude_command(
         workingDir,
         None,
         None,
-        None,
+        permissionMode,
+        resumeSessionId,
     )
     .await
 }
@@ -1125,6 +1220,7 @@ pub async fn execute_codex_command(
         executionMode,
         dangerousBypass,
         permissionMode,
+        None,
     )
     .await
 }
@@ -1135,6 +1231,7 @@ pub async fn execute_gemini_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
+    #[allow(non_snake_case)] approvalMode: Option<String>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1144,6 +1241,7 @@ pub async fn execute_gemini_command(
         workingDir,
         None,
         None,
+        approvalMode,
         None,
     )
     .await
@@ -1162,6 +1260,7 @@ pub async fn execute_ollama_command(
         "ollama".to_string(),
         message,
         workingDir,
+        None,
         None,
         None,
         None,

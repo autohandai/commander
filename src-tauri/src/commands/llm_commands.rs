@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tauri::Emitter;
 use tokio::process::Command;
 
-use crate::commands::settings_commands::load_agent_settings;
+use crate::commands::settings_commands::{load_agent_settings, load_all_agent_settings};
 use crate::models::*;
 use crate::services::agent_status_service::AgentStatusService;
 use crate::services::llm_service;
@@ -331,22 +331,35 @@ pub async fn fetch_agent_models(agent: String) -> Result<Vec<String>, String> {
         "claude" => fetch_claude_models().await,
         "codex" => fetch_codex_models().await,
         "gemini" => fetch_gemini_models().await,
+        "ollama" => Ok(fetch_ollama_models()
+            .await?
+            .into_iter()
+            .map(|model| model.id)
+            .collect()),
         _ => Err(format!("Unknown agent: {}", agent)),
     }
 }
 
 #[tauri::command]
 pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, String> {
-    let enabled_agents = load_agent_settings(app).await.unwrap_or_else(|_| {
+    let enabled_agents = load_agent_settings(app.clone()).await.unwrap_or_else(|_| {
         HashMap::from([
+            ("autohand".to_string(), true),
             ("claude".to_string(), true),
             ("codex".to_string(), true),
             ("gemini".to_string(), true),
+            ("ollama".to_string(), true),
         ])
     });
 
+    // Load custom agents from persisted settings so they appear in the status bar
+    let custom_agents = load_all_agent_settings(app)
+        .await
+        .map(|s| s.custom_agents)
+        .unwrap_or_default();
+
     AgentStatusService::new()
-        .check_agents(&enabled_agents)
+        .check_agents_with_custom(&enabled_agents, &custom_agents)
         .await
 }
 
@@ -417,7 +430,19 @@ pub async fn monitor_ai_agents(app: tauri::AppHandle) -> Result<(), String> {
         loop {
             if let Ok(status) = check_ai_agents(app_clone.clone()).await {
                 // Emit the status update to the frontend
-                let _ = app_clone.emit("ai-agent-status", status);
+                let _ = app_clone.emit("ai-agent-status", &status);
+
+                // Update tray menu with current agent statuses
+                let agents: Vec<(String, bool)> = status
+                    .agents
+                    .iter()
+                    .map(|a| (a.display_name.clone(), a.available))
+                    .collect();
+                if let Ok(menu) = crate::build_tray_menu(&app_clone, &agents) {
+                    if let Some(tray) = app_clone.tray_by_id("main") {
+                        let _ = tray.set_menu(Some(menu));
+                    }
+                }
             }
             // Check every 10 seconds
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
@@ -425,4 +450,119 @@ pub async fn monitor_ai_agents(app: tauri::AppHandle) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Auto-detect coding CLI agents
+// ---------------------------------------------------------------------------
+
+/// A candidate agent binary to check for RPC/ACP support.
+struct AgentCandidate {
+    binary: &'static str,
+    display_name: &'static str,
+}
+
+/// Curated list of known coding CLI agents (beyond Commander's built-ins).
+const AGENT_CANDIDATES: &[AgentCandidate] = &[
+    AgentCandidate { binary: "aider",     display_name: "Aider" },
+    AgentCandidate { binary: "goose",     display_name: "Goose" },
+    AgentCandidate { binary: "amp",       display_name: "Amp" },
+    AgentCandidate { binary: "cline",     display_name: "Cline" },
+    AgentCandidate { binary: "plandex",   display_name: "Plandex" },
+    AgentCandidate { binary: "mentat",    display_name: "Mentat" },
+    AgentCandidate { binary: "tabby",     display_name: "Tabby" },
+    AgentCandidate { binary: "continue",  display_name: "Continue" },
+    AgentCandidate { binary: "cursor",    display_name: "Cursor" },
+    AgentCandidate { binary: "copilot",   display_name: "GitHub Copilot" },
+    AgentCandidate { binary: "devin",     display_name: "Devin" },
+    AgentCandidate { binary: "sweep",     display_name: "Sweep" },
+    AgentCandidate { binary: "gpt-engineer", display_name: "GPT Engineer" },
+    AgentCandidate { binary: "roo",       display_name: "Roo Code" },
+    AgentCandidate { binary: "oi",        display_name: "Open Interpreter" },
+    AgentCandidate { binary: "interpreter", display_name: "Open Interpreter" },
+    AgentCandidate { binary: "kodu",      display_name: "Kodu" },
+    AgentCandidate { binary: "aide",      display_name: "Aide" },
+];
+
+/// Built-in agent IDs that should be excluded from detection results.
+const BUILTIN_AGENT_IDS: &[&str] = &["autohand", "claude", "codex", "gemini", "ollama"];
+
+/// Scan the system for known coding CLI agents and check for RPC/ACP support.
+///
+/// Returns agents found on PATH that aren't already registered as built-in or
+/// custom agents.
+#[tauri::command]
+pub async fn detect_cli_agents(app: tauri::AppHandle) -> Result<Vec<DetectedAgent>, String> {
+    use which::which;
+
+    // Load existing custom agents so we don't suggest duplicates
+    let existing_custom_ids: std::collections::HashSet<String> = load_all_agent_settings(app)
+        .await
+        .map(|s| s.custom_agents.into_iter().map(|a| a.id).collect())
+        .unwrap_or_default();
+
+    let mut detected = Vec::new();
+
+    for candidate in AGENT_CANDIDATES {
+        // Skip if it's a built-in agent or already added as custom
+        let candidate_id = candidate.binary.replace('-', "-");
+        if BUILTIN_AGENT_IDS.contains(&candidate.binary)
+            || existing_custom_ids.contains(&candidate_id)
+        {
+            continue;
+        }
+
+        // Check if binary exists on PATH
+        if which(candidate.binary).is_err() {
+            continue;
+        }
+
+        // Try to get version
+        let version = match Command::new(candidate.binary)
+            .arg("--version")
+            .output()
+            .await
+        {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let first_line = stdout.lines().next().unwrap_or("").trim();
+                if first_line.is_empty() {
+                    None
+                } else {
+                    Some(first_line.to_string())
+                }
+            }
+            _ => None,
+        };
+
+        // Check --help output for RPC/ACP keywords
+        let (supports_rpc, supports_acp) = match Command::new(candidate.binary)
+            .arg("--help")
+            .output()
+            .await
+        {
+            Ok(output) => {
+                let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+                let combined = format!("{} {}", text, stderr);
+                let has_rpc = combined.contains("rpc")
+                    || combined.contains("json-rpc")
+                    || combined.contains("jsonrpc");
+                let has_acp = combined.contains("acp")
+                    || combined.contains("agent communication protocol");
+                (has_rpc, has_acp)
+            }
+            _ => (false, false),
+        };
+
+        detected.push(DetectedAgent {
+            binary: candidate.binary.to_string(),
+            display_name: candidate.display_name.to_string(),
+            version,
+            supports_rpc,
+            supports_acp,
+        });
+    }
+
+    Ok(detected)
 }

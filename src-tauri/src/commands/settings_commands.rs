@@ -241,12 +241,7 @@ pub async fn load_all_agent_settings(app: tauri::AppHandle) -> Result<AllAgentSe
         }
         None => {
             // Return default settings
-            Ok(AllAgentSettings {
-                claude: AgentSettings::default(),
-                codex: AgentSettings::default(),
-                gemini: AgentSettings::default(),
-                max_concurrent_sessions: 10,
-            })
+            Ok(AllAgentSettings::default())
         }
     }
 }
@@ -342,9 +337,11 @@ pub async fn load_agent_settings(app: tauri::AppHandle) -> Result<HashMap<String
         None => {
             // Return default settings (all agents enabled)
             let mut default = HashMap::new();
+            default.insert("autohand".to_string(), true);
             default.insert("claude".to_string(), true);
             default.insert("codex".to_string(), true);
             default.insert("gemini".to_string(), true);
+            default.insert("ollama".to_string(), true);
             Ok(default)
         }
     }

@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use crate::models::chat_history::*;
 use crate::services::chat_history_service::{
-    delete_chat_session as delete_session_impl, ensure_commander_directory,
-    export_chat_history as export_impl, extract_file_mentions,
-    get_chat_history_stats as get_stats_impl, group_messages_into_sessions,
-    load_chat_sessions as load_sessions_impl, load_session_messages,
-    migrate_legacy_chat_data as migrate_impl, save_chat_session as save_session_impl,
+    archive_session as archive_session_impl, delete_chat_session as delete_session_impl,
+    ensure_commander_directory, export_chat_history as export_impl, extract_file_mentions,
+    fork_session as fork_session_impl, get_chat_history_stats as get_stats_impl,
+    group_messages_into_sessions, load_chat_sessions as load_sessions_impl,
+    load_session_messages, migrate_legacy_chat_data as migrate_impl,
+    rename_session as rename_session_impl, save_chat_session as save_session_impl,
+    unarchive_session as unarchive_session_impl, update_summary as update_summary_impl,
 };
+use crate::services::indexer::db::IndexDb;
 
 /// Save a chat session with its messages
 #[tauri::command]
@@ -50,8 +55,9 @@ pub async fn load_chat_sessions(
     project_path: String,
     limit: Option<usize>,
     agent: Option<String>,
+    include_archived: Option<bool>,
 ) -> Result<Vec<ChatSession>, String> {
-    load_sessions_impl(&project_path, limit, agent).await
+    load_sessions_impl(&project_path, limit, agent, include_archived).await
 }
 
 /// Get messages for a specific session
@@ -122,7 +128,7 @@ pub async fn append_chat_message(
     message.metadata.file_mentions = extract_file_mentions(&content);
 
     // Try to find an existing session to append to
-    let recent_sessions = load_sessions_impl(&project_path, Some(1), Some(agent.clone())).await?;
+    let recent_sessions = load_sessions_impl(&project_path, Some(1), Some(agent.clone()), None).await?;
 
     let session_to_use = if let Some(recent_session) = recent_sessions.first() {
         // Check if we should append to this session based on timing
@@ -176,7 +182,7 @@ pub async fn search_chat_history(
     agent: Option<String>,
     limit: Option<usize>,
 ) -> Result<Vec<ChatSession>, String> {
-    let all_sessions = load_sessions_impl(&project_path, None, agent).await?;
+    let all_sessions = load_sessions_impl(&project_path, None, agent, None).await?;
     let query_lower = query.to_lowercase();
 
     let mut matching_sessions = Vec::new();
@@ -215,7 +221,7 @@ pub async fn cleanup_old_sessions(
     retention_days: u32,
 ) -> Result<usize, String> {
     let cutoff_timestamp = chrono::Utc::now().timestamp() - (retention_days as i64 * 24 * 60 * 60);
-    let all_sessions = load_sessions_impl(&project_path, None, None).await?;
+    let all_sessions = load_sessions_impl(&project_path, None, None, None).await?;
 
     let mut deleted_count = 0;
 
@@ -237,6 +243,111 @@ pub async fn validate_chat_history_structure(project_path: String) -> Result<boo
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
     }
+}
+
+/// Archive a chat session
+#[tauri::command]
+pub async fn archive_chat_session(project_path: String, session_id: String) -> Result<(), String> {
+    archive_session_impl(&project_path, &session_id).await
+}
+
+/// Unarchive a chat session
+#[tauri::command]
+pub async fn unarchive_chat_session(
+    project_path: String,
+    session_id: String,
+) -> Result<(), String> {
+    unarchive_session_impl(&project_path, &session_id).await
+}
+
+/// Fork a chat session (create a copy)
+#[tauri::command]
+pub async fn fork_chat_session(
+    project_path: String,
+    session_id: String,
+) -> Result<String, String> {
+    fork_session_impl(&project_path, &session_id).await
+}
+
+/// Rename a chat session
+#[tauri::command]
+pub async fn rename_chat_session(
+    project_path: String,
+    session_id: String,
+    title: String,
+) -> Result<(), String> {
+    rename_session_impl(&project_path, &session_id, &title).await
+}
+
+/// Update a chat session's summary
+#[tauri::command]
+pub async fn update_session_summary(
+    project_path: String,
+    session_id: String,
+    summary: String,
+) -> Result<(), String> {
+    update_summary_impl(&project_path, &session_id, &summary).await
+}
+
+/// Load unified chat sessions merging local + indexed sources
+#[tauri::command]
+pub async fn load_unified_chat_sessions(
+    project_path: String,
+    limit: Option<usize>,
+    agent: Option<String>,
+    include_archived: Option<bool>,
+    include_indexed: Option<bool>,
+    db: tauri::State<'_, Arc<IndexDb>>,
+) -> Result<Vec<ChatSession>, String> {
+    // 1. Load local sessions
+    let mut local_sessions =
+        load_sessions_impl(&project_path, None, agent.clone(), include_archived).await?;
+    for s in &mut local_sessions {
+        s.source = "local".to_string();
+    }
+
+    // 2. If indexed sessions are requested, merge them
+    if include_indexed != Some(false) {
+        let indexed_rows = db.get_sessions_for_project(
+            Some(&project_path),
+            agent.as_deref(),
+            200,
+            0,
+        )?;
+
+        // Build a set of (agent, original_id) from local sessions for dedup
+        let local_ids: std::collections::HashSet<String> = local_sessions
+            .iter()
+            .map(|s| s.id.clone())
+            .collect();
+
+        for idx in &indexed_rows {
+            let candidate = ChatSession::from_indexed(idx);
+            // Skip if a local session already covers this indexed session
+            if local_ids.contains(&candidate.id) {
+                continue;
+            }
+            local_sessions.push(candidate);
+        }
+    }
+
+    // 3. Sort by start_time DESC and apply limit
+    local_sessions.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+    if let Some(lim) = limit {
+        local_sessions.truncate(lim);
+    }
+
+    Ok(local_sessions)
+}
+
+/// Load messages for an indexed (external agent) session
+#[tauri::command]
+pub async fn load_indexed_session_messages(
+    agent_id: String,
+    source_file: String,
+) -> Result<Vec<EnhancedChatMessage>, String> {
+    crate::services::indexer::message_loader::load_messages_from_source(&agent_id, &source_file)
+        .await
 }
 
 #[cfg(test)]
@@ -280,7 +391,7 @@ mod tests {
         assert!(!session_id.is_empty(), "Should return session ID");
 
         // Load sessions
-        let sessions = load_chat_sessions(project_path.clone(), None, None)
+        let sessions = load_chat_sessions(project_path.clone(), None, None, None)
             .await
             .unwrap();
         assert_eq!(sessions.len(), 1, "Should have one session");
@@ -356,7 +467,7 @@ mod tests {
             .unwrap();
 
         // Verify it exists
-        let sessions_before = load_chat_sessions(project_path.clone(), None, None)
+        let sessions_before = load_chat_sessions(project_path.clone(), None, None, None)
             .await
             .unwrap();
         assert_eq!(sessions_before.len(), 1);
@@ -367,7 +478,7 @@ mod tests {
             .unwrap();
 
         // Verify it's gone
-        let sessions_after = load_chat_sessions(project_path, None, None).await.unwrap();
+        let sessions_after = load_chat_sessions(project_path, None, None, None).await.unwrap();
         assert_eq!(sessions_after.len(), 0);
     }
 

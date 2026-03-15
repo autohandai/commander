@@ -253,6 +253,59 @@ pub async fn get_git_worktrees() -> Result<Vec<HashMap<String, String>>, String>
     Ok(worktrees)
 }
 
+#[tauri::command]
+pub async fn get_project_git_worktrees(
+    project_path: String,
+) -> Result<Vec<crate::models::ProjectGitWorktree>, String> {
+    let repo_root = git_service::find_git_root(&project_path).unwrap_or(project_path);
+    let output = tokio::process::Command::new("git")
+        .args(["-C", &repo_root, "worktree", "list", "--porcelain"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute git worktree list: {}", e))?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let root_canonical = PathBuf::from(&repo_root)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&repo_root));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut worktrees = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_branch: Option<String> = None;
+
+    let push_current = |items: &mut Vec<crate::models::ProjectGitWorktree>,
+                        path: &mut Option<String>,
+                        branch: &mut Option<String>| {
+        if let Some(path_value) = path.take() {
+            let canonical = PathBuf::from(&path_value)
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from(&path_value));
+            items.push(crate::models::ProjectGitWorktree {
+                path: path_value,
+                branch: branch.take(),
+                is_main: canonical == root_canonical,
+            });
+        }
+    };
+
+    for line in stdout.lines() {
+        if let Some(path_value) = line.strip_prefix("worktree ") {
+            push_current(&mut worktrees, &mut current_path, &mut current_branch);
+            current_path = Some(path_value.to_string());
+        } else if let Some(branch_value) = line.strip_prefix("branch ") {
+            current_branch = Some(branch_value.to_string());
+        }
+    }
+
+    push_current(&mut worktrees, &mut current_path, &mut current_branch);
+
+    Ok(worktrees)
+}
+
 // Helper function to validate if a directory is a git repository
 pub fn is_valid_git_repository(path: &Path) -> bool {
     git_service::is_valid_git_repository(path.to_str().unwrap_or(""))
@@ -561,6 +614,16 @@ pub async fn get_git_branches(project_path: String) -> Result<Vec<String>, Strin
         branches.insert(0, main);
     }
     Ok(branches)
+}
+
+#[tauri::command]
+pub async fn switch_project_git_branch(project_path: String, branch: String) -> Result<(), String> {
+    git_service::switch_git_branch(&project_path, &branch)
+}
+
+#[tauri::command]
+pub async fn create_project_git_branch(project_path: String, branch: String) -> Result<(), String> {
+    git_service::create_git_branch(&project_path, &branch)
 }
 
 #[tauri::command]

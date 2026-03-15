@@ -332,6 +332,48 @@ pub async fn clear_recent_projects(app: tauri::AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub async fn open_project_directory(project_path: String) -> Result<(), String> {
+    project_service::open_directory_in_file_manager(&project_path)
+}
+
+#[tauri::command]
+pub async fn get_available_project_applications() -> Result<Vec<ProjectApplicationTarget>, String> {
+    Ok(project_service::list_available_project_applications())
+}
+
+#[tauri::command]
+pub async fn open_project_with_application(
+    project_path: String,
+    application_id: String,
+) -> Result<(), String> {
+    project_service::open_project_with_application(&project_path, &application_id)
+}
+
+#[tauri::command]
+pub async fn delete_project(app: tauri::AppHandle, project_path: String) -> Result<(), String> {
+    project_service::delete_project_directory(&project_path)?;
+
+    let store = app
+        .store("recent-projects.json")
+        .map_err(|e| format!("Failed to access recent projects store: {}", e))?;
+
+    let existing: Vec<RecentProject> = store
+        .get("projects")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let updated = project_service::remove_recent_project_by_path(existing, &project_path);
+    let serialized = serde_json::to_value(&updated)
+        .map_err(|e| format!("Failed to serialize projects: {}", e))?;
+
+    store.set("projects", serialized);
+    store
+        .save()
+        .map_err(|e| format!("Failed to save recent projects store: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn open_existing_project(
     app: tauri::AppHandle,
     project_path: String,

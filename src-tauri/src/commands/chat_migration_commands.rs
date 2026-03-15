@@ -30,7 +30,7 @@ pub async fn migrate_project_chat_to_enhanced(
     migrate_legacy_chat_data(&project_path, legacy_messages).await?;
 
     // Get migration statistics
-    let sessions = load_chat_sessions(&project_path, None, None).await?;
+    let sessions = load_chat_sessions(&project_path, None, None, None).await?;
     let total_messages: usize = sessions.iter().map(|s| s.message_count).sum();
 
     Ok(format!(
@@ -44,7 +44,7 @@ pub async fn migrate_project_chat_to_enhanced(
 #[tauri::command]
 pub async fn check_migration_needed(project_path: String) -> Result<bool, String> {
     // Check if enhanced chat history exists
-    let enhanced_sessions = load_chat_sessions(&project_path, Some(1), None).await?;
+    let enhanced_sessions = load_chat_sessions(&project_path, Some(1), None, None).await?;
 
     // If no enhanced sessions exist, migration might be needed
     Ok(enhanced_sessions.is_empty())
@@ -163,7 +163,7 @@ pub async fn get_unified_chat_history(
     limit: Option<usize>,
 ) -> Result<Vec<ChatSession>, String> {
     // Try enhanced format first
-    let enhanced_sessions = load_chat_sessions(&project_path, limit, None).await?;
+    let enhanced_sessions = load_chat_sessions(&project_path, limit, None, None).await?;
 
     if !enhanced_sessions.is_empty() {
         return Ok(enhanced_sessions);
