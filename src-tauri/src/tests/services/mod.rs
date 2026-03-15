@@ -1,4 +1,5 @@
 // Service-specific tests
+pub mod acp_executor_tests;
 pub mod agent_status_service;
 pub mod app_settings;
 pub mod cli_command_builder;
