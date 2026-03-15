@@ -64,8 +64,8 @@ impl SessionManager {
     }
 
     pub fn close_session(&mut self, session_id: &str) {
-        if let Some(session) = self.sessions.remove(session_id) {
-            if let Some(sender) = session.abort_sender {
+        if let Some(mut session) = self.sessions.remove(session_id) {
+            if let Some(sender) = session.abort_sender.take() {
                 let _ = sender.send(());
             }
         }

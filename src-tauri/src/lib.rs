@@ -1,5 +1,7 @@
+use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+use tokio::sync::Mutex as TokioMutex;
 
 // Import all modules
 mod commands;
@@ -230,9 +232,14 @@ pub fn run() {
             open_project_from_path,
             get_cli_project_path,
             clear_cli_project_path,
-            open_file_in_editor
+            open_file_in_editor,
+            respond_permission
         ])
         .setup(|app| {
+            // Register protocol-aware session manager and protocol cache as managed state
+            app.manage(Arc::new(TokioMutex::new(crate::services::session_manager::SessionManager::new())));
+            app.manage(Arc::new(TokioMutex::new(crate::services::agent_status_service::ProtocolCache::new())));
+
             // Handle command line arguments for opening projects
             let args: Vec<String> = std::env::args().collect();
             println!("🔍 Command line args received: {:?}", args);

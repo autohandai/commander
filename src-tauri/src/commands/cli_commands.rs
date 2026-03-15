@@ -13,13 +13,18 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::commands::settings_commands::load_all_agent_settings;
 use crate::models::*;
+use crate::models::protocol::{ProtocolEvent, SessionEventKind};
 use crate::services::cli_command_builder::build_codex_command_args;
 use crate::services::cli_output_service::{sanitize_cli_output_line, CodexStreamAccumulator};
 use crate::services::codex_sdk_service::{build_codex_thread_prefs, CodexThreadPreferences};
 use crate::services::execution_mode_service::ExecutionMode;
-use crate::services::executors::AgentExecutor;
+use crate::services::executors::{AgentExecutor, ExecutorFactory};
+use crate::services::executors::pty_executor::PtyExecutor;
+use crate::services::session_manager::{SessionManager, ActiveSession as ManagedSession, PermissionResponse};
+use crate::services::agent_status_service::ProtocolCache;
 use serde::{Deserialize, Serialize};
 use std::process::Command as StdCommand;
+use tokio::sync::Mutex as TokioMutex;
 
 const CODEX_SDK_RUNNER_SOURCE: &str = include_str!("../../../scripts/codex-sdk-runner.mjs");
 const CODEX_SDK_CORE_SOURCE: &str = include_str!("../../../scripts/codex-sdk-core.mjs");
@@ -752,6 +757,8 @@ pub async fn execute_persistent_cli_command(
     execution_mode: Option<String>,
     dangerousBypass: Option<bool>,
     permissionMode: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     println!(
         "🔍 BACKEND RECEIVED - Agent: {}, Working Dir: {:?}",
@@ -760,6 +767,8 @@ pub async fn execute_persistent_cli_command(
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
     let _current_time = chrono::Utc::now().timestamp();
+    let sm = Arc::clone(&*session_manager);
+    let protocol_cache_arc = Arc::clone(&*protocol_cache);
 
     tokio::spawn(async move {
         // Parse command structure to handle both "/agent subcommand" and direct subcommands
@@ -847,7 +856,7 @@ pub async fn execute_persistent_cli_command(
             return;
         }
 
-        // Delegate PTY/pipe execution to PtyExecutor
+        // Load agent settings
         let wd = working_dir.as_deref().unwrap_or("");
         let settings = crate::commands::settings_commands::load_all_agent_settings(app_clone.clone())
             .await
@@ -865,8 +874,32 @@ pub async fn execute_persistent_cli_command(
             _ => AgentSettings::default(),
         };
 
-        let mut executor = crate::services::executors::pty_executor::PtyExecutor::new();
-        if let Err(e) = executor.execute(
+        // Create executor using factory (protocol-aware)
+        let cache = protocol_cache_arc.lock().await;
+        let mut executor = ExecutorFactory::create(&agent_name, &cache);
+        drop(cache);
+
+        let is_protocol = executor.protocol().is_some();
+
+        // Register session in SessionManager with channels
+        let (perm_tx, mut perm_rx) = tokio::sync::mpsc::unbounded_channel::<PermissionResponse>();
+        let (abort_tx, mut abort_rx) = tokio::sync::oneshot::channel::<()>();
+
+        {
+            let mut mgr = sm.lock().await;
+            mgr.insert(ManagedSession {
+                session_id: session_id_clone.clone(),
+                agent: agent_name.clone(),
+                protocol: executor.protocol(),
+                agent_session_id: None,
+                permission_sender: perm_tx,
+                abort_sender: Some(abort_tx),
+                started_at: std::time::Instant::now(),
+            });
+        }
+
+        // Execute the chosen executor
+        let result = executor.execute(
             &app_clone,
             &session_id_clone,
             &agent_name,
@@ -874,17 +907,90 @@ pub async fn execute_persistent_cli_command(
             wd,
             &agent_settings,
             None,
-        ).await {
-            let error_chunk = StreamChunk {
-                session_id: session_id_clone.clone(),
-                content: format!("❌ Executor error: {}\n", e),
-                finished: true,
-            };
-            let _ = app_clone.emit("cli-stream", error_chunk);
+        ).await;
+
+        match result {
+            Err(e) => {
+                if is_protocol {
+                    // Protocol executor failed to start -- fall back to PTY
+                    let _ = app_clone.emit("protocol-event", ProtocolEvent::SessionEvent {
+                        session_id: session_id_clone.clone(),
+                        event: SessionEventKind::FallbackToPty,
+                    });
+                    let fallback_chunk = StreamChunk {
+                        session_id: session_id_clone.clone(),
+                        content: format!(
+                            "ℹ️ Protocol executor unavailable ({}). Falling back to PTY…\n",
+                            e
+                        ),
+                        finished: false,
+                    };
+                    let _ = app_clone.emit("cli-stream", fallback_chunk);
+
+                    let mut pty = PtyExecutor::new();
+                    if let Err(pty_err) = pty.execute(
+                        &app_clone,
+                        &session_id_clone,
+                        &agent_name,
+                        &actual_message,
+                        wd,
+                        &agent_settings,
+                        None,
+                    ).await {
+                        let error_chunk = StreamChunk {
+                            session_id: session_id_clone.clone(),
+                            content: format!("❌ PTY fallback error: {}\n", pty_err),
+                            finished: true,
+                        };
+                        let _ = app_clone.emit("cli-stream", error_chunk);
+                    }
+                } else {
+                    // PTY executor error
+                    let error_chunk = StreamChunk {
+                        session_id: session_id_clone.clone(),
+                        content: format!("❌ Executor error: {}\n", e),
+                        finished: true,
+                    };
+                    let _ = app_clone.emit("cli-stream", error_chunk);
+                }
+            }
+            Ok(()) if is_protocol => {
+                // ACP/RPC started successfully -- its background reader task manages
+                // the stream lifecycle. We need to forward permissions and wait for abort.
+                loop {
+                    tokio::select! {
+                        Some(resp) = perm_rx.recv() => {
+                            let _ = executor.respond_permission(&resp.request_id, resp.approved).await;
+                        }
+                        _ = &mut abort_rx => {
+                            let _ = executor.abort().await;
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(()) => {
+                // PTY completed normally (execute blocks until done)
+            }
         }
+
+        // Clean up session from manager
+        let mut mgr = sm.lock().await;
+        mgr.remove(&session_id_clone);
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn respond_permission(
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    session_id: String,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    let mgr = session_manager.lock().await;
+    mgr.send_permission(&session_id, request_id, approved)
 }
 
 #[tauri::command]
@@ -897,6 +1003,8 @@ pub async fn execute_cli_command(
     execution_mode: Option<String>,
     dangerousBypass: Option<bool>,
     permissionMode: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     // Legacy function - redirect to persistent session handler
     let message = args.join(" ");
@@ -909,6 +1017,8 @@ pub async fn execute_cli_command(
         execution_mode,
         dangerousBypass,
         permissionMode,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -919,6 +1029,8 @@ pub async fn execute_claude_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -929,6 +1041,8 @@ pub async fn execute_claude_command(
         None,
         None,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -942,6 +1056,8 @@ pub async fn execute_codex_command(
     executionMode: Option<String>,
     dangerousBypass: Option<bool>,
     permissionMode: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -952,6 +1068,8 @@ pub async fn execute_codex_command(
         executionMode,
         dangerousBypass,
         permissionMode,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -962,6 +1080,8 @@ pub async fn execute_gemini_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -972,6 +1092,8 @@ pub async fn execute_gemini_command(
         None,
         None,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -982,6 +1104,8 @@ pub async fn execute_ollama_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -992,6 +1116,8 @@ pub async fn execute_ollama_command(
         None,
         None,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
