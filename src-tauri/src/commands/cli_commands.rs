@@ -898,6 +898,25 @@ pub async fn execute_persistent_cli_command(
             });
         }
 
+        // Also register in legacy SESSIONS map so get_active_sessions/terminate see it
+        {
+            let cli_session = CLISession {
+                id: session_id_clone.clone(),
+                agent: agent_name.clone(),
+                command: actual_message.clone(),
+                working_dir: working_dir.clone(),
+                is_active: true,
+                created_at: chrono::Utc::now().timestamp(),
+                last_activity: chrono::Utc::now().timestamp(),
+            };
+            let mut sessions = SESSIONS.lock().await;
+            sessions.insert(session_id_clone.clone(), ActiveSession {
+                session: cli_session,
+                process: Arc::new(Mutex::new(None)),
+                stdin_sender: None,
+            });
+        }
+
         // Execute the chosen executor
         let result = executor.execute(
             &app_clone,
@@ -957,14 +976,28 @@ pub async fn execute_persistent_cli_command(
             Ok(()) if is_protocol => {
                 // ACP/RPC started successfully -- its background reader task manages
                 // the stream lifecycle. We need to forward permissions and wait for abort.
+                // The loop exits when:
+                //   (a) perm_rx returns None (all senders dropped),
+                //   (b) abort signal received, or
+                //   (c) executor's background reader finished (agent process exited).
                 loop {
                     tokio::select! {
-                        Some(resp) = perm_rx.recv() => {
-                            let _ = executor.respond_permission(&resp.request_id, resp.approved).await;
+                        maybe_resp = perm_rx.recv() => {
+                            match maybe_resp {
+                                Some(resp) => {
+                                    let _ = executor.respond_permission(&resp.request_id, resp.approved).await;
+                                }
+                                None => break, // All senders dropped
+                            }
                         }
                         _ = &mut abort_rx => {
                             let _ = executor.abort().await;
                             break;
+                        }
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
+                            if !executor.is_alive() {
+                                break;
+                            }
                         }
                     }
                 }
@@ -974,7 +1007,11 @@ pub async fn execute_persistent_cli_command(
             }
         }
 
-        // Clean up session from manager
+        // Clean up session from both managers
+        {
+            let mut sessions = SESSIONS.lock().await;
+            sessions.remove(&session_id_clone);
+        }
         let mut mgr = sm.lock().await;
         mgr.remove(&session_id_clone);
     });

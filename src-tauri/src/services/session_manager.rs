@@ -70,4 +70,11 @@ impl SessionManager {
             }
         }
     }
+
+    pub fn close_all(&mut self) {
+        let ids: Vec<String> = self.sessions.keys().cloned().collect();
+        for id in ids {
+            self.close_session(&id);
+        }
+    }
 }

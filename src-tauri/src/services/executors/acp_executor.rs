@@ -252,9 +252,6 @@ impl AgentExecutor for AcpExecutor {
             }
         }
 
-        // Add prompt message
-        args.push(message.to_string());
-
         // Add working directory
         args.push("--path".to_string());
         args.push(working_dir.to_string());
@@ -304,6 +301,16 @@ impl AgentExecutor for AcpExecutor {
                 event: SessionEventKind::Connected,
             },
         );
+
+        // 7.5. Send initial prompt via ndJSON stdin
+        let prompt_envelope = serde_json::json!({
+            "type": "prompt",
+            "data": { "message": message }
+        });
+        let mut prompt_line = serde_json::to_string(&prompt_envelope)
+            .map_err(|e| CommanderError::protocol("write_failed", None, format!("serialize failed: {}", e)))?;
+        prompt_line.push('\n');
+        write_stdin_line(&self.stdin, &prompt_line).await?;
 
         // 8. Read stdout line-by-line in a background task
         let app_handle = app.clone();
