@@ -68,12 +68,21 @@ export function normalizeClaude(
     ? [{ id: 'thinking-0', text: parsed.thinking }]
     : []
 
+  const answer = parsed.answer || ''
+
+  // Filter out working steps whose text duplicates the answer (common with
+  // Claude stream-json where the same text appears as a Working bullet AND
+  // in the Answer section from the result event).
+  const filteredWorking = answer
+    ? (parsed.working ?? []).filter((label) => label !== answer)
+    : (parsed.working ?? [])
+
   const workingSteps: NormalizedWorkingStep[] =
-    parsed.working?.map((label, i) => ({
+    filteredWorking.map((label, i) => ({
       id: `working-${i}`,
       label,
       status: 'completed' as const,
-    })) ?? []
+    }))
 
   const meta = (parsed.meta || parsed.header || typeof parsed.tokensUsed === 'number' || parsed.success)
     ? {
@@ -89,7 +98,7 @@ export function normalizeClaude(
   return {
     reasoning,
     workingSteps,
-    answer: parsed.answer || '',
+    answer,
     meta,
     toolEvents: [],
     isStreaming: streaming,

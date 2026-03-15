@@ -1,20 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ToastProvider } from '@/components/ToastProvider'
 import { ChatInterface } from '@/components/ChatInterface'
 
-// Capture stream callback to avoid noise
-let streamCb: ((e: { payload: { session_id: string; content: string; finished: boolean } }) => void) | null = null
-
 vi.mock('@tauri-apps/api/event', () => {
   return {
-    listen: vi.fn(async (event: string, cb: any) => {
-      if (event === 'cli-stream') streamCb = cb
-      return () => {}
-    }),
+    listen: vi.fn(async () => () => {}),
   }
 })
 
+let lastExecuteCmd: string | null = null
 let lastExecuteArgs: any = null
 
 vi.mock('@tauri-apps/api/core', () => {
@@ -23,6 +19,7 @@ vi.mock('@tauri-apps/api/core', () => {
       switch (cmd) {
         case 'load_all_agent_settings':
           return {
+            autohand: { enabled: true, sandbox_mode: false, auto_approval: false, session_timeout_minutes: 30, output_format: 'text', debug_mode: false },
             claude: { enabled: true, sandbox_mode: false, auto_approval: false, session_timeout_minutes: 30, output_format: 'text', debug_mode: false },
             codex: { enabled: true, sandbox_mode: false, auto_approval: false, session_timeout_minutes: 30, output_format: 'text', debug_mode: false },
             gemini: { enabled: true, sandbox_mode: false, auto_approval: false, session_timeout_minutes: 30, output_format: 'text', debug_mode: false },
@@ -30,7 +27,7 @@ vi.mock('@tauri-apps/api/core', () => {
             max_concurrent_sessions: 10,
           }
         case 'load_agent_settings':
-          return { claude: true, codex: true, gemini: true, test: true }
+          return { autohand: true, claude: true, codex: true, gemini: true, test: true }
         case 'get_active_sessions':
           return { active_sessions: [], total_sessions: 0 }
         case 'load_sub_agents_grouped':
@@ -43,7 +40,12 @@ vi.mock('@tauri-apps/api/core', () => {
           return []
         case 'save_project_chat':
           return null
+        case 'execute_autohand_command':
+          lastExecuteCmd = cmd
+          lastExecuteArgs = args
+          return null
         case 'execute_codex_command':
+          lastExecuteCmd = cmd
           lastExecuteArgs = args
           return null
         default:
@@ -65,30 +67,35 @@ const project = {
 if (typeof document !== 'undefined') describe('Execution Mode selector', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    streamCb = null
+    lastExecuteCmd = null
     lastExecuteArgs = null
     // jsdom polyfill
     // @ts-ignore
     Element.prototype.scrollIntoView = vi.fn()
   })
 
-  it('sends executionMode to backend for /codex', async () => {
+  it('sends the selected Autohand permission mode to the backend', async () => {
+    const user = userEvent.setup()
     render(
       <ToastProvider>
         <div className="h-screen">
-          <ChatInterface isOpen={true} onToggle={() => {}} selectedAgent={undefined} project={project as any} />
+          <ChatInterface isOpen={true} selectedAgent={'Autohand Code'} project={project as any} />
         </div>
       </ToastProvider>
     )
 
-    // Keep default Execution Mode (Agent ask to execute)
+    await user.click(screen.getByRole('button', { name: /execution mode/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('menuitemradio', { name: 'Dry Run' })).toBeTruthy()
+    })
+    await user.click(screen.getByRole('menuitemradio', { name: 'Dry Run' }))
 
-    // Type a codex command
     const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: '/codex say hello' } })
+    fireEvent.change(input, { target: { value: 'say hello' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await waitFor(() => expect(lastExecuteArgs).toBeTruthy())
-    expect(lastExecuteArgs).toHaveProperty('executionMode', 'collab')
+    expect(lastExecuteCmd).toBe('execute_autohand_command')
+    expect(lastExecuteArgs).toHaveProperty('permissionMode', 'dry-run')
   })
 })

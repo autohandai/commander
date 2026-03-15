@@ -27,6 +27,7 @@ export class CodexStreamParser {
   }
   private steps: TimelineEntry[] = []
   private stepMap = new Map<string, TimelineEntry>()
+  private seenItemIds = new Set<string>()
   private streamingBuffer = ''
 
   feed(raw: string): string | undefined {
@@ -140,11 +141,17 @@ export class CodexStreamParser {
   private handleItem(item: ThreadItem): string | undefined {
     switch (item.type) {
       case 'agent_message':
-        this.sections.messages.push(item.text)
+        if (!this.seenItemIds.has(item.id)) {
+          this.seenItemIds.add(item.id)
+          this.sections.messages.push(item.text)
+        }
         return this.buildOutput()
 
       case 'reasoning':
-        this.sections.reasoning.push(item.text)
+        if (!this.seenItemIds.has(item.id)) {
+          this.seenItemIds.add(item.id)
+          this.sections.reasoning.push(item.text)
+        }
         return this.buildOutput()
 
       case 'command_execution':
@@ -220,7 +227,10 @@ export class CodexStreamParser {
       const text = this.extractResponseText((event as ResponseCompletedEvent).response)
       if (text) {
         this.streamingBuffer = text
-        this.sections.messages.push(text)
+        // Only add if no agent_message items already captured the content
+        if (this.sections.messages.length === 0) {
+          this.sections.messages.push(text)
+        }
         return this.buildOutput()
       }
     }

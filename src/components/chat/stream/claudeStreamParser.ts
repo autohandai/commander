@@ -7,9 +7,14 @@ export class ClaudeStreamParser {
   private model: string | null = null
   private textBlocks: Map<number, string> = new Map()
   private toolCalls: Map<string, { name: string; description?: string; input?: any; partial?: string; emitted?: boolean }> = new Map()
+  private nativeSessionId: string | null = null
 
   constructor(agent: string = 'claude') {
     this.agent = agent
+  }
+
+  getSessionId(): string | null {
+    return this.nativeSessionId
   }
 
   // Feed a chunk of text that may contain zero or more concatenated JSON objects
@@ -172,6 +177,7 @@ export class ClaudeStreamParser {
     let d = ''
     if (ev?.type === 'system') {
       if (ev.model) this.model = ev.model
+      if (ev.session_id && !this.nativeSessionId) this.nativeSessionId = ev.session_id
       d += this.ensureHeader()
       d += this.ensureMeta()
       return d

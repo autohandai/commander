@@ -190,10 +190,10 @@ if (typeof document !== 'undefined') describe('ChatInterface breadcrumb viewport
     )
 
     const header = screen.getByTestId('fixed-header')
-    const chatScrollArea = screen.getByTestId('chat-scrollarea')
-    
-    // Verify scroll area has proper constraints
-    expect(chatScrollArea).toHaveClass('h-full', 'min-h-0', 'p-6')
+    const chatScrollWrapper = screen.getByTestId('chat-scroll-wrapper')
+
+    // Verify scroll wrapper has proper constraints with native overflow
+    expect(chatScrollWrapper).toHaveClass('overflow-y-auto', 'min-h-0', 'p-6')
     
     // Header should remain in fixed position
     const initialHeaderRect = header.getBoundingClientRect()

@@ -1,3 +1,4 @@
+import React from 'react'
 import { Copy, Expand, Shrink } from 'lucide-react'
 import { getAgentId } from '@/components/chat/agents'
 import { PlanBreakdown } from '@/components/PlanBreakdown'
@@ -57,7 +58,258 @@ interface MessagesListProps {
   onExecuteStep?: (id: string) => void
 }
 
-export function MessagesList(props: MessagesListProps) {
+const HEAVY_MESSAGE_CHAR_THRESHOLD = 4000
+const HEAVY_MARKUP_TOKEN_THRESHOLD = 24
+
+function buildCopyPayload(message: ChatMessageLike) {
+  const parts: string[] = []
+  if (message.conversationId) {
+    parts.push(`Conversation ID: ${message.conversationId}`)
+  }
+  if (message.content) {
+    parts.push(message.content)
+  }
+  return parts.join('\n\n').trim() || (message.conversationId ?? '')
+}
+
+function getMarkupTokenCount(content: string) {
+  const htmlTokens = content.match(/<\/?[a-z][^>]*>/gi) ?? []
+  const fenceTokens = content.match(/```/g) ?? []
+  return htmlTokens.length + fenceTokens.length
+}
+
+function shouldDeferRichRendering(message: ChatMessageLike) {
+  if (message.role !== 'assistant') return false
+  if (message.isStreaming) return false
+  if (message.plan) return false
+
+  const content = message.content || ''
+  if (content.length >= HEAVY_MESSAGE_CHAR_THRESHOLD) return true
+  return getMarkupTokenCount(content) >= HEAVY_MARKUP_TOKEN_THRESHOLD
+}
+
+interface MessageRowProps {
+  message: ChatMessageLike
+  expanded: boolean
+  long: boolean
+  onToggleExpand: (id: string) => void
+  onCopy: (text: string, successTitle: string) => Promise<void>
+  onExecutePlan?: () => void
+  onExecuteStep?: (id: string) => void
+}
+
+function MessageRowInner({
+  message,
+  expanded,
+  long,
+  onToggleExpand,
+  onCopy,
+  onExecutePlan,
+  onExecuteStep,
+}: MessageRowProps) {
+  const shouldDefer = React.useMemo(() => shouldDeferRichRendering(message), [message])
+  const [richContentReady, setRichContentReady] = React.useState(!shouldDefer)
+
+  React.useEffect(() => {
+    if (!shouldDefer) {
+      setRichContentReady(true)
+      return
+    }
+
+    setRichContentReady(false)
+
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let idleId: number | null = null
+    const upgrade = () => {
+      if (!cancelled) {
+        setRichContentReady(true)
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = window.requestIdleCallback(upgrade, { timeout: 120 })
+    } else {
+      timeoutId = setTimeout(upgrade, 60)
+    }
+
+    return () => {
+      cancelled = true
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        window.cancelIdleCallback(idleId)
+      }
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId)
+      }
+    }
+  }, [shouldDefer, message.id, message.content])
+
+  const agentId = React.useMemo(() => getAgentId(message.agent), [message.agent])
+  const isAssistant = message.role === 'assistant'
+  const compact = long && !expanded
+  const timestamp = React.useMemo(
+    () =>
+      new Date(message.timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    [message.timestamp]
+  )
+  const label = React.useMemo(
+    () => (isAssistant ? getAgentLabel(agentId) : 'You'),
+    [agentId, isAssistant]
+  )
+  const normalized = React.useMemo(() => {
+    if (!isAssistant) return null
+    return getNormalizer(agentId)(message.content || '', message)
+  }, [agentId, isAssistant, message])
+
+  if (!isAssistant) {
+    return (
+      <div data-testid="chat-message" className="flex justify-end">
+        <Message from="user" className="max-w-[85%]">
+          <MessageContent>
+            <div className="whitespace-pre-wrap text-sm">
+              {message.content || ''}
+            </div>
+          </MessageContent>
+          <div className="flex items-center justify-end gap-2 text-[11px] text-muted-foreground">
+            <time dateTime={new Date(message.timestamp).toISOString()}>{timestamp}</time>
+          </div>
+        </Message>
+      </div>
+    )
+  }
+
+  const content = message.content || ''
+
+  return (
+    <div data-testid="chat-message" className="flex gap-3 items-start">
+      <AgentAvatar agentId={agentId} size="md" className="mt-1 shrink-0" />
+
+      <Message from="assistant" className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm font-semibold text-foreground">{label}</span>
+          <time
+            className="text-[11px] text-muted-foreground"
+            dateTime={new Date(message.timestamp).toISOString()}
+          >
+            {timestamp}
+          </time>
+          {message.isStreaming && (
+            <span
+              data-testid="chat-message-loader"
+              className="h-2 w-2 rounded-full bg-primary animate-pulse"
+            />
+          )}
+          {message.status && message.status !== 'completed' && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] capitalize text-muted-foreground">
+              {message.status.replace('_', ' ')}
+            </span>
+          )}
+        </div>
+
+        <MessageContent>
+          <div
+            className={cn(
+              'min-w-0',
+              compact && 'relative max-h-[600px] overflow-hidden'
+            )}
+            data-testid={compact ? 'message-compact' : undefined}
+          >
+            {!content && message.isStreaming
+              ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                    Thinking…
+                  </div>
+                )
+              : shouldDefer && !richContentReady
+                ? (
+                    <div className="space-y-3" data-testid="message-rich-fallback">
+                      <div className="max-h-[520px] overflow-hidden whitespace-pre-wrap break-words text-sm text-foreground">
+                        {content}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>Formatting large response…</span>
+                        <button
+                          type="button"
+                          className="font-medium text-foreground underline underline-offset-4"
+                          onClick={() => setRichContentReady(true)}
+                        >
+                          Render formatted content
+                        </button>
+                      </div>
+                    </div>
+                  )
+                : normalized && <UnifiedContent content={normalized} />}
+          </div>
+
+          {compact && (
+            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+          )}
+
+          {message.plan && (
+            <div className="mt-3 rounded-lg border border-dashed border-border/60 p-3">
+              <PlanBreakdown
+                title={message.plan.title}
+                description={message.plan.description}
+                steps={message.plan.steps}
+                progress={message.plan.progress}
+                isGenerating={message.plan.isGenerating}
+                onExecutePlan={onExecutePlan}
+                onExecuteStep={onExecuteStep}
+              />
+            </div>
+          )}
+        </MessageContent>
+
+        <div className="mt-1 flex items-center justify-between">
+          <MessageActions className="opacity-0 transition-opacity group-hover:opacity-100">
+            <MessageAction
+              tooltip="Copy message"
+              label="Copy"
+              onClick={() => onCopy(buildCopyPayload(message), 'Message copied')}
+            >
+              <Copy className="size-3" />
+            </MessageAction>
+            {long && (
+              <MessageAction
+                tooltip={expanded ? 'Shrink' : 'Expand'}
+                label={expanded ? 'Shrink' : 'Expand'}
+                onClick={() => onToggleExpand(message.id)}
+              >
+                {expanded ? <Shrink className="size-3" /> : <Expand className="size-3" />}
+              </MessageAction>
+            )}
+          </MessageActions>
+          {message.conversationId && (
+            <span
+              data-testid="conversation-id"
+              className="text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              Conversation ID: {message.conversationId}
+            </span>
+          )}
+        </div>
+      </Message>
+    </div>
+  )
+}
+
+const MessageRow = React.memo(
+  MessageRowInner,
+  (prev, next) =>
+    prev.message === next.message &&
+    prev.expanded === next.expanded &&
+    prev.long === next.long &&
+    prev.onToggleExpand === next.onToggleExpand &&
+    prev.onCopy === next.onCopy &&
+    prev.onExecutePlan === next.onExecutePlan &&
+    prev.onExecuteStep === next.onExecuteStep
+)
+
+function MessagesListInner(props: MessagesListProps) {
   const {
     messages,
     expandedMessages,
@@ -68,7 +320,7 @@ export function MessagesList(props: MessagesListProps) {
   } = props
   const { showSuccess, showError } = useToast()
 
-  const copyValue = async (text: string, successTitle: string) => {
+  const copyValue = React.useCallback(async (text: string, successTitle: string) => {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
@@ -84,149 +336,28 @@ export function MessagesList(props: MessagesListProps) {
     } catch (e) {
       showError('Failed to copy message', 'Error')
     }
-  }
-
-  const buildCopyPayload = (message: ChatMessageLike) => {
-    const parts: string[] = []
-    if (message.conversationId) {
-      parts.push(`Conversation ID: ${message.conversationId}`)
-    }
-    if (message.content) {
-      parts.push(message.content)
-    }
-    return parts.join('\n\n').trim() || (message.conversationId ?? '')
-  }
+  }, [showError, showSuccess])
 
   return (
     <div className="space-y-6 px-1">
       {messages.map((message) => {
-        const agentId = getAgentId(message.agent)
-        const isAssistant = message.role === 'assistant'
         const long = isLongMessage(message.content)
         const expanded = expandedMessages.has(message.id)
-        const compact = long && !expanded
-        const timestamp = new Date(message.timestamp).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-        const label = isAssistant ? getAgentLabel(agentId) : 'You'
-
-        if (!isAssistant) {
-          return (
-            <div key={message.id} data-testid="chat-message" className="flex justify-end">
-              <Message from="user" className="max-w-[85%]">
-                <MessageContent>
-                  <div className="whitespace-pre-wrap text-sm">
-                    {message.content || ''}
-                  </div>
-                </MessageContent>
-                <div className="flex items-center justify-end gap-2 text-[11px] text-muted-foreground">
-                  <time dateTime={new Date(message.timestamp).toISOString()}>{timestamp}</time>
-                </div>
-              </Message>
-            </div>
-          )
-        }
-
-        const content = message.content || ''
-        const normalizer = getNormalizer(agentId)
-        const normalized = normalizer(content, message)
-
         return (
-          <div key={message.id} data-testid="chat-message" className="flex gap-3 items-start">
-            <AgentAvatar agentId={agentId} size="md" className="mt-1 shrink-0" />
-
-            <Message from="assistant" className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm font-semibold text-foreground">{label}</span>
-                <time
-                  className="text-[11px] text-muted-foreground"
-                  dateTime={new Date(message.timestamp).toISOString()}
-                >
-                  {timestamp}
-                </time>
-                {message.isStreaming && (
-                  <span
-                    data-testid="chat-message-loader"
-                    className="h-2 w-2 rounded-full bg-primary animate-pulse"
-                  />
-                )}
-                {message.status && message.status !== 'completed' && (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] capitalize text-muted-foreground">
-                    {message.status.replace('_', ' ')}
-                  </span>
-                )}
-              </div>
-
-              <MessageContent>
-                <div
-                  className={cn(
-                    'min-w-0',
-                    compact && 'relative max-h-[600px] overflow-hidden'
-                  )}
-                  data-testid={compact ? 'message-compact' : undefined}
-                >
-                  {!content && message.isStreaming
-                    ? (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                          Thinking…
-                        </div>
-                      )
-                    : <UnifiedContent content={normalized} />}
-                </div>
-
-                {compact && (
-                  <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                )}
-
-                {message.plan && (
-                  <div className="mt-3 rounded-lg border border-dashed border-border/60 p-3">
-                    <PlanBreakdown
-                      title={message.plan.title}
-                      description={message.plan.description}
-                      steps={message.plan.steps}
-                      progress={message.plan.progress}
-                      isGenerating={message.plan.isGenerating}
-                      onExecutePlan={onExecutePlan}
-                      onExecuteStep={onExecuteStep}
-                    />
-                  </div>
-                )}
-              </MessageContent>
-
-              <div className="mt-1 flex items-center justify-between">
-                <MessageActions className="opacity-0 transition-opacity group-hover:opacity-100">
-                  <MessageAction
-                    tooltip="Copy message"
-                    label="Copy"
-                    onClick={() => copyValue(buildCopyPayload(message), 'Message copied')}
-                  >
-                    <Copy className="size-3" />
-                  </MessageAction>
-                  {long && (
-                    <MessageAction
-                      tooltip={expanded ? 'Shrink' : 'Expand'}
-                      label={expanded ? 'Shrink' : 'Expand'}
-                      onClick={() => onToggleExpand(message.id)}
-                    >
-                      {expanded ? <Shrink className="size-3" /> : <Expand className="size-3" />}
-                    </MessageAction>
-                  )}
-                </MessageActions>
-                {message.conversationId && (
-                  <span
-                    data-testid="conversation-id"
-                    className="text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100"
-                  >
-                    Conversation ID: {message.conversationId}
-                  </span>
-                )}
-              </div>
-            </Message>
-          </div>
+          <MessageRow
+            key={message.id}
+            message={message}
+            expanded={expanded}
+            long={long}
+            onToggleExpand={onToggleExpand}
+            onCopy={copyValue}
+            onExecutePlan={onExecutePlan}
+            onExecuteStep={onExecuteStep}
+          />
         )
       })}
     </div>
   )
 }
+
+export const MessagesList = React.memo(MessagesListInner)

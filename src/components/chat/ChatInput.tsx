@@ -1,10 +1,8 @@
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Lightbulb, FolderOpen, Send, PenLine } from 'lucide-react'
+import { Send, PenLine } from 'lucide-react'
 
 export interface AutocompleteOption {
   id: string
@@ -15,7 +13,7 @@ export interface AutocompleteOption {
   filePath?: string
 }
 
-interface ChatInputProps {
+export interface ChatInputProps {
   inputRef: React.RefObject<HTMLInputElement | null>
   autocompleteRef: React.RefObject<HTMLDivElement | null>
 
@@ -35,13 +33,8 @@ interface ChatInputProps {
   selectedOptionIndex: number
   onSelectOption: (option: AutocompleteOption) => void
 
-  // Toggles
-  planModeEnabled: boolean
-  onPlanModeChange: (v: boolean) => void
-  workspaceEnabled: boolean
-  onWorkspaceEnabledChange: (v: boolean) => void
-
   // Context for helper text
+  planModeEnabled: boolean
   projectName?: string
   selectedAgent?: string
   getAgentModel: (agentName: string) => string | null
@@ -54,15 +47,9 @@ interface ChatInputProps {
   // Session controls
   onNewSession?: () => void
   showNewSession?: boolean
-
-  // Execution mode selector
-  executionMode?: 'chat' | 'collab' | 'full'
-  onExecutionModeChange?: (m: 'chat' | 'collab' | 'full') => void
-  unsafeFull?: boolean
-  onUnsafeFullChange?: (v: boolean) => void
 }
 
-export function ChatInput(props: ChatInputProps) {
+function ChatInputInner(props: ChatInputProps) {
   const {
     inputRef,
     autocompleteRef,
@@ -80,9 +67,6 @@ export function ChatInput(props: ChatInputProps) {
     selectedOptionIndex,
     onSelectOption,
     planModeEnabled,
-    onPlanModeChange,
-    workspaceEnabled,
-    onWorkspaceEnabledChange,
     projectName,
     selectedAgent,
     getAgentModel,
@@ -91,10 +75,6 @@ export function ChatInput(props: ChatInputProps) {
     defaultAgentLabel,
     onNewSession,
     showNewSession,
-    executionMode = 'collab',
-    onExecutionModeChange,
-    unsafeFull = false,
-    onUnsafeFullChange,
   } = props
 
   const resolvedDefaultAgentLabel = defaultAgentLabel ?? 'Claude Code CLI'
@@ -159,75 +139,6 @@ export function ChatInput(props: ChatInputProps) {
         </div>
       )}
 
-      <div className="flex justify-end gap-6 mb-3 items-center">
-        {/* Execution Mode (shadcn select) */}
-        <div className="flex items-center gap-2">
-          <Select value={executionMode} onValueChange={(v: any) => onExecutionModeChange?.(v)}>
-            <SelectTrigger className="h-8 min-w-[220px]" aria-label="Execution Mode">
-              <SelectValue placeholder="Execution Mode" />
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="chat">Chat (read-only)</SelectItem>
-              <SelectItem value="collab">Agent (ask to execute)</SelectItem>
-              <SelectItem value="full">Agent (full access)</SelectItem>
-            </SelectContent>
-          </Select>
-          <label className={`text-xs inline-flex items-center gap-2 ${executionMode !== 'full' ? 'opacity-50' : ''}`}>
-            <input
-              type="checkbox"
-              checked={unsafeFull}
-              onChange={(e) => onUnsafeFullChange?.(e.target.checked)}
-              disabled={executionMode !== 'full'}
-            />
-            Advanced
-          </label>
-        </div>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-muted-foreground" />
-                <label htmlFor="plan-mode-switch" className="text-sm text-muted-foreground cursor-pointer">
-                  Plan Mode
-                </label>
-                <Switch
-                  id="plan-mode-switch"
-                  checked={planModeEnabled}
-                  onCheckedChange={onPlanModeChange}
-                  aria-label="Enable plan mode"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Generate step-by-step plans before execution using Ollama</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2">
-                <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                <label htmlFor="workspace-switch" className="text-sm text-muted-foreground cursor-pointer">
-                  Enable workspace
-                </label>
-                <Switch
-                  id="workspace-switch"
-                  checked={workspaceEnabled}
-                  onCheckedChange={onWorkspaceEnabledChange}
-                  aria-label="Enable workspace mode"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Enabling this you will start working with git worktree for changes</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-
       <div className="flex items-center gap-3">
         {showNewSession && onNewSession && (
           <TooltipProvider>
@@ -285,8 +196,11 @@ export function ChatInput(props: ChatInputProps) {
         </Button>
       </div>
 
-      <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-3">
+      <div
+        data-testid="chat-input-helper"
+        className="mt-2 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-start sm:justify-between"
+      >
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
           {showAutocomplete ? (
             <>
               {chatSendShortcut === 'enter' ? (
@@ -309,20 +223,20 @@ export function ChatInput(props: ChatInputProps) {
           )}
           {projectName && (
             <>
-              <span>•</span>
-              <span>Working in: {projectName}</span>
+              <span aria-hidden="true">•</span>
+              <span className="min-w-0 truncate">Working in: {projectName}</span>
             </>
           )}
           {selectedAgent && getAgentModel(selectedAgent) && (
             <>
-              <span>•</span>
-              <span className="text-blue-600 dark:text-blue-400">
+              <span aria-hidden="true">•</span>
+              <span className="min-w-0 truncate text-[hsl(var(--link))]">
                 {selectedAgent} using {getAgentModel(selectedAgent)}
               </span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:justify-end">
           <kbd className="px-1.5 py-0.5 text-xs bg-muted rounded">/agent prompt</kbd>
           <kbd className="px-1.5 py-0.5 text-xs bg-muted rounded">help</kbd>
           <kbd className="px-1.5 py-0.5 text-xs bg-muted rounded">@</kbd>
@@ -331,3 +245,5 @@ export function ChatInput(props: ChatInputProps) {
     </div>
   )
 }
+
+export const ChatInput = React.memo(ChatInputInner)

@@ -41,10 +41,16 @@ function normalizeMessage(raw: any, index: number, source: 'session' | 'backend'
       : `restored-${source}-${index}-${safeTimestamp}`
 
   const statusCandidate = raw?.status
-  const status =
+  // Clamp in-flight statuses ('thinking', 'running') to 'completed' on restore.
+  // Once the app restarts, the corresponding streams are gone and those messages
+  // will never transition on their own — leaving them permanently stuck if we
+  // preserve the transient status.
+  const rawStatus =
     typeof statusCandidate === 'string' && STATUS_VALUES.has(statusCandidate as any)
       ? (statusCandidate as PersistableMessage['status'])
       : undefined
+  const status: PersistableMessage['status'] =
+    rawStatus === 'thinking' || rawStatus === 'running' ? 'completed' : rawStatus
 
   const steps = Array.isArray(raw?.steps)
     ? raw.steps
@@ -237,13 +243,22 @@ export function useChatPersistence({
         const messagesChangedDuringHydration =
           currentSignature !== initialSignature && messagesRef.current.length > 0
 
-        if (messagesChangedDuringHydration) {
+        const preferred = pickPreferredRestore(sessionMessages, backendMessages)
+
+        if (messagesChangedDuringHydration && preferred && preferred.length > 0) {
+          // User sent messages while hydration was in flight.
+          // Merge restored history with the new messages instead of discarding history.
+          const currentMessages = messagesRef.current
+          const existingIds = new Set(currentMessages.map((m) => m.id))
+          const restoredOnly = preferred.filter((m) => !existingIds.has(m.id))
+          if (restoredOnly.length > 0) {
+            onRestoreRef.current([...restoredOnly, ...currentMessages])
+          }
           isHydratingRef.current = false
           setIsHydrated(true)
           return
         }
 
-        const preferred = pickPreferredRestore(sessionMessages, backendMessages)
         if (preferred && preferred.length > 0) {
           onRestoreRef.current(preferred)
         } else if (didSwitchContext) {
@@ -289,4 +304,6 @@ export function useChatPersistence({
     }, debounceMs)
     return () => clearTimeout(timer)
   }, [messages, storageKey, projectPath, debounceMs, isHydrated])
+
+  return { isHydrated }
 }

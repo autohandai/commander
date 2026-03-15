@@ -18,7 +18,7 @@ export interface AgentCapability {
 export const allowedAgentIds = ['autohand', 'claude', 'codex', 'gemini', 'ollama', 'test'] as const
 
 export type AllowedAgentId = typeof allowedAgentIds[number]
-export const DEFAULT_CLI_AGENT_IDS = ['autohand', 'claude', 'codex', 'gemini', 'ollama'] as const
+export const DEFAULT_CLI_AGENT_IDS = ['autohand', 'claude', 'codex', 'gemini'] as const
 export type DefaultCliAgentId = typeof DEFAULT_CLI_AGENT_IDS[number]
 
 export const DISPLAY_TO_ID: Record<string, string> = {
@@ -28,6 +28,15 @@ export const DISPLAY_TO_ID: Record<string, string> = {
   'Gemini': 'gemini',
   'Ollama': 'ollama',
   'Test CLI': 'test',
+}
+
+export const AGENT_COMMAND_TO_DISPLAY: Record<string, string> = {
+  autohand: 'Autohand Code',
+  claude: 'Claude Code CLI',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  ollama: 'Ollama',
+  test: 'Test CLI',
 }
 
 export const AGENTS: Agent[] = [
@@ -123,6 +132,16 @@ export function getAgentDisplayById(id: string): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
 }
 
+export function getCommandTargetAgentDisplay(inputValue?: string | null): string | null {
+  if (!inputValue || !inputValue.startsWith('/')) return null
+
+  const [rawCommand] = inputValue.trim().split(/\s+/, 1)
+  const command = rawCommand?.slice(1).toLowerCase()
+
+  if (!command) return null
+  return AGENT_COMMAND_TO_DISPLAY[command] ?? null
+}
+
 export function normalizeDefaultAgentId(value?: string | null): DefaultCliAgentId {
   if (!value) return 'claude'
   const normalized = value.toLowerCase() as DefaultCliAgentId
@@ -137,3 +156,73 @@ export const DEFAULT_CLI_AGENT_OPTIONS = DEFAULT_CLI_AGENT_IDS.map((id) => {
     description: agent?.description ?? '',
   }
 })
+
+// ---------------------------------------------------------------------------
+// Per-agent execution / permission mode registry
+// ---------------------------------------------------------------------------
+
+export interface AgentExecutionMode {
+  value: string
+  label: string
+  description?: string
+}
+
+export interface AgentExecutionModeConfig {
+  modes: AgentExecutionMode[]
+  defaultMode: string
+  /** Key name sent to the backend (e.g. 'executionMode', 'permissionMode', 'approvalMode') */
+  backendParamName: string
+  /** Show the "Advanced" unsafe-bypass checkbox (Codex only) */
+  showDangerousToggle?: boolean
+}
+
+export const AGENT_EXECUTION_MODES: Record<string, AgentExecutionModeConfig> = {
+  codex: {
+    modes: [
+      { value: 'chat', label: 'Chat (read-only)' },
+      { value: 'collab', label: 'Agent (ask to execute)' },
+      { value: 'full', label: 'Agent (full access)' },
+    ],
+    defaultMode: 'collab',
+    backendParamName: 'executionMode',
+    showDangerousToggle: true,
+  },
+  claude: {
+    modes: [
+      { value: 'plan', label: 'Plan (read-only)' },
+      { value: 'acceptEdits', label: 'Accept Edits' },
+      { value: 'bypassPermissions', label: 'Bypass Permissions' },
+    ],
+    defaultMode: 'acceptEdits',
+    backendParamName: 'permissionMode',
+  },
+  gemini: {
+    modes: [
+      { value: 'default', label: 'Default' },
+      { value: 'auto_edit', label: 'Auto Edit' },
+      { value: 'yolo', label: 'YOLO (full access)' },
+    ],
+    defaultMode: 'default',
+    backendParamName: 'approvalMode',
+  },
+  autohand: {
+    modes: [
+      { value: 'unrestricted', label: 'Unrestricted' },
+      { value: 'interactive', label: 'Interactive' },
+      { value: 'full-access', label: 'Full Access' },
+      { value: 'auto-mode', label: 'Auto Mode' },
+      { value: 'restricted', label: 'Restricted' },
+      { value: 'dry-run', label: 'Dry Run' },
+    ],
+    defaultMode: 'unrestricted',
+    backendParamName: 'permissionMode',
+  },
+  ollama: { modes: [], defaultMode: '', backendParamName: '' },
+  test: { modes: [], defaultMode: '', backendParamName: '' },
+}
+
+export function getAgentExecutionModes(agentId: string): AgentExecutionModeConfig | null {
+  const config = AGENT_EXECUTION_MODES[agentId]
+  if (!config || config.modes.length === 0) return null
+  return config
+}

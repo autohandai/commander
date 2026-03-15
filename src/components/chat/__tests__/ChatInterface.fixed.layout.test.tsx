@@ -100,24 +100,19 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     const breadcrumbHeader = screen.getByTestId('breadcrumb-header')
     const chatRoot = screen.getByTestId('chat-root')
     const scrollWrapper = screen.getByTestId('chat-scroll-wrapper')
-    const chatScrollArea = screen.getByTestId('chat-scrollarea')
-    
+
     // RED AREA: Breadcrumb should be fixed at top with shrink-0
     expect(breadcrumbHeader).toBeVisible()
     expect(breadcrumbHeader).toHaveClass('shrink-0')
-    
+
     // Chat root should keep constrained flex layout
     expect(chatRoot).toHaveClass('relative', 'flex', 'flex-col', 'flex-1', 'min-h-0', 'overflow-hidden')
 
-    // Scroll area wrapper reserves vertical space below top banners
-    expect(scrollWrapper).toHaveClass('relative', 'flex-1', 'min-h-0')
-    expect(scrollWrapper).toContainElement(chatScrollArea)
-    
-    // Scroll area should occupy full wrapper height
-    expect(chatScrollArea).toHaveClass('h-full', 'p-6')
-    
+    // Scroll wrapper uses Radix ScrollArea (overflow-hidden root, flex-1 min-h-0)
+    expect(scrollWrapper).toHaveClass('relative', 'flex-1', 'min-h-0', 'overflow-hidden')
+
     // Content keeps a small breathing room at the bottom
-    const paddedContent = chatScrollArea.querySelector('.pb-6')
+    const paddedContent = scrollWrapper.querySelector('.pb-6')
     expect(paddedContent).toBeTruthy()
 
     // Get input and verify it exists (will be absolutely positioned)
@@ -153,7 +148,7 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     
     // Verify the input area stays visible as a bottom footer in normal flow
     const chatInputArea = screen.getByTestId('chat-input-area')
-    expect(chatInputArea).toHaveClass('shrink-0', 'border-t', 'bg-background', 'p-4')
+    expect(chatInputArea).toHaveClass('shrink-0', 'border-t', 'bg-background', 'p-4', 'pb-8')
   })
 
   it('maintains correct scroll behavior within the constrained messages area', async () => {
@@ -178,14 +173,14 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
       </ToastProvider>
     )
 
-    const scrollArea = screen.getByTestId('chat-scrollarea')
-    
+    const scrollWrapper = screen.getByTestId('chat-scroll-wrapper')
+
     // Verify content has small bottom breathing room
-    const paddedContent = scrollArea.querySelector('.pb-6')
+    const paddedContent = scrollWrapper.querySelector('.pb-6')
     expect(paddedContent).toBeTruthy()
-    
-    // Verify scroll area fills wrapper height
-    expect(scrollArea).toHaveClass('h-full')
+
+    // Verify scroll wrapper uses Radix ScrollArea (overflow-hidden root)
+    expect(scrollWrapper).toHaveClass('overflow-hidden')
     
     // Messages should scroll within this constrained area
     const input = screen.getByRole('textbox')
@@ -225,7 +220,8 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
       'shrink-0',
       'border-t', 
       'bg-background', 
-      'p-4'
+      'p-4',
+      'pb-8'
     )
     
     // Verify input remains accessible after messages are added

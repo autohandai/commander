@@ -79,14 +79,14 @@ if (typeof document !== 'undefined') describe('ChatInterface layout constraints'
 
     // Verify initial layout structure
     const chatRoot = screen.getByTestId('chat-root')
-    const chatScrollArea = screen.getByTestId('chat-scrollarea')
+    const chatScrollWrapper = screen.getByTestId('chat-scroll-wrapper')
     const breadcrumbArea = screen.getByTestId('breadcrumb-area')
-    
+
     // Check that chat root has proper constraint classes
     expect(chatRoot).toHaveClass('flex', 'flex-col', 'h-full', 'min-h-0')
-    
-    // Check that scroll area is properly constrained
-    expect(chatScrollArea).toHaveClass('h-full', 'p-6')
+
+    // ScrollArea root uses overflow-hidden; actual scrolling is inside the Radix viewport
+    expect(chatScrollWrapper).toHaveClass('overflow-hidden')
     
     // Verify breadcrumb is initially visible
     expect(breadcrumbArea).toBeVisible()
@@ -150,12 +150,9 @@ if (typeof document !== 'undefined') describe('ChatInterface layout constraints'
       </ToastProvider>
     )
 
-    const scrollArea = screen.getByTestId('chat-scrollarea')
-    
-    // Check that scroll area uses full wrapper height for proper growth
-    expect(scrollArea).toHaveClass('h-full')
-    
-    // Check that scroll area has proper padding
-    expect(scrollArea).toHaveClass('p-6')
+    const scrollWrapper = screen.getByTestId('chat-scroll-wrapper')
+
+    // ScrollArea uses Radix ScrollArea with overflow-hidden root
+    expect(scrollWrapper).toHaveClass('overflow-hidden')
   })
 })

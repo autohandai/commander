@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { buildAutocompleteOptions, AutocompleteOption } from '@/components/chat/autocomplete'
 import type { SubAgentGroup } from '@/types/sub-agent'
 
@@ -28,37 +28,36 @@ interface UseChatAutocompleteParams {
 }
 
 export function useChatAutocomplete(params: UseChatAutocompleteParams) {
+  const pendingLookupRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduledLookupKeyRef = useRef<string | null>(null)
+
+  const clearPendingLookup = useCallback(() => {
+    if (pendingLookupRef.current) {
+      clearTimeout(pendingLookupRef.current)
+      pendingLookupRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      clearPendingLookup()
+    }
+  }, [clearPendingLookup])
+
   const updateAutocomplete = useCallback(
     async (value: string, cursorPos: number) => {
       const beforeCursor = value.slice(0, cursorPos)
       const match = beforeCursor.match(/([/@])([^\s]*)$/)
       if (!match) {
+        clearPendingLookup()
+        scheduledLookupKeyRef.current = null
         params.setShow(false)
         return
       }
       const [, command, query] = match
 
-      // If @ and project available, sync files list based on query
-      if (command === '@' && params.fileMentionsEnabled && params.projectPath) {
-        try {
-          if (query) {
-            await params.searchFiles(query, {
-              directory_path: params.projectPath,
-              extensions: [...params.codeExtensions],
-              max_depth: 3,
-            })
-          } else {
-            await params.listFiles({
-              directory_path: params.projectPath,
-              extensions: [...params.codeExtensions],
-              max_depth: 2,
-            })
-          }
-        } catch {
-          // ignore file scanning errors
-        }
-      }
-
+      // Build the visible options immediately from current in-memory results,
+      // then refresh file-backed results in the background if needed.
       const options = buildAutocompleteOptions(command as '/' | '@', query || '', {
         fileMentionsEnabled: params.fileMentionsEnabled,
         projectName: undefined,
@@ -72,8 +71,42 @@ export function useChatAutocomplete(params: UseChatAutocompleteParams) {
       params.setOptions(options)
       params.setSelectedIndex(0)
       params.setShow(options.length > 0)
+
+      // If @ and project available, debounce file scans so typing does not flood Tauri.
+      if (command === '@' && params.fileMentionsEnabled && params.projectPath) {
+        const lookupKey = query
+          ? `search:${params.projectPath}:${query}`
+          : `list:${params.projectPath}`
+
+        if (scheduledLookupKeyRef.current !== lookupKey) {
+          clearPendingLookup()
+          scheduledLookupKeyRef.current = lookupKey
+          pendingLookupRef.current = setTimeout(() => {
+            const runLookup = query
+              ? params.searchFiles(query, {
+                  directory_path: params.projectPath!,
+                  extensions: [...params.codeExtensions],
+                  max_depth: 3,
+                })
+              : params.listFiles({
+                  directory_path: params.projectPath!,
+                  extensions: [...params.codeExtensions],
+                  max_depth: 2,
+                })
+
+            void runLookup.catch(() => {
+              // ignore file scanning errors
+            })
+            pendingLookupRef.current = null
+          }, 150)
+        }
+      } else {
+        clearPendingLookup()
+        scheduledLookupKeyRef.current = null
+      }
     },
     [
+      clearPendingLookup,
       params.enabledAgents,
       params.fileMentionsEnabled,
       params.projectPath,

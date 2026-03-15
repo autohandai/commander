@@ -86,6 +86,21 @@ export function parseAgentTranscript(raw: string): ParsedAgentOutput | null {
     out.answer = buf.join('\n').trim()
   }
 
+  // Answer section: plain "Answer" header (produced by ClaudeStreamParser result event)
+  if (!out.answer) {
+    const answerIdx = lines.findIndex((l) => /^\s*Answer\s*$/i.test(l))
+    if (answerIdx >= 0) {
+      const buf: string[] = []
+      for (let i = answerIdx + 1; i < lines.length; i++) {
+        const l = lines[i]
+        if (/^-{3,}$/.test(l.trim())) break
+        if (/^✅|^❌|tokens used:/i.test(l)) break
+        buf.push(l)
+      }
+      out.answer = buf.join('\n').trim()
+    }
+  }
+
   // Working section: header line "Working" followed by bullets (• or -) or created lines
   const workingIdx = lines.findIndex((l) => /^\s*Working\s*$/i.test(l))
   if (workingIdx >= 0) {

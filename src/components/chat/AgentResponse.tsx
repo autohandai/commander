@@ -73,7 +73,7 @@ export function AgentResponse({ raw, isStreaming = false }: Props) {
       {parsed.thinking && (
         <div className="text-xs bg-muted/10 p-2 rounded">
           <button
-            className="text-blue-600 dark:text-blue-400 hover:underline mb-1"
+            className="text-[hsl(var(--link))] hover:underline mb-1"
             onClick={() => setShowThinking((s) => !s)}
           >
             {showThinking ? 'Hide thinking' : 'Show thinking'}
@@ -98,7 +98,7 @@ export function AgentResponse({ raw, isStreaming = false }: Props) {
           {parsed.meta?.model && <span className="mr-3">model: {parsed.meta.model}</span>}
           {typeof parsed.tokensUsed === 'number' && <span className="mr-3">tokens: {parsed.tokensUsed}</span>}
           {parsed.success && (
-            <Badge variant="outline" className="border-green-600 text-green-600 uppercase tracking-wide">
+            <Badge variant="outline" className="border-[hsl(var(--success))] text-[hsl(var(--success))] uppercase tracking-wide">
               success
             </Badge>
           )}

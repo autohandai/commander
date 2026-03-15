@@ -78,7 +78,7 @@ export const Response: React.FC<ResponseProps> = ({
           <a
             href={href}
             onClick={(e) => handleFileClick(filePath, e)}
-            className="text-blue-500 hover:text-blue-700 underline cursor-pointer"
+            className="text-[hsl(var(--link))] hover:opacity-80 underline cursor-pointer"
             {...props}
           >
             {children}
@@ -87,7 +87,7 @@ export const Response: React.FC<ResponseProps> = ({
       }
 
       return (
-        <a href={safe ? href : undefined} target="_blank" rel="noreferrer" className="text-blue-500 hover:text-blue-700 underline" {...props}>
+        <a href={safe ? href : undefined} target="_blank" rel="noreferrer" className="text-[hsl(var(--link))] hover:opacity-80 underline" {...props}>
           {children}
         </a>
       )
@@ -110,7 +110,7 @@ export const Response: React.FC<ResponseProps> = ({
 
   return (
     <div
-      className={cn('[&>p]:leading-normal [&>p]:my-0 prose prose-sm max-w-none', className)}
+      className={cn('[&>p]:leading-normal [&>p]:my-0 prose prose-sm dark:prose-invert max-w-none', className)}
       {...divProps}
     >
       {typeof children === 'string' ? (

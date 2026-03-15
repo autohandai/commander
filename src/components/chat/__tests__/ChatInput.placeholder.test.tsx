@@ -44,6 +44,16 @@ describe('ChatInput', () => {
     expect(screen.getByText(/Working in:\s*demo/i)).toBeInTheDocument()
   })
 
+  it('keeps helper guidance and shortcuts in a wrapped footer section', () => {
+    const { container } = render(<ChatInput {...baseProps} />)
+    expect(screen.getByText(/Cmd\+Enter to send/i)).toBeInTheDocument()
+    expect(screen.getByText('/agent prompt')).toBeInTheDocument()
+
+    const helperSection = container.querySelector('[data-testid="chat-input-helper"]')
+    expect(helperSection).toHaveClass('flex-col')
+    expect(helperSection).toHaveClass('sm:flex-row')
+  })
+
   it('reflects provided default agent label in placeholder', () => {
     const { rerender } = render(<ChatInput {...(baseProps as any)} defaultAgentLabel="Codex" />)
     const input = screen.getByRole('textbox')

@@ -271,6 +271,58 @@ describe('useChatPersistence', () => {
     )
   })
 
+  it('merges restored history with messages sent during hydration', async () => {
+    vi.useFakeTimers()
+    const onRestore = vi.fn()
+
+    // Backend takes 100ms to respond with saved history
+    const tauriInvoke = vi.fn((cmd: string) => {
+      if (cmd === 'load_project_chat') {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve([
+            { id: 'old-1', role: 'user', content: 'old message', timestamp: 1, agent: 'claude' },
+            { id: 'old-2', role: 'assistant', content: 'old reply', timestamp: 2, agent: 'claude' },
+          ]), 100)
+        })
+      }
+      return Promise.resolve(null)
+    })
+
+    // Start with messages already in state (user sent before hydration finished)
+    const { rerender } = renderHook((p: any) =>
+      useChatPersistence({
+        projectPath: '/p',
+        storageKey: 'chat:/p',
+        messages: p?.messages || [],
+        onRestore,
+        tauriInvoke,
+        debounceMs: 500,
+      })
+    )
+
+    // Simulate: user sends a message while backend load is still in flight
+    rerender({ messages: [
+      { id: 'new-1', role: 'user', content: 'new message', timestamp: 100, agent: 'claude' },
+    ] })
+
+    // Let backend resolve
+    await act(async () => {
+      vi.advanceTimersByTime(150)
+    })
+
+    // onRestore should have been called with merged: old history + new message
+    const lastCall = onRestore.mock.calls[onRestore.mock.calls.length - 1]
+    expect(lastCall).toBeDefined()
+    const merged = lastCall[0]
+    // Should contain old messages restored from backend
+    expect(merged.some((m: any) => m.content === 'old message')).toBe(true)
+    expect(merged.some((m: any) => m.content === 'old reply')).toBe(true)
+    // Should also contain the new message the user sent
+    expect(merged.some((m: any) => m.content === 'new message')).toBe(true)
+
+    vi.useRealTimers()
+  })
+
   it('clears stale messages when switching storage key/project', async () => {
     const onRestore = vi.fn()
     const tauriInvoke = vi.fn(async () => [])
@@ -298,5 +350,55 @@ describe('useChatPersistence', () => {
     // Clear should occur when switching context.
     const clearCalls = onRestore.mock.calls.filter(([arg]) => Array.isArray(arg) && arg.length === 0)
     expect(clearCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('sanitizes in-flight status (thinking/running) to completed on restore', async () => {
+    // Messages persisted mid-stream have status 'thinking' or 'running'.
+    // When the app restarts those streams are gone, so restoring them with
+    // those statuses leaves them permanently stuck.
+    // normalizeMessage must clamp them to 'completed' on restore.
+    const onRestore = vi.fn()
+    const tauriInvoke = vi.fn(async () => null)
+
+    sessionStorage.setItem(
+      'chat:/p',
+      JSON.stringify({
+        messages: [
+          { role: 'assistant', content: 'partial', timestamp: 1, agent: 'claude', status: 'thinking' },
+          { role: 'assistant', content: 'mid stream', timestamp: 2, agent: 'codex', status: 'running' },
+          { role: 'assistant', content: 'done', timestamp: 3, agent: 'claude', status: 'completed' },
+          { role: 'assistant', content: 'err', timestamp: 4, agent: 'claude', status: 'failed' },
+        ],
+      })
+    )
+
+    renderHook(() =>
+      useChatPersistence({
+        projectPath: '/p',
+        storageKey: 'chat:/p',
+        messages: [],
+        onRestore,
+        tauriInvoke,
+      })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(onRestore).toHaveBeenCalled()
+    const restored: any[] = onRestore.mock.calls[onRestore.mock.calls.length - 1][0]
+
+    const thinking = restored.find((m: any) => m.content === 'partial')
+    expect(thinking?.status).toBe('completed')
+
+    const running = restored.find((m: any) => m.content === 'mid stream')
+    expect(running?.status).toBe('completed')
+
+    const completed = restored.find((m: any) => m.content === 'done')
+    expect(completed?.status).toBe('completed')
+
+    const failed = restored.find((m: any) => m.content === 'err')
+    expect(failed?.status).toBe('failed')
   })
 })

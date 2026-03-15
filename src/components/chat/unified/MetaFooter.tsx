@@ -23,7 +23,7 @@ export function MetaFooter({ meta }: MetaFooterProps) {
         {meta.provider && <span>provider: {meta.provider}</span>}
         {typeof meta.tokensUsed === 'number' && <span>tokens: {meta.tokensUsed}</span>}
         {meta.success && (
-          <Badge variant="outline" className="border-green-600 text-green-600 uppercase tracking-wide">
+          <Badge variant="outline" className="border-[hsl(var(--success))] text-[hsl(var(--success))] uppercase tracking-wide">
             success
           </Badge>
         )}

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ToastProvider } from '@/components/ToastProvider'
 import { ChatInterface } from '@/components/ChatInterface'
 
@@ -50,7 +51,7 @@ if (typeof document !== 'undefined') describe('Agent-specific modes in dropdown'
     render(
       <ToastProvider>
         <div className="h-screen">
-          <ChatInterface isOpen={true} onToggle={() => {}} selectedAgent={'Claude Code CLI'} project={project as any} />
+          <ChatInterface isOpen={true} selectedAgent={'Claude Code CLI'} project={project as any} />
         </div>
       </ToastProvider>
     )
@@ -74,7 +75,7 @@ if (typeof document !== 'undefined') describe('Agent-specific modes in dropdown'
     render(
       <ToastProvider>
         <div className="h-screen">
-          <ChatInterface isOpen={true} onToggle={() => {}} selectedAgent={'Gemini'} project={project as any} />
+          <ChatInterface isOpen={true} selectedAgent={'Gemini'} project={project as any} />
         </div>
       </ToastProvider>
     )
@@ -86,5 +87,30 @@ if (typeof document !== 'undefined') describe('Agent-specific modes in dropdown'
     })
     const geminiCall = executeCalls.find(call => call.cmd === 'execute_gemini_command')
     expect(geminiCall?.args).toHaveProperty('approvalMode')
+  })
+
+  it('retargets the mode UI when the draft command switches from Codex to Autohand', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToastProvider>
+        <div className="h-screen">
+          <ChatInterface isOpen={true} selectedAgent={'Codex'} project={project as any} />
+        </div>
+      </ToastProvider>
+    )
+
+    expect(screen.getByText('Advanced')).toBeTruthy()
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '/autohand inspect this repo' } })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Advanced')).toBeNull()
+    })
+
+    await user.click(screen.getByRole('button', { name: /execution mode/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('menuitemradio', { name: 'Unrestricted' })).toBeTruthy()
+    })
   })
 })

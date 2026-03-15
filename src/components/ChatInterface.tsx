@@ -8,10 +8,12 @@ import { useFileMention } from '@/hooks/use-file-mention';
 import { CODE_EXTENSIONS } from '@/types/file-mention';
 import { useToast } from '@/components/ToastProvider';
 import { SubAgentGroup } from '@/types/sub-agent';
-import { AGENTS, AGENT_CAPABILITIES, getAgentId, DISPLAY_TO_ID, getAgentDisplayById, normalizeDefaultAgentId } from '@/components/chat/agents';
+import { AGENTS, AGENT_CAPABILITIES, getAgentId, getCommandTargetAgentDisplay, getAgentDisplayById, normalizeDefaultAgentId, getAgentExecutionModes } from '@/components/chat/agents';
 import { useWorkingDir } from '@/components/chat/hooks/useWorkingDir';
 import { ChatInput, AutocompleteOption as ChatAutocompleteOption } from '@/components/chat/ChatInput';
+import { ChatControlsBar } from '@/components/chat/ChatControlsBar';
 import { MessagesList } from '@/components/chat/MessagesList';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SessionStatusHeader } from '@/components/chat/SessionStatusHeader';
 import { SessionManagementPanel } from '@/components/chat/SessionManagementPanel';
 import { useChatAutocomplete } from '@/components/chat/hooks/useChatAutocomplete';
@@ -45,6 +47,9 @@ interface ChatInterfaceProps {
   isOpen: boolean;
   selectedAgent?: string;
   project?: RecentProject;
+  onExecutingChange?: (projectPath: string, sessionIds: string[]) => void;
+  pendingPrompt?: string | null;
+  onPendingPromptConsumed?: () => void;
 }
 
 interface AgentSettings {
@@ -84,11 +89,15 @@ function normalizeProjectPath(rawPath?: string): string | undefined {
 }
 
 
-export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceProps) {
+export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChange, pendingPrompt, onPendingPromptConsumed }: ChatInterfaceProps) {
   const normalizedProjectPath = React.useMemo(
     () => normalizeProjectPath(project?.path),
     [project?.path]
   );
+  const projectChatContextKey = React.useMemo(() => {
+    const branch = project?.git_branch?.trim()
+    return branch && branch.length > 0 ? branch : 'detached'
+  }, [project?.git_branch])
   const [inputValue, setInputValue] = useState('');
   const [typedPlaceholder, setTypedPlaceholder] = useState('');
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -100,6 +109,13 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [messages, setMessagesState] = useState<ChatMessage[]>([]);
   // Allow parallel executions: track active streaming sessions
   const [executingSessions, setExecutingSessions] = useState<Set<string>>(new Set());
+
+  // Notify parent about executing sessions per project
+  useEffect(() => {
+    if (project?.path) {
+      onExecutingChange?.(project.path, Array.from(executingSessions));
+    }
+  }, [executingSessions, onExecutingChange, project?.path]);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [showSessionPanel, setShowSessionPanel] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AllAgentSettings | null>(null);
@@ -110,7 +126,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const [planModeEnabled, setPlanModeEnabled] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
   const [subAgents, setSubAgents] = useState<SubAgentGroup>({});
-  const [executionMode, setExecutionMode] = useState<'chat'|'collab'|'full'>('collab');
+  const [executionMode, setExecutionMode] = useState<string>('collab');
   const [unsafeFull, setUnsafeFull] = useState(false);
   const { files, listFiles, searchFiles } = useFileMention();
   const [mentionBasePath, setMentionBasePath] = useState<string | undefined>(normalizedProjectPath);
@@ -119,6 +135,13 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const previousMessagesRef = useRef<ChatMessage[]>([]);
+
+  // Track the active conversation across turns so follow-up messages reuse the same session
+  const activeConversationRef = useRef<{
+    conversationId: string;
+    agentSessionId?: string;    // Claude's native session_id (from stream)
+    autohandSessionId?: string; // Autohand session key
+  } | null>(null);
 
   // Helper to schedule a timeout that is automatically cleared on unmount
   const safeTimeout = useCallback((fn: () => void, ms: number) => {
@@ -139,8 +162,8 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   }, []);
 
   const storageKey = React.useMemo(
-    () => normalizedProjectPath ? `chat:${normalizedProjectPath}` : null,
-    [normalizedProjectPath]
+    () => normalizedProjectPath ? `chat:${normalizedProjectPath}:${projectChatContextKey}` : null,
+    [normalizedProjectPath, projectChatContextKey]
   );
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [historyCompacted, setHistoryCompacted] = useState(false);
@@ -160,6 +183,30 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     () => getAgentDisplayById(configuredDefaultAgentId),
     [configuredDefaultAgentId]
   )
+
+  const draftTargetAgentDisplay = React.useMemo(
+    () => getCommandTargetAgentDisplay(inputValue),
+    [inputValue]
+  )
+  const effectiveTargetAgentDisplay = draftTargetAgentDisplay || selectedAgent || configuredDefaultAgentDisplay
+
+  // Derive active agent id and its execution mode config from the effective
+  // target agent, including explicit `/agent` draft commands.
+  const activeAgentId = React.useMemo(
+    () => getAgentId(effectiveTargetAgentDisplay),
+    [effectiveTargetAgentDisplay]
+  )
+  const agentModeConfig = React.useMemo(
+    () => getAgentExecutionModes(activeAgentId),
+    [activeAgentId]
+  )
+
+  // Reset executionMode to the agent's default when the active agent changes.
+  React.useEffect(() => {
+    if (agentModeConfig) {
+      setExecutionMode(agentModeConfig.defaultMode)
+    }
+  }, [agentModeConfig])
 
   const historyLimit = React.useMemo(() => {
     const limit = settingsMaxHistory ?? 15
@@ -204,22 +251,24 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
 
   // ensureEnabled provided by hook
 
-  const isLongMessage = (text: string | undefined) => {
+  const isLongMessage = useCallback((text: string | undefined) => {
     if (!text) return false;
     if (text.length > 2000) return true;
     const lines = text.split('\n');
     return lines.length > 40;
-  };
+  }, []);
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = useCallback((id: string) => {
     setExpandedMessages(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const handleNewSession = () => {
+  const handleNewSession = useCallback(() => {
+    // Clear active conversation so the next message starts fresh
+    activeConversationRef.current = null;
     // Clear messages
     setMessages([]);
     // Clear current plan if any
@@ -245,7 +294,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
         invoke('save_project_chat', { projectPath: normalizedProjectPath, messages: [] }).catch(() => {})
       })
     }
-  };
+  }, [setMessages, storageKey, project, normalizedProjectPath]);
 
   // Rotating placeholder messages
   const NORMAL_PLACEHOLDERS = React.useMemo(() => [
@@ -266,8 +315,10 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     try {
       const status = await invoke<SessionStatus>('get_active_sessions');
       setSessionStatus(status);
+      return status;
     } catch (error) {
       console.error('Failed to load session status:', error);
+      return null;
     }
   }, []);
 
@@ -324,14 +375,14 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   };
 
   // Helper function to get the selected model for an agent
-  const getAgentModel = (agentName: string): string | null => {
+  const getAgentModel = useCallback((agentName: string): string | null => {
     if (!agentSettings) return null;
-    
-    const agentKey = DISPLAY_TO_ID[agentName as keyof typeof DISPLAY_TO_ID] || agentName.toLowerCase();
+
+    const agentKey = getAgentId(agentName);
     const settings = agentSettings[agentKey as keyof typeof agentSettings] as AgentSettings;
-    
+
     return settings?.model || null;
-  };
+  }, [agentSettings]);
 
   // Handle autocomplete filtering
   const { updateAutocomplete: updateAutocompleteHook } = useChatAutocomplete({
@@ -386,7 +437,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   }, [isOpen]);
 
   // Persistence (sessionStorage + tauri store)
-  useChatPersistence({
+  const { isHydrated } = useChatPersistence({
     projectPath: normalizedProjectPath,
     storageKey,
     messages,
@@ -423,22 +474,22 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
   }, []);
 
   // Handle input changes
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     const cursorPos = e.target.selectionStart || 0;
-    
+
     setInputValue(newValue);
     updateAutocomplete(newValue, cursorPos);
-  };
+  }, [updateAutocomplete]);
 
   // Handle cursor position changes
-  const handleInputSelect = (e: React.FormEvent<HTMLInputElement>) => {
+  const handleInputSelect = useCallback((e: React.FormEvent<HTMLInputElement>) => {
     const cursorPos = (e.target as HTMLInputElement).selectionStart || 0;
     updateAutocomplete(inputValue, cursorPos);
-  };
+  }, [inputValue, updateAutocomplete]);
 
   // Handle autocomplete selection
-  const handleAutocompleteSelect = (option: ChatAutocompleteOption) => {
+  const handleAutocompleteSelect = useCallback((option: ChatAutocompleteOption) => {
     if (!commandType) return;
     
     const beforeCommand = inputValue.slice(0, commandStart);
@@ -481,7 +532,7 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
         inputRef.current.setSelectionRange(cursorPos, cursorPos);
       }
     }, 0);
-  };
+  }, [commandType, commandStart, inputValue]);
 
   // Generate plan using Ollama
   const generatePlan = async (userInput: string): Promise<Plan> => {
@@ -489,9 +540,55 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     return generatePlanShared(userInput, { invoke });
   };
 
+  // Handle externally-injected prompts (e.g., AGENTS.md generation from toast)
+  const pendingPromptConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!pendingPrompt || !project || pendingPromptConsumedRef.current) return;
+    pendingPromptConsumedRef.current = true;
+    // Set the input and auto-send on next tick so the UI shows the prompt briefly
+    setInputValue(pendingPrompt);
+    onPendingPromptConsumed?.();
+    const timer = setTimeout(() => {
+      // Directly submit the prompt — we can't rely on inputValue state being
+      // updated yet, so we call the execution flow inline.
+      const agentDisplay = selectedAgent || configuredDefaultAgentDisplay;
+      const conversationId = activeConversationRef.current?.conversationId ?? generateId('conv');
+      const resumeSessionId = activeConversationRef.current?.agentSessionId
+        ?? activeConversationRef.current?.autohandSessionId
+        ?? undefined;
+      const turnId = generateId('turn');
+      if (!activeConversationRef.current) {
+        activeConversationRef.current = { conversationId };
+      }
+      const userMessage: ChatMessage = {
+        id: generateId('user'),
+        content: pendingPrompt,
+        role: 'user',
+        timestamp: Date.now(),
+        agent: agentDisplay,
+        conversationId,
+      };
+      setHistoryCompacted(false);
+      setMessages(prev => [...prev, userMessage]);
+      setInputValue('');
+
+      void execute(agentDisplay, pendingPrompt, executionMode, unsafeFull, turnId, conversationId, resumeSessionId);
+    }, 100);
+    return () => { clearTimeout(timer); pendingPromptConsumedRef.current = false; };
+  }, [pendingPrompt]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !project) return;
-    const conversationId = generateId('conv');
+    const isNewConversation = !activeConversationRef.current;
+    const conversationId = activeConversationRef.current?.conversationId ?? generateId('conv');
+    const resumeSessionId = activeConversationRef.current?.agentSessionId
+      ?? activeConversationRef.current?.autohandSessionId
+      ?? undefined;
+    const turnId = generateId('turn');
+
+    if (isNewConversation) {
+      activeConversationRef.current = { conversationId };
+    }
     
     // If plan mode is enabled, use CLAUDE/GEMINI permission-mode=plan instead of local planner
     const defaultDisplay = selectedAgent || configuredDefaultAgentDisplay
@@ -558,26 +655,18 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     
     // Regular message handling (existing logic)
     // Parse command from input (e.g., "/claude help" -> agent="claude", message="help")
-    let agentToUse = selectedAgent || configuredDefaultAgentDisplay;
+    let agentToUse = effectiveTargetAgentDisplay;
     let messageToSend = inputValue;
     
     // Check if input starts with a command
     if (inputValue.startsWith('/')) {
       const parts = inputValue.split(' ');
-      const command = parts[0].slice(1); // Remove the '/'
       const args = parts.slice(1).join(' ');
       
       // Map command to agent
-      if (['autohand', 'claude', 'codex', 'gemini', 'ollama', 'test'].includes(command)) {
-        const commandToAgent: Record<string, string> = {
-          'autohand': 'Autohand Code',
-          'claude': 'Claude Code CLI',
-          'codex': 'Codex',
-          'gemini': 'Gemini',
-          'ollama': 'Ollama',
-          'test': 'Test CLI',
-        };
-        agentToUse = commandToAgent[command as keyof typeof commandToAgent];
+      const commandTarget = getCommandTargetAgentDisplay(inputValue)
+      if (commandTarget) {
+        agentToUse = commandTarget;
         messageToSend = args || 'help'; // Default to 'help' if no args provided
       }
     }
@@ -608,36 +697,23 @@ export function ChatInterface({ isOpen, selectedAgent, project }: ChatInterfaceP
     setShowAutocomplete(false);
     setCommandType(null);
     
-    const permissionMode = planModeEnabled ? 'plan' : 'acceptEdits'
-    let approvalMode: 'default' | 'auto_edit' | 'yolo' | undefined
+    // For Claude with plan mode toggle ON, override the dropdown to 'plan'
+    const modeValue = (targetId === 'claude' && planModeEnabled) ? 'plan' : executionMode
 
-    if (targetId === 'gemini') {
-      try {
-        const cliSettings = await invoke<any>('load_agent_cli_settings', { agent: 'gemini', projectPath: project.path })
-        const directDefault = cliSettings?.approvalDefault || cliSettings?.approval_default
-        if (typeof directDefault === 'string') {
-          const normalized = directDefault.replace('-', '_') as 'default' | 'auto_edit' | 'yolo'
-          approvalMode = normalized
-        } else if (agentSettings?.gemini?.auto_approval) {
-          approvalMode = 'auto_edit'
-        }
-      } catch (error) {
-        console.error('Failed to load Gemini CLI settings:', error)
-        if (agentSettings?.gemini?.auto_approval) {
-          approvalMode = 'auto_edit'
-        }
-      }
-    }
-
-    await execute(
+    const returnedTurnId = await execute(
       agentToUse || configuredDefaultAgentDisplay,
       messageToSend,
-      executionMode,
+      modeValue,
       unsafeFull,
-      permissionMode as any,
-      approvalMode,
-      conversationId
+      turnId,
+      conversationId,
+      resumeSessionId,
     )
+
+    // Store autohand session id for future resume
+    if (targetId === 'autohand' && activeConversationRef.current && returnedTurnId) {
+      activeConversationRef.current.autohandSessionId = returnedTurnId;
+    }
   };
 
   // Handle plan execution
@@ -676,21 +752,21 @@ Please execute each step systematically.`;
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
         return;
       }
+      const planModeValue = (targetId2 === 'claude' && planModeEnabled) ? 'plan' : executionMode
       await execute(
         finalAgent,
         planPrompt,
-        executionMode,
+        planModeValue,
         unsafeFull,
-        planModeEnabled ? 'plan' : 'acceptEdits',
-        undefined,
-        conversationId
+        generateId('turn'),
+        conversationId,
       )
     } catch (error) {
       console.error('Failed to execute plan:', error);
     }
   };
 
-  // Handle individual step execution  
+  // Handle individual step execution
   const handleExecuteStep = async (stepId: string) => {
     if (!currentPlan || !project) return;
 
@@ -732,14 +808,14 @@ Please focus only on this step.`;
         showError(`${finalAgent} is disabled in Settings`, 'Agent disabled');
         return;
       }
+      const stepModeValue = (targetId3 === 'claude' && planModeEnabled) ? 'plan' : executionMode
       await execute(
         finalAgent,
         stepPrompt,
-        executionMode,
+        stepModeValue,
         unsafeFull,
-        planModeEnabled ? 'plan' : 'acceptEdits',
-        undefined,
-        conversationId
+        generateId('turn'),
+        conversationId,
       )
       // Mark step as completed after successful execution
       safeTimeout(() => {
@@ -880,6 +956,13 @@ Please focus only on this step.`;
             parsers.set(chunk.session_id, parser)
           }
           const delta = parser.feed(chunk.content)
+
+          // Capture Claude's native session_id for --resume on follow-up turns
+          const nativeId = parser.getSessionId()
+          if (nativeId && activeConversationRef.current && !activeConversationRef.current.agentSessionId) {
+            activeConversationRef.current.agentSessionId = nativeId
+          }
+
           const content = delta ? msg.content + delta : msg.content
           return {
             ...msg,
@@ -978,7 +1061,7 @@ Please focus only on this step.`;
     previousMessagesRef.current = messages;
   }, [messages, executingSessions.size]);
 
-  // Load initial session status and set up periodic refresh
+  // Load initial session status, restore executing sessions, and set up periodic refresh
   useEffect(() => {
     // Load workspace preference from backend (defaults to true)
     invoke<boolean>('get_git_worktree_preference').then((pref) => {
@@ -986,12 +1069,32 @@ Please focus only on this step.`;
     }).catch(() => {
       setWorkspaceEnabled(true)
     })
-    loadSessionStatus();
-    
+
+    // Restore executing sessions from backend — fixes spinner loss on project switch
+    const restoreExecutingSessions = async () => {
+      const status = await loadSessionStatus();
+      if (!status || !normalizedProjectPath) return
+
+      const projectSessions = status.active_sessions.filter((s) => {
+        if (!s.working_dir || !s.is_active) return false
+        const sessionDir = normalizeProjectPath(s.working_dir)
+        return sessionDir === normalizedProjectPath
+      })
+
+      if (projectSessions.length > 0) {
+        setExecutingSessions((prev) => {
+          const merged = new Set(prev)
+          for (const s of projectSessions) merged.add(s.id)
+          return merged.size !== prev.size ? merged : prev
+        })
+      }
+    }
+    restoreExecutingSessions();
+
     const interval = setInterval(loadSessionStatus, 10000); // Refresh every 10 seconds
-    
+
     return () => clearInterval(interval);
-  }, [loadSessionStatus]);
+  }, [loadSessionStatus, normalizedProjectPath]);
 
   // Load session status and agent settings when chat opens
   useEffect(() => {
@@ -1048,19 +1151,30 @@ Please focus only on this step.`;
   const historyWarningThreshold = Math.max(1, historyLimit - 2);
   const showCompactPrompt = messages.length >= historyWarningThreshold;
 
+  const handleFocus = useCallback(() => setIsInputFocused(true), []);
+  const handleBlur = useCallback(() => setIsInputFocused(false), []);
+  const handleClear = useCallback(() => {
+    setInputValue('');
+    setShowAutocomplete(false);
+  }, []);
+  const handleToggleSessionPanel = useCallback(
+    () => setShowSessionPanel(prev => !prev),
+    []
+  );
+
   return (
     <div className="relative flex flex-col flex-1 h-full min-h-0 overflow-hidden" data-testid="chat-root">
             <SessionStatusHeader
         sessionStatus={sessionStatus as any}
         showSessionPanel={showSessionPanel}
-        onTogglePanel={() => setShowSessionPanel(!showSessionPanel)}
+        onTogglePanel={handleToggleSessionPanel}
       />
 
       {sessionStatus && sessionStatus.total_sessions > 0 && (
         <div className="border-b bg-muted/30 px-6 py-2">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Activity className="h-4 w-4 text-green-500" />
+              <Activity className="h-4 w-4 text-[hsl(var(--success))]" />
               <span className="text-sm font-medium">
                 {sessionStatus.total_sessions} Active Session{sessionStatus.total_sessions !== 1 ? 's' : ''}
               </span>
@@ -1085,7 +1199,7 @@ Please focus only on this step.`;
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowSessionPanel(!showSessionPanel)}
+                onClick={handleToggleSessionPanel}
                 className="h-6 px-2 text-xs"
               >
                 {showSessionPanel ? 'Hide' : 'Manage'} Sessions
@@ -1126,13 +1240,21 @@ Please focus only on this step.`;
       )}
 
       {/* Messages area: only this region scrolls; input stays visible as footer */}
-      <div className="relative flex-1 min-h-0" data-testid="chat-scroll-wrapper">
-        <ScrollArea data-state="visible" data-testid="chat-scrollarea" className="h-full p-6 min-h-0">
+      <ScrollArea className="relative flex-1 min-h-0" data-testid="chat-scroll-wrapper">
+        <div className="p-6">
           <div className="max-w-4xl mx-auto pb-6">
-              {/* New Session control moved into ChatInput */}
-              
               <div className="space-y-4">
-              {messages.length === 0 ? (
+              {!isHydrated ? (
+                <div className="flex flex-col items-center justify-center mt-24 gap-4" data-testid="chat-loading">
+                  <div className="relative size-10">
+                    <svg className="animate-spin size-10" viewBox="0 0 40 40" fill="none">
+                      <circle cx="20" cy="20" r="16" strokeWidth="3" stroke="hsl(var(--muted))" />
+                      <circle cx="20" cy="20" r="16" strokeWidth="3" stroke="hsl(var(--primary))" strokeDasharray="60 40" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-muted-foreground animate-pulse">Loading conversation...</p>
+                </div>
+              ) : messages.length === 0 ? (
                 <div className="text-center text-muted-foreground mt-20">
                   <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <h3 className="text-lg font-semibold mb-2">Start a conversation</h3>
@@ -1147,7 +1269,11 @@ Please focus only on this step.`;
                   </div>
                 </div>
               ) : (
-                <>
+                <ErrorBoundary
+                  onError={(error, errorInfo) => {
+                    console.error('Chat messages render error:', error, errorInfo)
+                  }}
+                >
                   <MessagesList
                     messages={messages as any}
                     expandedMessages={expandedMessages}
@@ -1157,16 +1283,28 @@ Please focus only on this step.`;
                     onExecuteStep={handleExecuteStep}
                   />
                   <div ref={messagesEndRef} />
-                </>
+                </ErrorBoundary>
               )}
               </div>
           </div>
-        </ScrollArea>
-      </div>
+        </div>
+      </ScrollArea>
 
       {/* Chat Input Area - fixed in layout flow (no overlay on messages) */}
-      <div className="shrink-0 border-t bg-background p-4" data-testid="chat-input-area">
+      <div className="shrink-0 border-t bg-background p-4 pb-8" data-testid="chat-input-area">
         <div className="max-w-4xl mx-auto">
+          <ChatControlsBar
+            executionModeOptions={agentModeConfig?.modes}
+            executionMode={executionMode}
+            onExecutionModeChange={setExecutionMode}
+            showDangerousToggle={agentModeConfig?.showDangerousToggle}
+            unsafeFull={unsafeFull}
+            onUnsafeFullChange={setUnsafeFull}
+            planModeEnabled={planModeEnabled}
+            onPlanModeChange={setPlanModeEnabled}
+            workspaceEnabled={workspaceEnabled}
+            onWorkspaceEnabledChange={setWorkspaceEnabled}
+          />
           <ChatInput
             inputRef={inputRef}
             autocompleteRef={autocompleteRef}
@@ -1175,18 +1313,15 @@ Please focus only on this step.`;
             onInputChange={handleInputChange}
             onInputSelect={handleInputSelect}
             onKeyDown={handleKeyDown}
-            onFocus={() => setIsInputFocused(true)}
-            onBlur={() => setIsInputFocused(false)}
-            onClear={() => { setInputValue(''); setShowAutocomplete(false); }}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onClear={handleClear}
             onSend={handleSendMessage}
             showAutocomplete={showAutocomplete}
             autocompleteOptions={autocompleteOptions as unknown as ChatAutocompleteOption[]}
             selectedOptionIndex={selectedOptionIndex}
             onSelectOption={handleAutocompleteSelect}
             planModeEnabled={planModeEnabled}
-            onPlanModeChange={setPlanModeEnabled}
-            workspaceEnabled={workspaceEnabled}
-            onWorkspaceEnabledChange={setWorkspaceEnabled}
             projectName={project?.name}
             selectedAgent={selectedAgent}
             getAgentModel={getAgentModel}
@@ -1195,10 +1330,6 @@ Please focus only on this step.`;
             defaultAgentLabel={configuredDefaultAgentDisplay}
             onNewSession={handleNewSession}
             showNewSession={messages.length > 0}
-            executionMode={executionMode}
-            onExecutionModeChange={setExecutionMode}
-            unsafeFull={unsafeFull}
-            onUnsafeFullChange={setUnsafeFull}
           />
         </div>
       </div>
