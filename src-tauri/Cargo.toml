@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "test"] }
+tauri = { version = "2", features = ["macos-private-api", "test", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-http = "2"
 tauri-plugin-shell = "2"
@@ -40,6 +40,8 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.10"
 async-trait = "0.1"
 semver = "1"
+futures = "0.3.32"
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
