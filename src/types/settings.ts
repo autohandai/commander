@@ -7,7 +7,7 @@
 // Core Settings Types
 // ============================
 
-export type SettingsTab = 'general' | 'code' | 'git' | 'chat' | 'prompts' | 'agents' | 'llms' | 'shortcuts' | 'subagents' | 'autohand';
+export type SettingsTab = 'general' | 'appearance' | 'code' | 'git' | 'chat' | 'prompts' | 'agents' | 'llms' | 'shortcuts' | 'subagents' | 'autohand' | 'docs';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -31,6 +31,14 @@ export interface AppSettings {
   // Maximum number of chat messages retained per session
   max_chat_history?: number;
   code_settings?: { theme: string; font_size: number; auto_collapse_sidebar?: boolean; show_file_explorer?: boolean };
+  dashboard_time_range?: number;
+  time_saved_multiplier?: number;
+  show_dashboard_activity?: boolean;
+  dashboard_color_palette?: string;
+  dashboard_chart_type?: 'scatter' | 'knowledge-base';
+  show_onboarding_on_start?: boolean;
+  docs_auto_sync?: boolean;
+  chat_history_style?: 'palette' | 'sidebar' | 'strip';
 }
 
 // ============================
@@ -63,19 +71,20 @@ export interface AllAgentSettings {
   claude?: AgentConfig;
   codex?: AgentConfig;
   gemini?: AgentConfig;
+  autohand?: AgentConfig;
+  ollama?: AgentConfig;
+  custom_agents?: import('@/components/settings/agent-registry').CustomAgentDefinition[];
 }
 
 export interface BasicAgentSettings {
-  claude: boolean;
-  codex: boolean;
-  gemini: boolean;
+  [agentId: string]: boolean;
 }
 
 // Type for Record<string, boolean> used in the main modal
 export type AgentSettingsRecord = Record<string, boolean>
 
 export interface AgentInfo {
-  id: 'claude' | 'codex' | 'gemini';
+  id: string;
   name: string;
   description: string;
 }
@@ -153,8 +162,6 @@ export interface GeneralSettingsProps {
   tempShowConsoleOutput: boolean;
   systemPrompt?: string;
   saving: boolean;
-  // UI theme state (temporary for unsaved changes)
-  tempUiTheme?: string;
   // Welcome screen recent projects toggle (temporary for unsaved changes)
   tempShowWelcomeRecentProjects?: boolean;
   // Suggest AGENTS.md creation when missing (temporary for unsaved changes)
@@ -164,12 +171,39 @@ export interface GeneralSettingsProps {
   onConsoleOutputChange: (enabled: boolean) => void;
   onSystemPromptChange: (prompt: string) => void;
   onClearRecentProjects: () => Promise<void>;
-  // Theme change handler
-  onUiThemeChange?: (theme: string) => void;
   // Welcome screen toggle change handler
   onShowWelcomeRecentProjectsChange?: (enabled: boolean) => void;
   // Suggest creation toggle change handler
   onSuggestCreateAgentsMdChange?: (enabled: boolean) => void;
+  // Show onboarding on every app start
+  tempShowOnboardingOnStart?: boolean;
+  onShowOnboardingOnStartChange?: (enabled: boolean) => void;
+  maxConcurrentSessions?: number;
+  onMaxConcurrentSessionsChange?: (value: number) => void;
+}
+
+export interface AppearanceSettingsProps {
+  // UI theme
+  tempUiTheme?: string;
+  onUiThemeChange?: (theme: string) => void;
+  // Dashboard color palette
+  tempDashboardColorPalette?: string;
+  onDashboardColorPaletteChange?: (palette: string) => void;
+  // Dashboard activity visibility
+  tempShowDashboardActivity?: boolean;
+  onShowDashboardActivityChange?: (enabled: boolean) => void;
+  // Dashboard chart type
+  tempDashboardChartType?: 'scatter' | 'knowledge-base';
+  onDashboardChartTypeChange?: (type: 'scatter' | 'knowledge-base') => void;
+  // Code viewer theme
+  tempCodeTheme?: string;
+  onCodeThemeChange?: (theme: string) => void;
+  // Code viewer font size
+  tempCodeFontSize?: number;
+  onCodeFontSizeChange?: (size: number) => void;
+  // Chat history style
+  tempChatHistoryStyle?: 'palette' | 'sidebar' | 'strip';
+  onChatHistoryStyleChange?: (style: 'palette' | 'sidebar' | 'strip') => void;
 }
 
 export interface GitSettingsProps {
@@ -205,6 +239,15 @@ export interface AgentSettingsProps {
   onToggleAgent: (agentId: string, enabled: boolean) => void;
   onUpdateAgentSetting: (agentId: string, key: string, value: any) => void;
   onFetchAgentModels: (agentId: string) => Promise<void>;
+  onCreateCustomAgent: (agent: import('@/components/settings/agent-registry').CustomAgentDefinition) => void;
+  onUpdateCustomAgent: (
+    agentId: string,
+    updater:
+      | Partial<import('@/components/settings/agent-registry').CustomAgentDefinition>
+      | ((agent: import('@/components/settings/agent-registry').CustomAgentDefinition) => import('@/components/settings/agent-registry').CustomAgentDefinition)
+  ) => void;
+  onDeleteCustomAgent: (agentId: string) => void;
+  workingDir?: string | null;
 }
 
 export interface LLMSettingsProps {
@@ -225,4 +268,3 @@ export interface LLMSettingsProps {
   onTempApiKeyChange: (providerId: string, key: string) => void;
   onUpdateSystemPrompt: (prompt: string) => void;
 }
-
