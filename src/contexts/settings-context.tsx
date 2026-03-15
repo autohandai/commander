@@ -1,10 +1,11 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useLayoutEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { applyDashboardPalette } from '@/lib/dashboard-palettes';
 
-type DefaultCliAgent = 'claude' | 'codex' | 'gemini' | 'ollama';
+type DefaultCliAgent = 'autohand' | 'claude' | 'codex' | 'gemini';
 
 const FALLBACK_AGENT: DefaultCliAgent = 'claude';
-const allowedDefaultAgents: DefaultCliAgent[] = ['claude', 'codex', 'gemini', 'ollama'];
+const allowedDefaultAgents: DefaultCliAgent[] = ['autohand', 'claude', 'codex', 'gemini'];
 
 function normalizeDefaultAgent(value?: string | null): DefaultCliAgent {
   if (!value) return FALLBACK_AGENT;
@@ -31,6 +32,14 @@ interface AppSettings {
   default_cli_agent?: DefaultCliAgent;
   suggest_create_agents_md?: boolean;
   has_completed_onboarding?: boolean;
+  show_onboarding_on_start?: boolean;
+  dashboard_time_range?: number;
+  time_saved_multiplier?: number;
+  show_dashboard_activity?: boolean;
+  dashboard_color_palette?: string;
+  dashboard_chart_type?: 'scatter' | 'knowledge-base';
+  docs_auto_sync?: boolean;
+  chat_history_style?: 'palette' | 'sidebar' | 'strip';
 }
 
 interface SettingsContextType {
@@ -45,7 +54,7 @@ const defaultSettings: AppSettings = {
   projects_folder: '',
   file_mentions_enabled: true,
   chat_send_shortcut: 'mod+enter',
-  show_welcome_recent_projects: true,
+  show_welcome_recent_projects: false,
   max_chat_history: 15,
   code_settings: {
     theme: 'github',
@@ -56,6 +65,11 @@ const defaultSettings: AppSettings = {
   default_cli_agent: FALLBACK_AGENT,
   suggest_create_agents_md: true,
   has_completed_onboarding: false,
+  show_onboarding_on_start: false,
+  dashboard_color_palette: 'default',
+  dashboard_chart_type: 'scatter',
+  docs_auto_sync: false,
+  chat_history_style: 'palette',
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -156,6 +170,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       invoke('set_window_theme', { theme: t }).catch(() => {});
     }).catch(() => {});
   }, [settings.ui_theme]);
+
+  // Apply dashboard color palette before dependent chart effects read CSS vars.
+  // Re-apply when either the palette OR theme changes so light-mode overrides take effect.
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const paletteKey = settings.dashboard_color_palette || 'default';
+    const themeMode = (settings.ui_theme || 'auto') as 'light' | 'dark' | 'auto';
+    applyDashboardPalette(paletteKey, themeMode);
+
+    // When theme is 'auto', listen for OS color-scheme changes and re-apply.
+    if (themeMode === 'auto') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyDashboardPalette(paletteKey, 'auto');
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    }
+  }, [settings.dashboard_color_palette, settings.ui_theme]);
 
   return (
     <SettingsContext.Provider 

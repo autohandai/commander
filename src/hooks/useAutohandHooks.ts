@@ -1,27 +1,28 @@
 import { useState, useCallback, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import {
+  parseAutohandHooks,
+  validateAutohandHook,
+  type HookDefinition as SchemaHookDefinition,
+} from '@/lib/autohand-config-schema'
 
-export interface HookDefinition {
-  id: string
-  event: string
-  command: string
-  pattern?: string
-  enabled: boolean
-  description?: string
-}
+export type HookDefinition = SchemaHookDefinition
 
 export function useAutohandHooks(workingDir: string | null) {
   const [hooks, setHooks] = useState<HookDefinition[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const loadHooks = useCallback(async () => {
     if (!workingDir) return
     setLoading(true)
     try {
-      const result = await invoke<HookDefinition[]>('get_autohand_hooks', { workingDir })
-      setHooks(result)
+      const result = await invoke<unknown[]>('get_autohand_hooks', { workingDir })
+      setHooks(parseAutohandHooks(result))
+      setError(null)
     } catch {
       setHooks([])
+      setError('Failed to load hooks.')
     } finally {
       setLoading(false)
     }
@@ -30,7 +31,13 @@ export function useAutohandHooks(workingDir: string | null) {
   const saveHook = useCallback(
     async (hook: HookDefinition) => {
       if (!workingDir) return
-      await invoke('save_autohand_hook', { workingDir, hook })
+      const validation = validateAutohandHook(hook)
+      if (!validation.success) {
+        setError(`Invalid hook configuration: ${validation.error}`)
+        return
+      }
+      await invoke('save_autohand_hook', { workingDir, hook: validation.data })
+      setError(null)
       await loadHooks()
     },
     [workingDir, loadHooks]
@@ -40,6 +47,7 @@ export function useAutohandHooks(workingDir: string | null) {
     async (hookId: string) => {
       if (!workingDir) return
       await invoke('delete_autohand_hook', { workingDir, hookId })
+      setError(null)
       await loadHooks()
     },
     [workingDir, loadHooks]
@@ -49,6 +57,7 @@ export function useAutohandHooks(workingDir: string | null) {
     async (hookId: string, enabled: boolean) => {
       if (!workingDir) return
       await invoke('toggle_autohand_hook', { workingDir, hookId, enabled })
+      setError(null)
       await loadHooks()
     },
     [workingDir, loadHooks]
@@ -58,5 +67,5 @@ export function useAutohandHooks(workingDir: string | null) {
     loadHooks()
   }, [loadHooks])
 
-  return { hooks, loading, loadHooks, saveHook, deleteHook, toggleHook }
+  return { hooks, loading, error, loadHooks, saveHook, deleteHook, toggleHook }
 }

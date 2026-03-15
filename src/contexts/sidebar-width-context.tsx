@@ -11,9 +11,9 @@ interface SidebarWidthContextType {
 const SidebarWidthContext = createContext<SidebarWidthContextType | null>(null);
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
-const DEFAULT_SIDEBAR_WIDTH = 256; // 16rem = 256px
-const MIN_SIDEBAR_WIDTH = 200;
-const MAX_SIDEBAR_WIDTH = 400;
+const DEFAULT_SIDEBAR_WIDTH = 300; // wider default
+const MIN_SIDEBAR_WIDTH = 240;
+const MAX_SIDEBAR_WIDTH = 480;
 
 interface SidebarWidthProviderProps {
   children: React.ReactNode;
