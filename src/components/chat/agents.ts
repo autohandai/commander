@@ -1,4 +1,4 @@
-import { Bot, Code, Brain } from 'lucide-react'
+import { Bot, Code, Brain, Terminal } from 'lucide-react'
 
 export interface Agent {
   id: string
@@ -45,7 +45,7 @@ export const AGENTS: Agent[] = [
     name: 'autohand',
     displayName: 'Autohand Code',
     icon: Bot,
-    description: 'Autonomous coding agent with hooks, tools, and multi-provider support',
+    description: 'Autonomous coding agent with hooks, tools, and multi-provider support (ACP/RPC)',
   },
   {
     id: 'claude',
@@ -90,6 +90,8 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
     { id: 'hooks', name: 'Lifecycle Hooks', description: 'Pre/post tool hooks for automation workflows', category: 'Automation' },
     { id: 'multiprovider', name: 'Multi-Provider', description: 'Supports Claude, GPT-4, Gemini, Ollama, and more via OpenRouter', category: 'Configuration' },
     { id: 'skills', name: 'Skills System', description: 'Modular instruction packages for specialized tasks', category: 'Extensibility' },
+    { id: 'protocol', name: 'Protocol Support', description: 'Communicates via ACP/RPC protocols', category: 'Protocol' },
+    { id: 'orchestration', name: 'Agent Orchestration', description: 'Coordinates multiple AI agents', category: 'Orchestration' },
   ],
   claude: [
     { id: 'analysis', name: 'Code Analysis', description: 'Deep code analysis and review', category: 'Analysis' },

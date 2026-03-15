@@ -1,13 +1,14 @@
-use crate::commands::session_commands::{send_quit_command_to_session, terminate_session};
+use crate::commands::cli_commands::{terminate_session_by_id};
+use crate::commands::session_commands::send_quit_command_to_session;
 
 #[tokio::test]
 async fn terminate_session_accepts_session_id_and_succeeds_when_missing() {
-    // This ensures the command parameter is correctly named `session_id` and
-    // that calling it with a non-existent session does not error (current design).
-    let res = terminate_session("nonexistent-session".to_string()).await;
+    // Test the underlying function directly (the Tauri command wrapper adds
+    // SessionManager state that can't be constructed outside Tauri runtime).
+    let res = terminate_session_by_id("nonexistent-session").await;
     assert!(
         res.is_ok(),
-        "terminate_session should succeed even if session is missing"
+        "terminate_session_by_id should succeed even if session is missing"
     );
 }
 

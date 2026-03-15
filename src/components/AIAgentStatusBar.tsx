@@ -16,6 +16,9 @@ interface AIAgent {
   installed_version?: string | null;
   latest_version?: string | null;
   upgrade_available?: boolean;
+  protocol?: 'acp' | 'rpc' | null;
+  is_default?: boolean;
+  removable?: boolean;
 }
 
 interface AgentStatus {
@@ -153,7 +156,12 @@ export function AIAgentStatusBar({ onChatToggle, showChatButton }: AIAgentStatus
               <span className={`text-foreground ${!agent.enabled ? 'opacity-60' : ''}`}>
                 {agent.display_name}
               </span>
-              
+              {agent.protocol && (
+                <span className="text-[9px] font-mono uppercase text-zinc-500 ml-0.5">
+                  {agent.protocol}
+                </span>
+              )}
+
               {/* Tooltip on hover */}
               <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-popover text-popover-foreground border border-border text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
                 {getTooltipMessage(agent)}
@@ -241,6 +249,9 @@ function AgentVersionCard({ agent, onClose }: AgentVersionCardProps) {
               <span className="text-foreground">Latest: <strong>{agent.latest_version}</strong></span>
             )}
           </>
+        )}
+        {agent.protocol && (
+          <span className="text-foreground">Protocol: <strong className="uppercase">{agent.protocol}</strong></span>
         )}
         {!agent.available && !isCustom && (
           <span className="text-destructive">Agent not detected on PATH.</span>

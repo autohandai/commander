@@ -1,4 +1,5 @@
 // Service-specific tests
+pub mod acp_executor_tests;
 pub mod agent_status_service;
 pub mod agent_registry;
 pub mod auth_service;
@@ -9,9 +10,13 @@ pub mod cli_command_builder;
 pub mod cli_output_service;
 pub mod codex_sdk_service;
 pub mod execution_mode_service;
+pub mod executor_tests;
 pub mod file_service;
+pub mod pty_executor_tests;
+pub mod rpc_executor_tests;
 pub mod git_service_enhanced;
 pub mod hooks_service;
 pub mod prompt_service;
 pub mod recent_projects;
 pub mod project_sidebar_actions;
+pub mod session_manager_tests;

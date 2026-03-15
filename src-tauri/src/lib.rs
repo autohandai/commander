@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
+use tokio::sync::Mutex as TokioMutex;
 
 // Import all modules
 mod commands;
@@ -376,9 +377,14 @@ pub fn run() {
             search_autohand_docs,
             get_autohand_doc,
             get_autohand_docs_status,
-            clear_autohand_docs_cache
+            clear_autohand_docs_cache,
+            respond_permission
         ])
         .setup(|app| {
+            // Register protocol-aware session manager and protocol cache as managed state
+            app.manage(Arc::new(TokioMutex::new(crate::services::session_manager::SessionManager::new())));
+            app.manage(Arc::new(TokioMutex::new(crate::services::agent_status_service::ProtocolCache::new())));
+
             // Handle command line arguments for opening projects
             let args: Vec<String> = std::env::args().collect();
             println!("🔍 Command line args received: {:?}", args);

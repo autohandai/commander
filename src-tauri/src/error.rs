@@ -78,6 +78,13 @@ pub enum CommanderError {
         operation: String,
         message: String,
     },
+
+    /// Protocol communication errors (ACP / RPC)
+    Protocol {
+        kind: String,
+        code: Option<i32>,
+        message: String,
+    },
 }
 
 impl CommanderError {
@@ -225,6 +232,19 @@ impl CommanderError {
         }
     }
 
+    /// Create a Protocol error
+    pub fn protocol(
+        kind: impl Into<String>,
+        code: Option<i32>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::Protocol {
+            kind: kind.into(),
+            code,
+            message: message.into(),
+        }
+    }
+
     /// Get user-friendly error message
     pub fn user_message(&self) -> String {
         match self {
@@ -323,6 +343,10 @@ impl CommanderError {
             CommanderError::Autohand { operation, message } => {
                 format!("Autohand {}: {}", operation, message)
             }
+            CommanderError::Protocol { kind, code, message } => match code {
+                Some(c) => format!("Protocol error '{}' (code {}): {}", kind, c, message),
+                None => format!("Protocol error '{}': {}", kind, message),
+            },
         }
     }
 

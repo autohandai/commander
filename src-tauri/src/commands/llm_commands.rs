@@ -358,8 +358,8 @@ pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, Strin
         .map(|s| s.custom_agents)
         .unwrap_or_default();
 
-    AgentStatusService::new()
-        .check_agents_with_custom(&enabled_agents, &custom_agents)
+    let mut service = AgentStatusService::new();
+    service.check_agents_with_custom(&enabled_agents, &custom_agents)
         .await
 }
 

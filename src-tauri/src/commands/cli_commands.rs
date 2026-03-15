@@ -13,12 +13,18 @@ use tokio::sync::Mutex;
 
 use crate::commands::settings_commands::load_all_agent_settings;
 use crate::models::*;
+use crate::models::protocol::{ProtocolEvent, SessionEventKind};
 use crate::services::cli_command_builder::build_codex_command_args;
 use crate::services::cli_output_service::{sanitize_cli_output_line, CodexStreamAccumulator};
 use crate::services::codex_sdk_service::{build_codex_thread_prefs, CodexThreadPreferences};
 use crate::services::execution_mode_service::ExecutionMode;
+use crate::services::executors::{AgentExecutor, ExecutorFactory};
+use crate::services::executors::pty_executor::PtyExecutor;
+use crate::services::session_manager::{SessionManager, ActiveSession as ManagedSession, PermissionResponse};
+use crate::services::agent_status_service::ProtocolCache;
 use serde::{Deserialize, Serialize};
 use std::process::Command as StdCommand;
+use tokio::sync::Mutex as TokioMutex;
 
 const CODEX_SDK_RUNNER_SOURCE: &str = include_str!("../../../scripts/codex-sdk-runner.mjs");
 const CODEX_SDK_CORE_SOURCE: &str = include_str!("../../../scripts/codex-sdk-core.mjs");
@@ -83,7 +89,24 @@ impl Drop for ActiveSession {
     }
 }
 
-async fn build_agent_command_args(
+// Session management helper functions
+fn generate_session_key(agent: &str, working_dir: &Option<String>) -> String {
+    match working_dir {
+        Some(dir) => format!("{}:{}", agent, dir),
+        None => agent.to_string(),
+    }
+}
+
+fn get_agent_quit_command(agent: &str) -> &str {
+    match agent {
+        "claude" => "/quit",
+        "codex" => "/exit",
+        "gemini" => "/quit",
+        _ => "/quit",
+    }
+}
+
+pub(crate) async fn build_agent_command_args(
     agent: &str,
     message: &str,
     app_handle: &tauri::AppHandle,
@@ -160,7 +183,7 @@ async fn build_agent_command_args(
     args
 }
 
-fn build_claude_cli_args(
+pub(crate) fn build_claude_cli_args(
     message: &str,
     permission_mode: Option<&str>,
     settings: &AgentSettings,
@@ -392,14 +415,14 @@ async fn cleanup_inactive_sessions() -> Result<(), String> {
 }
 
 // Check if a command is available in the system
-async fn check_command_available(command: &str) -> bool {
+pub(crate) async fn check_command_available(command: &str) -> bool {
     // Prefer Rust which crate for reliability in GUI app contexts (PATH differences)
     which::which(command).is_ok()
 }
 
 // Try to spawn the command inside a PTY to get unbuffered, real-time output.
 // Falls back to stdio pipes in the caller if PTY spawn fails.
-async fn try_spawn_with_pty(
+pub(crate) async fn try_spawn_with_pty(
     app: tauri::AppHandle,
     session_id: String,
     agent: &str,
@@ -759,6 +782,8 @@ pub async fn execute_persistent_cli_command(
     #[allow(non_snake_case)] dangerousBypass: Option<bool>,
     #[allow(non_snake_case)] permissionMode: Option<String>,
     #[allow(non_snake_case)] resumeSessionId: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     // Normalize working_dir: treat empty/whitespace strings as None,
     // then fall back to the process CWD (set when a project is opened).
@@ -794,6 +819,9 @@ pub async fn execute_persistent_cli_command(
     let app_clone = app.clone();
     let session_id_clone = session_id.clone();
     let session_id_for_cleanup = session_id.clone();
+    let _current_time = chrono::Utc::now().timestamp();
+    let sm = Arc::clone(&*session_manager);
+    let protocol_cache_arc = Arc::clone(&*protocol_cache);
 
     tokio::spawn(async move {
         // Ensure session is removed from SESSIONS when the task ends (any exit path)
@@ -888,267 +916,171 @@ pub async fn execute_persistent_cli_command(
             return;
         }
 
-        // Build args once
-        let command_args = build_agent_command_args(
+        // Load agent settings
+        let wd = working_dir.as_deref().unwrap_or("");
+        let settings = crate::commands::settings_commands::load_all_agent_settings(app_clone.clone())
+            .await
+            .unwrap_or_else(|_| AllAgentSettings::default());
+        let agent_settings = match agent_name.as_str() {
+            "claude" => settings.claude.clone(),
+            "codex" => settings.codex.clone(),
+            "gemini" => settings.gemini.clone(),
+            _ => AgentSettings::default(),
+        };
+
+        // Create executor using factory (protocol-aware)
+        let cache = protocol_cache_arc.lock().await;
+        let mut executor = ExecutorFactory::create(&agent_name, &cache);
+        drop(cache);
+
+        let is_protocol = executor.protocol().is_some();
+
+        // Register session in SessionManager with channels
+        let (perm_tx, mut perm_rx) = tokio::sync::mpsc::unbounded_channel::<PermissionResponse>();
+        let (abort_tx, mut abort_rx) = tokio::sync::oneshot::channel::<()>();
+
+        {
+            let mut mgr = sm.lock().await;
+            mgr.insert(ManagedSession {
+                session_id: session_id_clone.clone(),
+                agent: agent_name.clone(),
+                protocol: executor.protocol(),
+                agent_session_id: None,
+                permission_sender: perm_tx,
+                abort_sender: Some(abort_tx),
+                started_at: std::time::Instant::now(),
+            });
+        }
+
+        // Also register in legacy SESSIONS map so get_active_sessions/terminate see it
+        {
+            let cli_session = CLISession {
+                id: session_id_clone.clone(),
+                agent: agent_name.clone(),
+                command: actual_message.clone(),
+                working_dir: working_dir.clone(),
+                is_active: true,
+                created_at: chrono::Utc::now().timestamp(),
+                last_activity: chrono::Utc::now().timestamp(),
+            };
+            let mut sessions = SESSIONS.lock().await;
+            sessions.insert(session_id_clone.clone(), ActiveSession {
+                session: cli_session,
+                process: Arc::new(Mutex::new(None)),
+            });
+        }
+
+        // Execute the chosen executor
+        let result = executor.execute(
+            &app_clone,
+            &session_id_clone,
             &agent_name,
             &actual_message,
-            &app_clone,
-            executionMode.clone(),
-            dangerous_bypass,
-            permissionMode.clone(),
-            resumeSessionId.clone(),
-        )
-        .await;
+            wd,
+            &agent_settings,
+            resumeSessionId.as_deref(),
+        ).await;
 
-        // Resolve absolute path of the executable to avoid PATH issues in GUI contexts
-        let resolved_prog = which::which(&agent_name)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or(agent_name.clone());
-
-        // Prefer PTY for richer streaming – Codex in particular emits carriage-return updates that
-        // disappear when spawned via plain pipes. `try_spawn_with_pty` respects the working
-        // directory, so we can safely attempt it regardless of `working_dir`.
-        let prefer_pty = working_dir.is_none()
-            || agent_name.eq_ignore_ascii_case("codex")
-            || agent_name.eq_ignore_ascii_case("claude")
-            || agent_name.eq_ignore_ascii_case("gemini");
-
-        if prefer_pty {
-            if let Err(e) = try_spawn_with_pty(
-                app_clone.clone(),
-                session_id_clone.clone(),
-                &agent_name,
-                &resolved_prog,
-                &command_args,
-                working_dir.clone(),
-            )
-            .await
-            {
-                // Inform about PTY fallback
-                let _ = app_clone.emit(
-                    "cli-stream",
-                    StreamChunk {
+        match result {
+            Err(e) => {
+                if is_protocol {
+                    // Protocol executor failed to start -- fall back to PTY
+                    let _ = app_clone.emit("protocol-event", ProtocolEvent::SessionEvent {
+                        session_id: session_id_clone.clone(),
+                        event: SessionEventKind::FallbackToPty,
+                    });
+                    let fallback_chunk = StreamChunk {
                         session_id: session_id_clone.clone(),
                         content: format!(
-                            "ℹ️ PTY unavailable ({}). Falling back to pipe streaming...\n",
+                            "ℹ️ Protocol executor unavailable ({}). Falling back to PTY…\n",
                             e
                         ),
                         finished: false,
-                    },
-                );
-            } else {
-                return; // PTY path handled end-to-end
-            }
-        }
+                    };
+                    let _ = app_clone.emit("cli-stream", fallback_chunk);
 
-        let mut cmd = Command::new(&resolved_prog);
-        cmd.args(&command_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        if let Some(dir) = &working_dir {
-            println!("📁 PIPE: Setting working directory to: {}", dir);
-            cmd.current_dir(dir);
-        } else {
-            println!("⚠️  PIPE: No working directory - using system default");
-        }
-
-        match cmd.spawn() {
-            Ok(mut child) => {
-                // Stream stdout
-                if let Some(stdout) = child.stdout.take() {
-                    let app_for_stdout = app_clone.clone();
-                    let session_id_for_stdout = session_id_clone.clone();
-                    let agent_for_stdout = agent_name.clone();
-                    tokio::spawn(async move {
-                        if agent_for_stdout.eq_ignore_ascii_case("codex") {
-                            let mut reader = BufReader::new(stdout);
-                            let mut buf = vec![0u8; 4096];
-                            let mut accumulator = CodexStreamAccumulator::new();
-
-                            loop {
-                                match reader.read(&mut buf).await {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        let text = String::from_utf8_lossy(&buf[..n]);
-                                        for segment in accumulator.push_chunk(text.as_ref()) {
-                                            if let Some(filtered) = sanitize_cli_output_line(
-                                                &agent_for_stdout,
-                                                &segment,
-                                            ) {
-                                                let chunk = StreamChunk {
-                                                    session_id: session_id_for_stdout.clone(),
-                                                    content: filtered,
-                                                    finished: false,
-                                                };
-                                                let _ = app_for_stdout.emit("cli-stream", chunk);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let chunk = StreamChunk {
-                                            session_id: session_id_for_stdout.clone(),
-                                            content: format!("ERROR: {}\n", e),
-                                            finished: false,
-                                        };
-                                        let _ = app_for_stdout.emit("cli-stream", chunk);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if let Some(remaining) = accumulator.flush() {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stdout, &remaining)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stdout,
-                                        content: filtered,
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stdout.emit("cli-stream", chunk);
-                                }
-                            }
-                        } else {
-                            let reader = BufReader::new(stdout);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stdout, &line)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stdout.clone(),
-                                        content: filtered + "\n",
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stdout.emit("cli-stream", chunk);
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Stream stderr
-                if let Some(stderr) = child.stderr.take() {
-                    let app_for_stderr = app_clone.clone();
-                    let session_id_for_stderr = session_id_clone.clone();
-                    let agent_for_stderr = agent_name.clone();
-                    tokio::spawn(async move {
-                        if agent_for_stderr.eq_ignore_ascii_case("codex") {
-                            let mut reader = BufReader::new(stderr);
-                            let mut buf = vec![0u8; 4096];
-                            let mut accumulator = CodexStreamAccumulator::new();
-
-                            loop {
-                                match reader.read(&mut buf).await {
-                                    Ok(0) => break,
-                                    Ok(n) => {
-                                        let text = String::from_utf8_lossy(&buf[..n]);
-                                        for segment in accumulator.push_chunk(text.as_ref()) {
-                                            if let Some(filtered) = sanitize_cli_output_line(
-                                                &agent_for_stderr,
-                                                &segment,
-                                            ) {
-                                                let chunk = StreamChunk {
-                                                    session_id: session_id_for_stderr.clone(),
-                                                    content: format!("ERROR: {}\n", filtered),
-                                                    finished: false,
-                                                };
-                                                let _ = app_for_stderr.emit("cli-stream", chunk);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let chunk = StreamChunk {
-                                            session_id: session_id_for_stderr.clone(),
-                                            content: format!("ERROR: {}\n", e),
-                                            finished: false,
-                                        };
-                                        let _ = app_for_stderr.emit("cli-stream", chunk);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if let Some(remaining) = accumulator.flush() {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stderr, &remaining)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stderr,
-                                        content: format!("ERROR: {}\n", filtered),
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stderr.emit("cli-stream", chunk);
-                                }
-                            }
-                        } else {
-                            let reader = BufReader::new(stderr);
-                            let mut lines = reader.lines();
-
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if let Some(filtered) =
-                                    sanitize_cli_output_line(&agent_for_stderr, &line)
-                                {
-                                    let chunk = StreamChunk {
-                                        session_id: session_id_for_stderr.clone(),
-                                        content: format!("ERROR: {}\n", filtered),
-                                        finished: false,
-                                    };
-                                    let _ = app_for_stderr.emit("cli-stream", chunk);
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Wait for completion
-                match child.wait().await {
-                    Ok(status) => {
-                        let final_chunk = StreamChunk {
-                            session_id: session_id_clone,
-                            content: if status.success() {
-                                String::new()
-                            } else {
-                                format!(
-                                    "\n❌ Command failed with exit code: {}\n",
-                                    status.code().unwrap_or(-1)
-                                )
-                            },
-                            finished: true,
-                        };
-                        let _ = app_clone.emit("cli-stream", final_chunk);
-                    }
-                    Err(e) => {
+                    let mut pty = PtyExecutor::new();
+                    if let Err(pty_err) = pty.execute(
+                        &app_clone,
+                        &session_id_clone,
+                        &agent_name,
+                        &actual_message,
+                        wd,
+                        &agent_settings,
+                        None,
+                    ).await {
                         let error_chunk = StreamChunk {
-                            session_id: session_id_clone,
-                            content: format!("❌ Process error: {}\n", e),
+                            session_id: session_id_clone.clone(),
+                            content: format!("❌ PTY fallback error: {}\n", pty_err),
                             finished: true,
                         };
                         let _ = app_clone.emit("cli-stream", error_chunk);
                     }
+                } else {
+                    // PTY executor error
+                    let error_chunk = StreamChunk {
+                        session_id: session_id_clone.clone(),
+                        content: format!("❌ Executor error: {}\n", e),
+                        finished: true,
+                    };
+                    let _ = app_clone.emit("cli-stream", error_chunk);
                 }
             }
-            Err(e) => {
-                let error_message = if e.kind() == std::io::ErrorKind::NotFound {
-                    format!("Command '{}' not found. Please make sure it's installed and available in your PATH.", agent_name)
-                } else {
-                    format!("Failed to start {}: {}", agent_name, e)
-                };
-
-                let error_chunk = StreamChunk {
-                    session_id: session_id_clone.clone(),
-                    content: format!("❌ {}\n", error_message),
-                    finished: true,
-                };
-                let _ = app_clone.emit("cli-stream", error_chunk);
-                return;
+            Ok(()) if is_protocol => {
+                // ACP/RPC started successfully -- its background reader task manages
+                // the stream lifecycle. We need to forward permissions and wait for abort.
+                // The loop exits when:
+                //   (a) perm_rx returns None (all senders dropped),
+                //   (b) abort signal received, or
+                //   (c) executor's background reader finished (agent process exited).
+                loop {
+                    tokio::select! {
+                        maybe_resp = perm_rx.recv() => {
+                            match maybe_resp {
+                                Some(resp) => {
+                                    let _ = executor.respond_permission(&resp.request_id, resp.approved).await;
+                                }
+                                None => break, // All senders dropped
+                            }
+                        }
+                        _ = &mut abort_rx => {
+                            let _ = executor.abort().await;
+                            break;
+                        }
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
+                            if !executor.is_alive() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(()) => {
+                // PTY completed normally (execute blocks until done)
             }
         }
+
+        // Clean up session from both managers
+        {
+            let mut sessions = SESSIONS.lock().await;
+            sessions.remove(&session_id_clone);
+        }
+        let mut mgr = sm.lock().await;
+        mgr.remove(&session_id_clone);
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn respond_permission(
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    session_id: String,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    let mgr = session_manager.lock().await;
+    mgr.send_permission(&session_id, request_id, approved)
 }
 
 #[tauri::command]
@@ -1161,6 +1093,8 @@ pub async fn execute_cli_command(
     #[allow(non_snake_case)] executionMode: Option<String>,
     #[allow(non_snake_case)] dangerousBypass: Option<bool>,
     #[allow(non_snake_case)] permissionMode: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     // Legacy function - redirect to persistent session handler
     let message = args.join(" ");
@@ -1174,6 +1108,8 @@ pub async fn execute_cli_command(
         dangerousBypass,
         permissionMode,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -1186,6 +1122,8 @@ pub async fn execute_claude_command(
     #[allow(non_snake_case)] workingDir: Option<String>,
     #[allow(non_snake_case)] permissionMode: Option<String>,
     #[allow(non_snake_case)] resumeSessionId: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1197,6 +1135,8 @@ pub async fn execute_claude_command(
         None,
         permissionMode,
         resumeSessionId,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -1210,6 +1150,8 @@ pub async fn execute_codex_command(
     #[allow(non_snake_case)] executionMode: Option<String>,
     #[allow(non_snake_case)] dangerousBypass: Option<bool>,
     #[allow(non_snake_case)] permissionMode: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1221,6 +1163,8 @@ pub async fn execute_codex_command(
         dangerousBypass,
         permissionMode,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -1232,6 +1176,8 @@ pub async fn execute_gemini_command(
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
     #[allow(non_snake_case)] approvalMode: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1243,6 +1189,8 @@ pub async fn execute_gemini_command(
         None,
         approvalMode,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }
@@ -1253,6 +1201,8 @@ pub async fn execute_ollama_command(
     #[allow(non_snake_case)] sessionId: String,
     message: String,
     #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
 ) -> Result<(), String> {
     execute_persistent_cli_command(
         app,
@@ -1264,6 +1214,8 @@ pub async fn execute_ollama_command(
         None,
         None,
         None,
+        session_manager,
+        protocol_cache,
     )
     .await
 }

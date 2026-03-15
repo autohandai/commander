@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::models::protocol::ProtocolMode;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIAgent {
     pub name: String,
@@ -12,6 +14,9 @@ pub struct AIAgent {
     pub installed_version: Option<String>,
     pub latest_version: Option<String>,
     pub upgrade_available: bool,
+    pub protocol: Option<ProtocolMode>,
+    pub is_default: bool,
+    pub removable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,13 +86,13 @@ pub struct CustomAgentDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllAgentSettings {
     #[serde(default)]
+    pub autohand: AgentSettings,
+    #[serde(default)]
     pub claude: AgentSettings,
     #[serde(default)]
     pub codex: AgentSettings,
     #[serde(default)]
     pub gemini: AgentSettings,
-    #[serde(default)]
-    pub autohand: AgentSettings,
     #[serde(default)]
     pub ollama: AgentSettings,
     #[serde(default)]
