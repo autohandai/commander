@@ -172,4 +172,24 @@ mod tests {
             "Should find the main repository root"
         );
     }
+
+    #[tokio::test]
+    async fn test_create_git_branch_creates_and_checks_out_branch() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = temp_dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+
+        git_service::create_git_branch(repo.to_str().unwrap(), "feature/header-actions")
+            .expect("should create branch");
+
+        let output = StdCommand::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&repo)
+            .output()
+            .expect("read branch");
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "feature/header-actions");
+    }
 }

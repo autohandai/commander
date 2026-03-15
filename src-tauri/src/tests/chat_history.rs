@@ -192,7 +192,7 @@ mod tests {
             .unwrap();
 
         // Load sessions index
-        let sessions_list = load_chat_sessions(&project_path, None, None).await;
+        let sessions_list = load_chat_sessions(&project_path, None, None, None).await;
         assert!(sessions_list.is_ok(), "Should load sessions successfully");
 
         let loaded_sessions = sessions_list.unwrap();
@@ -228,13 +228,13 @@ mod tests {
             .unwrap();
 
         // Filter by agent
-        let claude_only = load_chat_sessions(&project_path, None, Some("claude".to_string()))
+        let claude_only = load_chat_sessions(&project_path, None, Some("claude".to_string()), None)
             .await
             .unwrap();
         assert_eq!(claude_only.len(), 1);
         assert_eq!(claude_only[0].agent, "claude");
 
-        let codex_only = load_chat_sessions(&project_path, None, Some("codex".to_string()))
+        let codex_only = load_chat_sessions(&project_path, None, Some("codex".to_string()), None)
             .await
             .unwrap();
         assert_eq!(codex_only.len(), 1);
@@ -263,7 +263,7 @@ mod tests {
         }
 
         // Test limit
-        let limited = load_chat_sessions(&project_path, Some(3), None)
+        let limited = load_chat_sessions(&project_path, Some(3), None, None)
             .await
             .unwrap();
         assert_eq!(limited.len(), 3, "Should respect limit parameter");
@@ -287,7 +287,7 @@ mod tests {
             .unwrap();
 
         // Verify it exists
-        let before_delete = load_chat_sessions(&project_path, None, None).await.unwrap();
+        let before_delete = load_chat_sessions(&project_path, None, None, None).await.unwrap();
         assert_eq!(before_delete.len(), 1);
 
         // Delete session
@@ -295,7 +295,7 @@ mod tests {
         assert!(delete_result.is_ok(), "Should delete session successfully");
 
         // Verify it's gone
-        let after_delete = load_chat_sessions(&project_path, None, None).await.unwrap();
+        let after_delete = load_chat_sessions(&project_path, None, None, None).await.unwrap();
         assert_eq!(after_delete.len(), 0, "Session should be deleted");
 
         // Verify session file is also deleted
@@ -383,7 +383,7 @@ mod tests {
         assert!(result.is_ok(), "Should migrate legacy data successfully");
 
         // Verify migration created sessions
-        let sessions = load_chat_sessions(&project_path, None, None).await.unwrap();
+        let sessions = load_chat_sessions(&project_path, None, None, None).await.unwrap();
         assert_eq!(
             sessions.len(),
             1,
@@ -438,7 +438,7 @@ mod tests {
         let result = ensure_commander_directory(invalid_path).await;
         assert!(result.is_err(), "Should fail for invalid path");
 
-        let load_result = load_chat_sessions(invalid_path, None, None).await;
+        let load_result = load_chat_sessions(invalid_path, None, None, None).await;
         assert!(
             load_result.is_err(),
             "Should fail to load from invalid path"

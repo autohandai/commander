@@ -307,6 +307,73 @@ mod tests {
     }
 
     #[test]
+    fn test_autohand_config_dynamic_provider_key_camel_case() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join(".autohand");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.json"),
+            r#"{
+                "provider": "openrouter",
+                "openrouter": {
+                    "apiKey": "sk-or-camel-123",
+                    "model": "anthropic/claude-sonnet-4-20250514",
+                    "baseUrl": "https://openrouter.ai/api/v1"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            tmp.path().to_str().unwrap(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(config.provider, "openrouter");
+        let pd = config.provider_details.unwrap();
+        assert_eq!(pd.api_key, Some("sk-or-camel-123".to_string()));
+        assert_eq!(
+            pd.model,
+            Some("anthropic/claude-sonnet-4-20250514".to_string())
+        );
+        assert_eq!(
+            pd.base_url,
+            Some("https://openrouter.ai/api/v1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_autohand_config_permissions_camel_case_alias() {
+        let tmp = TempDir::new().unwrap();
+        let config_dir = tmp.path().join(".autohand");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.json"),
+            r#"{
+                "provider": "anthropic",
+                "permissions": {
+                    "mode": "interactive",
+                    "whitelist": [],
+                    "blacklist": [],
+                    "rules": [],
+                    "rememberSession": true
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let config = crate::commands::autohand_commands::load_autohand_config_with_global(
+            tmp.path().to_str().unwrap(),
+            None,
+        )
+        .unwrap();
+
+        let permissions = config.permissions.unwrap();
+        assert!(permissions.remember_session);
+    }
+
+    #[test]
     fn test_autohand_mcp_server_crud() {
         let tmp = TempDir::new().unwrap();
         let ws_dir = tmp.path().to_str().unwrap();
@@ -391,5 +458,46 @@ mod tests {
         let servers = reloaded.mcp.unwrap().servers;
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].name, "second-srv");
+    }
+
+    #[test]
+    fn test_save_autohand_config_writes_provider_specific_block() {
+        let tmp = TempDir::new().unwrap();
+        let ws_dir = tmp.path().to_str().unwrap();
+
+        let config = AutohandConfig {
+            protocol: ProtocolMode::Rpc,
+            provider: "openrouter".to_string(),
+            model: Some("anthropic/claude-sonnet-4-20250514".to_string()),
+            permissions_mode: "interactive".to_string(),
+            hooks: Vec::new(),
+            mcp: None,
+            provider_details: Some(ProviderDetails {
+                api_key: Some("sk-provider-123".to_string()),
+                model: Some("anthropic/claude-sonnet-4-20250514".to_string()),
+                base_url: Some("https://openrouter.ai/api/v1".to_string()),
+            }),
+            permissions: None,
+            agent: None,
+            network: None,
+        };
+
+        crate::commands::autohand_commands::save_autohand_config_internal(ws_dir, &config).unwrap();
+
+        let raw = std::fs::read_to_string(tmp.path().join(".autohand").join("config.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let provider_block = json.get("openrouter").unwrap();
+        assert_eq!(
+            provider_block.get("apiKey").and_then(|v| v.as_str()),
+            Some("sk-provider-123")
+        );
+        assert_eq!(
+            provider_block.get("baseUrl").and_then(|v| v.as_str()),
+            Some("https://openrouter.ai/api/v1")
+        );
+        assert_eq!(
+            provider_block.get("model").and_then(|v| v.as_str()),
+            Some("anthropic/claude-sonnet-4-20250514")
+        );
     }
 }

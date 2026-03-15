@@ -71,4 +71,31 @@ mod tests {
             "default_cli_agent should retain explicit choices"
         );
     }
+
+    // --- Regression: "autohand" must be accepted as a valid default agent ---
+
+    #[test]
+    fn autohand_agent_survives_deserialization_round_trip() {
+        let mut raw = serde_json::to_value(AppSettings::default()).expect("serialize defaults");
+        raw["default_cli_agent"] = Value::String("autohand".to_string());
+        let value = round_trip(raw);
+
+        assert_eq!(
+            agent_from(&value),
+            Some("autohand"),
+            "\"autohand\" is a valid agent and must not be replaced by the default"
+        );
+    }
+
+    #[test]
+    fn autohand_agent_survives_normalize() {
+        let mut settings = AppSettings::default();
+        settings.default_cli_agent = "autohand".to_string();
+        settings.normalize();
+
+        assert_eq!(
+            settings.default_cli_agent, "autohand",
+            "normalize() must keep \"autohand\" intact — it is in the allowlist"
+        );
+    }
 }
