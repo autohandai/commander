@@ -82,14 +82,16 @@ if (typeof document !== 'undefined') describe('HistoryView diff dialog', () => {
     vi.clearAllMocks()
   })
 
-  it('renders graph and chat panels side by side without inline DiffViewer', async () => {
+  it('renders git history full-width without inline DiffViewer', async () => {
     render(<HistoryView project={project} />)
 
-    // Wait for HistoryView to load commits and controls
+    // Wait for HistoryView to load commits
     await waitFor(() => {
       expect(screen.getByText(/Git History/i)).toBeInTheDocument()
-      expect(screen.getByText(/Chat History/i)).toBeInTheDocument()
     })
+
+    // Chat History panel was moved to the chat view (Cmd+H toggle) — no longer in HistoryView
+    expect(screen.queryByText(/Chat History/i)).not.toBeInTheDocument()
 
     // The inline DiffViewer placeholder text should not be present anymore
     expect(screen.queryByText(/Select a Commit/i)).not.toBeInTheDocument()

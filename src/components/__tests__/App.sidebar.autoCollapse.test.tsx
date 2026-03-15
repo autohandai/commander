@@ -131,6 +131,10 @@ if (typeof document !== 'undefined') describe('App sidebar auto-collapse in code
           return null
         case 'get_user_home_directory':
           return '/projects'
+        case 'get_available_project_applications':
+          return []
+        case 'get_project_git_worktrees':
+          return []
         case 'set_window_theme':
         case 'add_project_to_recent':
         case 'save_app_settings':
@@ -148,7 +152,7 @@ if (typeof document !== 'undefined') describe('App sidebar auto-collapse in code
   it('collapses the sidebar when entering the Code tab and restores it afterwards', async () => {
     render(<App />)
 
-    const projectButton = await screen.findByRole('button', { name: /Sample Project/i })
+    const projectButton = await screen.findByTitle('/projects/sample')
     fireEvent.click(projectButton)
 
     const sidebarPanel = await screen.findByTestId('app-sidebar')
@@ -156,12 +160,12 @@ if (typeof document !== 'undefined') describe('App sidebar auto-collapse in code
     expect(sidebar).not.toBeNull()
     await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
 
-    const codeTab = screen.getByRole('tab', { name: /Code/i })
+    const codeTab = screen.getByTitle('Code')
     fireEvent.click(codeTab)
 
     await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'collapsed'))
 
-    const chatTab = screen.getByRole('tab', { name: /Chat/i })
+    const chatTab = screen.getByTitle('Chat')
     fireEvent.click(chatTab)
 
     await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
@@ -171,7 +175,7 @@ if (typeof document !== 'undefined') describe('App sidebar auto-collapse in code
     autoCollapse = false
     render(<App />)
 
-    const projectButton = await screen.findByRole('button', { name: /Sample Project/i })
+    const projectButton = await screen.findByTitle('/projects/sample')
     fireEvent.click(projectButton)
 
     const sidebarPanel = await screen.findByTestId('app-sidebar')
@@ -179,8 +183,8 @@ if (typeof document !== 'undefined') describe('App sidebar auto-collapse in code
     expect(sidebar).not.toBeNull()
     await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
 
-    const codeTab = screen.getByRole('tab', { name: /Code/i })
-    fireEvent.click(codeTab)
+    const codeTab2 = screen.getByTitle('Code')
+    fireEvent.click(codeTab2)
 
     await waitFor(() => expect(sidebar).toHaveAttribute('data-state', 'expanded'))
   })

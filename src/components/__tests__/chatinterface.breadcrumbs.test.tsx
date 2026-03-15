@@ -82,7 +82,7 @@ if (typeof document !== 'undefined') describe('ChatInterface layout', () => {
     // Wait for ChatInterface to finish initial async loads
     await waitFor(() => {
       // The chat scroll area container should be present
-      const scroll = screen.getByTestId('chat-scrollarea')
+      const scroll = screen.getByTestId('chat-scroll-wrapper')
       expect(scroll).toBeInTheDocument()
       // Root should allow inner scroll by using min-h-0
       const root = screen.getByTestId('chat-root')
@@ -91,7 +91,7 @@ if (typeof document !== 'undefined') describe('ChatInterface layout', () => {
 
     // Ensure breadcrumbs are not rendered inside the chat scroll area
     const breadcrumb = screen.getByRole('navigation', { name: /breadcrumb/i })
-    const scroll = screen.getByTestId('chat-scrollarea')
+    const scroll = screen.getByTestId('chat-scroll-wrapper')
     expect(scroll.contains(breadcrumb)).toBe(false)
   })
 })

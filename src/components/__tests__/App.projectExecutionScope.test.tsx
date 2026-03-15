@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import App from '@/App'
 
-const project = {
-  name: 'Sample Project',
-  path: '/projects/sample',
+const projectA = {
+  name: 'Alpha',
+  path: '/projects/alpha',
   last_accessed: Math.floor(Date.now() / 1000),
+  is_git_repo: true,
+  git_branch: 'main',
+  git_status: 'clean',
+}
+
+const projectB = {
+  name: 'Beta',
+  path: '/projects/beta',
+  last_accessed: Math.floor(Date.now() / 1000) - 10,
   is_git_repo: true,
   git_branch: 'main',
   git_status: 'clean',
@@ -32,7 +41,26 @@ vi.mock('@/services/auth-service', () => ({
     sessionExpiryDays: 30,
   },
 }))
-vi.mock('@/components/ChatInterface', () => ({ ChatInterface: () => <div data-testid="chat-interface" /> }))
+vi.mock('@/components/ChatInterface', () => {
+  const React = require('react')
+  return {
+    ChatInterface: ({ project, onExecutingChange }: any) => {
+      const [executingSessions, setExecutingSessions] = React.useState<string[]>([])
+
+      React.useEffect(() => {
+        if (project?.path) {
+          onExecutingChange?.(project.path, executingSessions)
+        }
+      }, [executingSessions, onExecutingChange, project?.path])
+
+      return (
+        <button type="button" onClick={() => setExecutingSessions(['session-alpha'])}>
+          Start session for {project?.name}
+        </button>
+      )
+    },
+  }
+})
 vi.mock('@/components/CodeView', () => ({ CodeView: () => <div data-testid="code-view" /> }))
 vi.mock('@/components/HistoryView', () => ({ HistoryView: () => <div data-testid="history-view" /> }))
 vi.mock('@/components/AIAgentStatusBar', () => ({ AIAgentStatusBar: () => <div data-testid="status-bar" /> }))
@@ -107,20 +135,19 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
-if (typeof document !== 'undefined') describe('App project selection default tab', () => {
+if (typeof document !== 'undefined') describe('App project execution scope', () => {
   beforeEach(() => {
     const invoke = tauriCore.invoke as unknown as ReturnType<typeof vi.fn>
     invoke.mockReset()
-    invoke.mockImplementation(async (cmd: string) => {
+    invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
       switch (cmd) {
         case 'load_app_settings':
           return defaultSettings
         case 'list_recent_projects':
-          return [project]
         case 'refresh_recent_projects':
-          return [project]
+          return [projectA, projectB]
         case 'open_existing_project':
-          return project
+          return args?.projectPath === projectB.path ? projectB : projectA
         case 'get_cli_project_path':
           return null
         case 'clear_cli_project_path':
@@ -128,7 +155,6 @@ if (typeof document !== 'undefined') describe('App project selection default tab
         case 'get_user_home_directory':
           return '/projects'
         case 'get_available_project_applications':
-          return []
         case 'get_project_git_worktrees':
           return []
         case 'set_window_theme':
@@ -145,17 +171,26 @@ if (typeof document !== 'undefined') describe('App project selection default tab
     })
   })
 
-  it('activates the chat tab after selecting a recent project', async () => {
+  it('keeps the running indicator on the original project after selecting another project', async () => {
     render(<App />)
 
-    const projectButton = await screen.findByTitle('/projects/sample')
-    fireEvent.click(projectButton)
+    fireEvent.click(await screen.findByRole('link', { name: /alpha/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /start session for alpha/i }))
 
-    const tabs = await screen.findByTestId('tabs')
+    const alphaRow = screen.getByRole('link', { name: /alpha/i }).closest('li')
+    const betaRow = screen.getByRole('link', { name: /beta/i }).closest('li')
+    expect(alphaRow).toBeTruthy()
+    expect(betaRow).toBeTruthy()
+
     await waitFor(() => {
-      expect(tabs).toHaveAttribute('data-active-tab', 'chat')
+      expect(within(alphaRow as HTMLElement).getByLabelText(/agent running/i)).toBeInTheDocument()
     })
 
-    expect(await screen.findByTestId('chat-interface')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: /beta/i }))
+
+    await waitFor(() => {
+      expect(within(alphaRow as HTMLElement).getByLabelText(/agent running/i)).toBeInTheDocument()
+    })
+    expect(within(betaRow as HTMLElement).queryByLabelText(/agent running/i)).toBeNull()
   })
 })

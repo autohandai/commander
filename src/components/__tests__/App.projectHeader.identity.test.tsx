@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import App from '@/App'
 
 const project = {
   name: 'Sample Project',
-  path: '/projects/sample',
+  path: '/projects/sample/.commander/feature-alpha',
   last_accessed: Math.floor(Date.now() / 1000),
   is_git_repo: true,
-  git_branch: 'main',
-  git_status: 'clean',
+  git_branch: 'feature-alpha',
+  git_status: 'dirty',
 }
 
 const tauriCore = vi.hoisted(() => ({
@@ -52,9 +52,7 @@ vi.mock('@/components/ui/tabs', () => {
 
   const TabsTrigger = ({ value, children, ...props }: any) => {
     const context = React.useContext(TabsContext)
-    if (!context) {
-      throw new Error('TabsTrigger must be used within Tabs')
-    }
+    if (!context) throw new Error('TabsTrigger must be used within Tabs')
     const isActive = context.value === value
     return (
       <button
@@ -71,9 +69,7 @@ vi.mock('@/components/ui/tabs', () => {
 
   const TabsContent = ({ value, children, forceMount, ...props }: any) => {
     const context = React.useContext(TabsContext)
-    if (!context) {
-      throw new Error('TabsContent must be used within Tabs')
-    }
+    if (!context) throw new Error('TabsContent must be used within Tabs')
     if (!forceMount && context.value !== value) return null
     return (
       <div data-state={context.value === value ? 'active' : 'inactive'} {...props}>
@@ -107,7 +103,7 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
-if (typeof document !== 'undefined') describe('App project selection default tab', () => {
+if (typeof document !== 'undefined') describe('App project identity header', () => {
   beforeEach(() => {
     const invoke = tauriCore.invoke as unknown as ReturnType<typeof vi.fn>
     invoke.mockReset()
@@ -128,9 +124,12 @@ if (typeof document !== 'undefined') describe('App project selection default tab
         case 'get_user_home_directory':
           return '/projects'
         case 'get_available_project_applications':
-          return []
+          return [{ id: 'cursor', label: 'Cursor', installed: true }]
         case 'get_project_git_worktrees':
-          return []
+          return [
+            { path: '/projects/sample', branch: 'refs/heads/main', is_main: true },
+            { path: '/projects/sample/.commander/feature-alpha', branch: 'refs/heads/feature-alpha', is_main: false },
+          ]
         case 'set_window_theme':
         case 'add_project_to_recent':
         case 'save_app_settings':
@@ -145,17 +144,33 @@ if (typeof document !== 'undefined') describe('App project selection default tab
     })
   })
 
-  it('activates the chat tab after selecting a recent project', async () => {
+  it('replaces breadcrumbs with a project identity bar and right-side actions', async () => {
     render(<App />)
 
-    const projectButton = await screen.findByTitle('/projects/sample')
-    fireEvent.click(projectButton)
+    fireEvent.click(await screen.findByTitle('/projects/sample/.commander/feature-alpha'))
 
-    const tabs = await screen.findByTestId('tabs')
+    const header = await screen.findByTestId('project-identity-header')
+    expect(header).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: /breadcrumb/i })).not.toBeInTheDocument()
+    expect(within(header).getByText('Sample Project')).toBeInTheDocument()
+    expect(within(header).getByText('feature-alpha')).toBeInTheDocument()
+    expect(within(header).getByText(/workspace feature-alpha/i)).toBeInTheDocument()
+    expect(within(header).getByText('~/sample/.commander/feature-alpha')).toBeInTheDocument()
+    expect(within(header).getByRole('button', { name: /copy project path/i })).toBeInTheDocument()
+    const headerActionsButton = within(header).getByRole('button', { name: /project actions for sample project/i })
+    expect(headerActionsButton).toBeInTheDocument()
+
+    fireEvent.click(headerActionsButton)
+    expect(await screen.findByRole('menuitem', { name: /show in finder|open directory/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /^cursor$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /new branch/i })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /new worktree/i })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /delete project/i })).toBeNull()
+
     await waitFor(() => {
-      expect(tabs).toHaveAttribute('data-active-tab', 'chat')
+      expect((tauriCore.invoke as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('get_project_git_worktrees', {
+        projectPath: '/projects/sample/.commander/feature-alpha',
+      })
     })
-
-    expect(await screen.findByTestId('chat-interface')).toBeInTheDocument()
   })
 })

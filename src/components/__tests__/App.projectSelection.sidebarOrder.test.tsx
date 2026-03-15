@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import App from '@/App'
 
-const project = {
-  name: 'Sample Project',
-  path: '/projects/sample',
+const alphaProject = {
+  name: 'Alpha',
+  path: '/projects/alpha',
   last_accessed: Math.floor(Date.now() / 1000),
+  is_git_repo: true,
+  git_branch: 'main',
+  git_status: 'clean',
+}
+
+const betaProject = {
+  name: 'Beta',
+  path: '/projects/beta',
+  last_accessed: Math.floor(Date.now() / 1000) - 10,
   is_git_repo: true,
   git_branch: 'main',
   git_status: 'clean',
@@ -52,9 +61,7 @@ vi.mock('@/components/ui/tabs', () => {
 
   const TabsTrigger = ({ value, children, ...props }: any) => {
     const context = React.useContext(TabsContext)
-    if (!context) {
-      throw new Error('TabsTrigger must be used within Tabs')
-    }
+    if (!context) throw new Error('TabsTrigger must be used within Tabs')
     const isActive = context.value === value
     return (
       <button
@@ -71,9 +78,7 @@ vi.mock('@/components/ui/tabs', () => {
 
   const TabsContent = ({ value, children, forceMount, ...props }: any) => {
     const context = React.useContext(TabsContext)
-    if (!context) {
-      throw new Error('TabsContent must be used within Tabs')
-    }
+    if (!context) throw new Error('TabsContent must be used within Tabs')
     if (!forceMount && context.value !== value) return null
     return (
       <div data-state={context.value === value ? 'active' : 'inactive'} {...props}>
@@ -107,20 +112,20 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   })
 }
 
-if (typeof document !== 'undefined') describe('App project selection default tab', () => {
+if (typeof document !== 'undefined') describe('App sidebar selection order', () => {
   beforeEach(() => {
     const invoke = tauriCore.invoke as unknown as ReturnType<typeof vi.fn>
     invoke.mockReset()
-    invoke.mockImplementation(async (cmd: string) => {
+    invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
       switch (cmd) {
         case 'load_app_settings':
           return defaultSettings
         case 'list_recent_projects':
-          return [project]
+          return [alphaProject, betaProject]
         case 'refresh_recent_projects':
-          return [project]
+          return [betaProject, alphaProject]
         case 'open_existing_project':
-          return project
+          return args?.projectPath === betaProject.path ? betaProject : alphaProject
         case 'get_cli_project_path':
           return null
         case 'clear_cli_project_path':
@@ -128,7 +133,6 @@ if (typeof document !== 'undefined') describe('App project selection default tab
         case 'get_user_home_directory':
           return '/projects'
         case 'get_available_project_applications':
-          return []
         case 'get_project_git_worktrees':
           return []
         case 'set_window_theme':
@@ -145,17 +149,28 @@ if (typeof document !== 'undefined') describe('App project selection default tab
     })
   })
 
-  it('activates the chat tab after selecting a recent project', async () => {
+  it('keeps the visible project order stable when selecting a project from the sidebar', async () => {
     render(<App />)
 
-    const projectButton = await screen.findByTitle('/projects/sample')
-    fireEvent.click(projectButton)
-
-    const tabs = await screen.findByTestId('tabs')
+    const sidebar = await screen.findByTestId('app-sidebar')
     await waitFor(() => {
-      expect(tabs).toHaveAttribute('data-active-tab', 'chat')
+      expect(within(sidebar).getByRole('link', { name: /alpha/i })).toBeInTheDocument()
+      expect(within(sidebar).getByRole('link', { name: /beta/i })).toBeInTheDocument()
     })
 
-    expect(await screen.findByTestId('chat-interface')).toBeInTheDocument()
+    fireEvent.click(within(sidebar).getByRole('link', { name: /beta/i }))
+
+    await waitFor(() => {
+      const projectLinks = within(sidebar)
+        .getAllByRole('link')
+        .filter((link) => link.getAttribute('title')?.startsWith('/projects/'))
+      expect(projectLinks.map((link) => link.textContent)).toEqual([
+        expect.stringContaining('Alpha'),
+        expect.stringContaining('Beta'),
+      ])
+    })
+
+    const invokeCalls = (tauriCore.invoke as unknown as ReturnType<typeof vi.fn>).mock.calls
+    expect(invokeCalls.some(([command]) => command === 'refresh_recent_projects')).toBe(false)
   })
 })
