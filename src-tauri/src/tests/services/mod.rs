@@ -9,6 +9,7 @@ pub mod execution_mode_service;
 pub mod executor_tests;
 pub mod file_service;
 pub mod pty_executor_tests;
+pub mod rpc_executor_tests;
 pub mod git_service_enhanced;
 pub mod prompt_service;
 pub mod recent_projects;
