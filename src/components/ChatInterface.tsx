@@ -16,6 +16,7 @@ import { SessionStatusHeader } from '@/components/chat/SessionStatusHeader';
 import { SessionManagementPanel } from '@/components/chat/SessionManagementPanel';
 import { useChatAutocomplete } from '@/components/chat/hooks/useChatAutocomplete';
 import { useCLIEvents } from '@/components/chat/hooks/useCLIEvents';
+import { useProtocolEvents } from '@/components/chat/hooks/useProtocolEvents'
 import { useRotatingPlaceholder } from '@/components/chat/hooks/useRotatingPlaceholder';
 import { useChatPersistence } from '@/components/chat/hooks/useChatPersistence';
 import { useAgentEnablement } from '@/components/chat/hooks/useAgentEnablement';
@@ -910,6 +911,66 @@ Please focus only on this step.`;
       console.error('CLI Error:', message);
     },
   });
+
+  // Listen for structured protocol events from ACP/RPC agents
+  useProtocolEvents('', {
+    onMessage: (data) => {
+      setMessages(prev => prev.map(msg => {
+        if (msg.id !== data.session_id) return msg
+        return {
+          ...msg,
+          content: (msg.content || '') + data.content,
+          isStreaming: true,
+          status: 'running' as const,
+        }
+      }))
+    },
+    onToolStart: (_data) => {
+      // Tool tracking for protocol agents — future enhancement
+    },
+    onToolUpdate: (_data) => {
+      // Tool progress for protocol agents — future enhancement
+    },
+    onToolEnd: (_data) => {
+      // Tool completion for protocol agents — future enhancement
+    },
+    onPermissionRequest: (data) => {
+      // Auto-approve for now — permission UI is a future enhancement
+      invoke('respond_permission', {
+        session_id: data.session_id,
+        request_id: data.request_id,
+        approved: true,
+      }).catch(console.error)
+    },
+    onStateChange: (_data) => {
+      // State change handling — future enhancement
+    },
+    onError: (data) => {
+      setMessages(prev => prev.map(msg => {
+        if (msg.id !== data.session_id) return msg
+        return {
+          ...msg,
+          content: (msg.content || '') + `\n[Error: ${data.message}]`,
+          isStreaming: false,
+          status: 'failed' as const,
+        }
+      }))
+    },
+    onSessionEvent: (data) => {
+      if (data.event === 'disconnected' || data.event === 'fallback_to_pty') {
+        // Mark session as no longer streaming from protocol
+        setMessages(prev => prev.map(msg => {
+          if (msg.id !== data.session_id) return msg
+          if (!msg.isStreaming) return msg
+          return {
+            ...msg,
+            isStreaming: data.event === 'fallback_to_pty',
+            status: data.event === 'fallback_to_pty' ? ('running' as const) : ('completed' as const),
+          }
+        }))
+      }
+    },
+  })
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

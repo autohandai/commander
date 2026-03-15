@@ -79,7 +79,7 @@ export function useProtocolEvents(sessionId: string, callbacks: Callbacks) {
 
     listen<ProtocolEventPayload>('protocol-event', (event) => {
       const { type, data } = event.payload
-      if (data.session_id !== sessionId) return
+      if (sessionId && data.session_id !== sessionId) return
 
       switch (type) {
         case 'Message':
