@@ -151,8 +151,14 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
   const updateConfig = async (updates: Partial<AutohandConfig>) => {
     if (!resolvedWorkingDir) return
     const previous = config
-    const updated = { ...config, ...updates }
-    const validation = validateAutohandConfigUpdate(updated)
+    const merged = { ...config, ...updates }
+
+    // Keep provider_details.model in sync with the top-level model field
+    if ('model' in updates && merged.provider_details) {
+      merged.provider_details = { ...merged.provider_details, model: updates.model }
+    }
+
+    const validation = validateAutohandConfigUpdate(merged)
     if (!validation.success) {
       setSaveError(`Invalid Autohand configuration: ${validation.error}`)
       return
@@ -297,22 +303,9 @@ export function AutohandSettingsTab({ workingDir }: AutohandSettingsTabProps) {
               className="h-8 text-sm"
             />
           </div>
-          <div>
-            <Label className="text-xs">Provider Model Override</Label>
-            <Input
-              value={providerDetails?.model || ''}
-              onChange={(e) =>
-                updateConfig({
-                  provider_details: {
-                    ...providerDetails,
-                    model: e.target.value || undefined,
-                  },
-                })
-              }
-              placeholder="model name"
-              className="h-8 text-sm"
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">
+            The model used by the provider is set in the &quot;Model&quot; field above.
+          </p>
         </CollapsibleContent>
       </Collapsible>
 
