@@ -850,70 +850,49 @@ pub async fn execute_persistent_cli_command(
 
         let dangerous_bypass = dangerousBypass.unwrap_or(false);
 
+        // Only try the Codex SDK runner when the transport is NOT set to a
+        // protocol mode (acp/json-rpc).  When the user selects ACP transport
+        // we skip the SDK and let the AcpExecutor handle it.
         if agent_name.eq_ignore_ascii_case("codex") {
             let all_agent_settings = load_all_agent_settings(app_clone.clone())
                 .await
                 .unwrap_or_else(|_| AllAgentSettings::default());
 
-            let current_agent_settings = all_agent_settings.codex.clone();
-            let parsed_execution_mode = executionMode.as_deref().and_then(ExecutionMode::from_str);
-            let prefs = build_codex_thread_prefs(parsed_execution_mode, dangerous_bypass);
-            let model = current_agent_settings.model.clone();
+            let codex_transport = all_agent_settings.codex.transport.as_deref();
+            let use_sdk = !matches!(codex_transport, Some("acp") | Some("json-rpc"));
 
-            match try_spawn_codex_sdk(
-                app_clone.clone(),
-                session_id_clone.clone(),
-                actual_message.clone(),
-                working_dir.clone(),
-                prefs,
-                model,
-            )
-            .await
-            {
-                Ok(()) => {
-                    return;
-                }
-                Err(err) => {
-                    let fallback_chunk = StreamChunk {
-                        session_id: session_id_clone.clone(),
-                        content: format!(
-                            "ℹ️ Codex SDK runner unavailable ({}). Falling back to CLI…\n",
-                            err
-                        ),
-                        finished: false,
-                    };
-                    let _ = app_clone.emit("cli-stream", fallback_chunk);
+            if use_sdk {
+                let current_agent_settings = all_agent_settings.codex.clone();
+                let parsed_execution_mode = executionMode.as_deref().and_then(ExecutionMode::from_str);
+                let prefs = build_codex_thread_prefs(parsed_execution_mode, dangerous_bypass);
+                let model = current_agent_settings.model.clone();
+
+                match try_spawn_codex_sdk(
+                    app_clone.clone(),
+                    session_id_clone.clone(),
+                    actual_message.clone(),
+                    working_dir.clone(),
+                    prefs,
+                    model,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        return;
+                    }
+                    Err(err) => {
+                        let fallback_chunk = StreamChunk {
+                            session_id: session_id_clone.clone(),
+                            content: format!(
+                                "ℹ️ Codex SDK runner unavailable ({}). Falling back to CLI…\n",
+                                err
+                            ),
+                            finished: false,
+                        };
+                        let _ = app_clone.emit("cli-stream", fallback_chunk);
+                    }
                 }
             }
-        }
-
-        // Check if command is available
-        if !check_command_available(&agent_name).await {
-            let error_chunk = StreamChunk {
-                session_id: session_id_clone.clone(),
-                content: format!(
-                    "❌ Command '{}' not found. Please install it first:\n\n",
-                    agent_name
-                ),
-                finished: false,
-            };
-            let _ = app_clone.emit("cli-stream", error_chunk);
-
-            // Provide installation instructions
-            let install_instructions = match agent_name.as_str() {
-                "claude" => "Install Claude CLI: https://docs.anthropic.com/claude/docs/cli\n",
-                "codex" => "Install GitHub Copilot CLI: https://github.com/features/copilot\n",
-                "gemini" => "Install Gemini CLI: https://cloud.google.com/sdk/docs/install\n",
-                _ => "Please check the official documentation for installation instructions.\n",
-            };
-
-            let instruction_chunk = StreamChunk {
-                session_id: session_id_clone,
-                content: install_instructions.to_string(),
-                finished: true,
-            };
-            let _ = app_clone.emit("cli-stream", instruction_chunk);
-            return;
         }
 
         // Load agent settings
@@ -929,9 +908,72 @@ pub async fn execute_persistent_cli_command(
         };
 
         // Create executor using factory (protocol-aware)
+        // Honour the per-agent transport override from settings when present.
+        // resolved_binary_path: the actual binary to spawn (may differ from agent_name for sidecars).
+        // agent_name is preserved for session management, UI display, and lookups.
+        let mut resolved_binary_path = agent_name.clone();
+        let mut sidecar_resolved = false;
+
         let cache = protocol_cache_arc.lock().await;
-        let mut executor = ExecutorFactory::create(&agent_name, &cache);
+        let mut executor = match agent_settings.transport.as_deref() {
+            Some("json-rpc") => {
+                let flag = cache.get(&agent_name).and_then(|e| e.flag_variant.clone());
+                Box::new(crate::services::executors::rpc_executor::RpcExecutor::new(flag))
+                    as Box<dyn AgentExecutor>
+            }
+            Some("acp") => {
+                let flag = cache.get(&agent_name).and_then(|e| e.flag_variant.clone());
+                // For codex, resolve "codex-acp" sidecar binary (bundled or PATH).
+                if agent_name.eq_ignore_ascii_case("codex") {
+                    match crate::services::sidecar::resolve_sidecar(
+                        "codex-acp",
+                        crate::services::sidecar::exe_dir().as_deref(),
+                    ) {
+                        Ok(path) => {
+                            resolved_binary_path = path.to_string_lossy().to_string();
+                            sidecar_resolved = true;
+                        }
+                        Err(_) => {
+                            // Fall through with "codex-acp" as bare name
+                            // so the executor can try which::which or produce a clear error.
+                            resolved_binary_path = "codex-acp".to_string();
+                        }
+                    }
+                }
+                Box::new(crate::services::executors::acp_executor::AcpExecutor::new(flag))
+                    as Box<dyn AgentExecutor>
+            }
+            _ => ExecutorFactory::create(&agent_name, &cache),
+        };
         drop(cache);
+
+        // Skip PATH check when sidecar was resolved (binary is bundled, not in PATH)
+        if !sidecar_resolved && !check_command_available(&agent_name).await {
+            let error_chunk = StreamChunk {
+                session_id: session_id_clone.clone(),
+                content: format!(
+                    "❌ Command '{}' not found. Please install it first:\n\n",
+                    agent_name
+                ),
+                finished: false,
+            };
+            let _ = app_clone.emit("cli-stream", error_chunk);
+
+            let install_instructions = match agent_name.as_str() {
+                "claude" => "Install Claude CLI: https://docs.anthropic.com/claude/docs/cli\n",
+                "codex" => "Install GitHub Copilot CLI: https://github.com/features/copilot\n",
+                "gemini" => "Install Gemini CLI: https://cloud.google.com/sdk/docs/install\n",
+                _ => "Please check the official documentation for installation instructions.\n",
+            };
+
+            let instruction_chunk = StreamChunk {
+                session_id: session_id_clone,
+                content: install_instructions.to_string(),
+                finished: true,
+            };
+            let _ = app_clone.emit("cli-stream", instruction_chunk);
+            return;
+        }
 
         let is_protocol = executor.protocol().is_some();
 
@@ -974,7 +1016,7 @@ pub async fn execute_persistent_cli_command(
         let result = executor.execute(
             &app_clone,
             &session_id_clone,
-            &agent_name,
+            &resolved_binary_path,
             &actual_message,
             wd,
             &agent_settings,
