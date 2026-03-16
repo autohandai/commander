@@ -1,5 +1,5 @@
 use crate::models::indexer::IndexedSession;
-use crate::services::indexer::scanner::{AgentScanner, DiscoveredFile, ParseResult};
+use crate::services::indexer::scanner::{AgentScanner, DiscoveredFile, ParseResult, truncate_summary};
 use async_trait::async_trait;
 use std::path::PathBuf;
 
@@ -62,6 +62,7 @@ impl AgentScanner for CodexScanner {
         let mut cwd: Option<String> = None;
         let mut model: Option<String> = None;
         let mut message_count: u32 = 0;
+        let mut summary: Option<String> = None;
 
         for line in content.lines() {
             if line.trim().is_empty() {
@@ -89,6 +90,14 @@ impl AgentScanner for CodexScanner {
                             let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("");
                             if role == "user" || role == "assistant" {
                                 message_count += 1;
+                            }
+                            // Extract first user message as summary
+                            if summary.is_none() && role == "user" {
+                                if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
+                                    if let Some(text) = content_arr.iter().find_map(|b| b["text"].as_str()) {
+                                        summary = Some(truncate_summary(text));
+                                    }
+                                }
                             }
                             // Extract model from assistant responses
                             if model.is_none() {
@@ -136,6 +145,7 @@ impl AgentScanner for CodexScanner {
             message_count,
             source_file: path.to_string(),
             source_file_mtime: file_mtime,
+            summary,
         }];
 
         Ok(ParseResult { sessions })

@@ -53,6 +53,7 @@ impl IndexDb {
                 message_count INTEGER NOT NULL DEFAULT 0,
                 source_file TEXT NOT NULL,
                 source_file_mtime INTEGER NOT NULL DEFAULT 0,
+                summary TEXT,
                 UNIQUE(agent_id, original_id)
             );
 
@@ -87,6 +88,24 @@ impl IndexDb {
         )
         .map_err(|e| format!("Failed to set schema version: {}", e))?;
 
+        // Migration: add summary column if missing (v2)
+        let has_summary: bool = conn
+            .prepare("SELECT summary FROM sessions LIMIT 0")
+            .is_ok();
+        if !has_summary {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN summary TEXT;")
+                .map_err(|e| format!("Failed to add summary column: {}", e))?;
+        }
+
+        // Force re-scan of sessions that are missing a summary so the indexer
+        // can populate the field from the source files.
+        conn.execute_batch(
+            "DELETE FROM scan_metadata WHERE source_file IN (
+                SELECT DISTINCT source_file FROM sessions WHERE summary IS NULL
+            )",
+        )
+        .map_err(|e| format!("Failed to clear stale scan records: {}", e))?;
+
         Ok(())
     }
 
@@ -112,8 +131,8 @@ impl IndexDb {
     pub fn upsert_session(&self, session: &IndexedSession) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (agent_id, original_id, source_agent, session_start, session_end, project_path, model, message_count, source_file, source_file_mtime)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO sessions (agent_id, original_id, source_agent, session_start, session_end, project_path, model, message_count, source_file, source_file_mtime, summary)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(agent_id, original_id) DO UPDATE SET
                 session_start = excluded.session_start,
                 session_end = excluded.session_end,
@@ -121,7 +140,8 @@ impl IndexDb {
                 model = excluded.model,
                 message_count = excluded.message_count,
                 source_file = excluded.source_file,
-                source_file_mtime = excluded.source_file_mtime",
+                source_file_mtime = excluded.source_file_mtime,
+                summary = excluded.summary",
             params![
                 session.agent_id,
                 session.original_id,
@@ -133,6 +153,7 @@ impl IndexDb {
                 session.message_count,
                 session.source_file,
                 session.source_file_mtime,
+                session.summary,
             ],
         )
         .map_err(|e| format!("Failed to upsert session: {}", e))?;
@@ -189,7 +210,7 @@ impl IndexDb {
         let mut stmt = conn
             .prepare(
                 "SELECT id, agent_id, original_id, source_agent, session_start, session_end,
-                        project_path, model, message_count, source_file, source_file_mtime
+                        project_path, model, message_count, source_file, source_file_mtime, summary
                  FROM sessions
                  WHERE (?1 IS NULL OR project_path = ?1)
                    AND (?2 IS NULL OR agent_id = ?2)
@@ -212,6 +233,7 @@ impl IndexDb {
                     message_count: row.get(8)?,
                     source_file: row.get(9)?,
                     source_file_mtime: row.get(10)?,
+                    summary: row.get(11)?,
                 })
             })
             .map_err(|e| format!("Query error: {}", e))?;
@@ -513,6 +535,7 @@ mod tests {
             message_count: 42,
             source_file: "/home/.claude/projects/test.jsonl".into(),
             source_file_mtime: 1709600000,
+            summary: None,
         };
         db.upsert_session(&session).unwrap();
         assert_eq!(db.get_total_sessions().unwrap(), 1);
@@ -568,6 +591,7 @@ mod tests {
                 message_count: 10,
                 source_file: format!("/file-{}.jsonl", i),
                 source_file_mtime: 0,
+                summary: None,
             })
             .unwrap();
         }
@@ -583,6 +607,7 @@ mod tests {
             message_count: 5,
             source_file: "/codex-file.jsonl".into(),
             source_file_mtime: 0,
+            summary: None,
         })
         .unwrap();
 
@@ -608,6 +633,7 @@ mod tests {
                 message_count: 10,
                 source_file: format!("/file-{}.jsonl", i),
                 source_file_mtime: 0,
+                summary: None,
             })
             .unwrap();
         }
@@ -623,6 +649,7 @@ mod tests {
             message_count: 5,
             source_file: "/other-file.jsonl".into(),
             source_file_mtime: 0,
+            summary: None,
         })
         .unwrap();
 
@@ -661,6 +688,7 @@ mod tests {
                 message_count: 1,
                 source_file: format!("/pag-file-{}.jsonl", i),
                 source_file_mtime: 0,
+                summary: None,
             })
             .unwrap();
         }

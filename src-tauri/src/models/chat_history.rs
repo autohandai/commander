@@ -209,7 +209,7 @@ impl ChatSession {
             agent: idx.agent_id.clone(),
             branch: None,
             message_count: idx.message_count as usize,
-            summary: format!("{} messages", idx.message_count),
+            summary: idx.summary.clone().unwrap_or_else(|| format!("{} messages", idx.message_count)),
             archived: false,
             custom_title: None,
             ai_summary: None,

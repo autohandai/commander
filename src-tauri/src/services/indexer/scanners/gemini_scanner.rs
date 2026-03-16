@@ -94,6 +94,7 @@ impl AgentScanner for GeminiScanner {
             message_count: 1, // We know it's a conversation but can't parse protobuf
             source_file: path.to_string(),
             source_file_mtime: file_mtime,
+            summary: None, // Protobuf files can't be parsed for summary
         };
 
         Ok(ParseResult {

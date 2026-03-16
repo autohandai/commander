@@ -1,5 +1,5 @@
 use crate::models::indexer::IndexedSession;
-use crate::services::indexer::scanner::{AgentScanner, DiscoveredFile, ParseResult};
+use crate::services::indexer::scanner::{AgentScanner, DiscoveredFile, ParseResult, truncate_summary};
 use async_trait::async_trait;
 use std::path::PathBuf;
 
@@ -126,6 +126,25 @@ impl AgentScanner for AutohandScanner {
             .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
             .unwrap_or(0);
 
+        // Extract first user message as summary from conversation.jsonl
+        let summary = {
+            let parent = std::path::Path::new(path).parent();
+            let conv_path = parent.map(|p| p.join("conversation.jsonl"));
+            conv_path
+                .and_then(|cp| std::fs::read_to_string(&cp).ok())
+                .and_then(|content| {
+                    content.lines().find_map(|line| {
+                        let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+                        if v["role"].as_str() == Some("user") {
+                            let text = v["content"].as_str()?;
+                            Some(truncate_summary(text))
+                        } else {
+                            None
+                        }
+                    })
+                })
+        };
+
         let session = IndexedSession {
             id: 0,
             agent_id: "autohand".into(),
@@ -138,6 +157,7 @@ impl AgentScanner for AutohandScanner {
             message_count,
             source_file: path.to_string(),
             source_file_mtime: file_mtime,
+            summary,
         };
 
         Ok(ParseResult {

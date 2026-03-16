@@ -1,5 +1,5 @@
 use crate::models::indexer::{DailyAgentStats, IndexedSession};
-use crate::services::indexer::scanner::{AgentScanner, DiscoveredFile, ParseResult};
+use crate::services::indexer::scanner::{AgentScanner, DiscoveredFile, ParseResult, truncate_summary};
 use async_trait::async_trait;
 use std::path::PathBuf;
 
@@ -116,18 +116,53 @@ impl AgentScanner for ClaudeScanner {
         let mut session_end: Option<i64> = None;
         let mut model: Option<String> = None;
         let mut cwd: Option<String> = None;
+        let mut summary: Option<String> = None;
 
         for line in content.lines() {
             if line.trim().is_empty() {
                 continue;
             }
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                let msg_type = val.get("type").and_then(|t| t.as_str());
                 // Count messages
-                if val.get("type").and_then(|t| t.as_str()) == Some("human")
-                    || val.get("type").and_then(|t| t.as_str()) == Some("assistant")
+                if msg_type == Some("human")
+                    || msg_type == Some("assistant")
+                    || msg_type == Some("user")
                     || val.get("role").and_then(|r| r.as_str()).is_some()
                 {
                     message_count += 1;
+                }
+
+                // Extract first user message as summary
+                if summary.is_none()
+                    && (msg_type == Some("human") || msg_type == Some("user"))
+                {
+                    // Content may be string or array of {type:"text", text:"..."} blocks
+                    let content_val = val
+                        .get("message")
+                        .and_then(|m| m.get("content"))
+                        .or_else(|| val.get("content"));
+                    if let Some(cv) = content_val {
+                        let text = match cv {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Array(arr) => {
+                                arr.iter()
+                                    .filter_map(|b| {
+                                        if b["type"].as_str() == Some("text") {
+                                            b["text"].as_str().map(String::from)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .next()
+                                    .unwrap_or_default()
+                            }
+                            _ => String::new(),
+                        };
+                        if !text.is_empty() {
+                            summary = Some(truncate_summary(&text));
+                        }
+                    }
                 }
 
                 // Extract timestamp
@@ -181,6 +216,7 @@ impl AgentScanner for ClaudeScanner {
             message_count,
             source_file: path.to_string(),
             source_file_mtime: file_mtime,
+            summary,
         }];
 
         Ok(ParseResult { sessions })

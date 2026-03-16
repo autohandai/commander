@@ -15,6 +15,8 @@ pub struct IndexedSession {
     pub message_count: u32,
     pub source_file: String,
     pub source_file_mtime: i64,
+    /// First user message summary (truncated)
+    pub summary: Option<String>,
 }
 
 /// Pre-aggregated daily stats per agent

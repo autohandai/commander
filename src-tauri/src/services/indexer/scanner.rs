@@ -41,3 +41,22 @@ pub trait AgentScanner: Send + Sync {
         None
     }
 }
+
+/// Truncate a message to ~100 chars at a word boundary for use as a session summary.
+pub fn truncate_summary(content: &str) -> String {
+    // Take first line only, strip system/XML tags
+    let first_line = content.lines().next().unwrap_or(content);
+    let clean = first_line.trim();
+    if clean.is_empty() {
+        return String::new();
+    }
+    if clean.len() <= 100 {
+        return clean.to_string();
+    }
+    let truncated = &clean[..100];
+    if let Some(last_space) = truncated.rfind(' ') {
+        format!("{}...", &truncated[..last_space])
+    } else {
+        format!("{}...", truncated)
+    }
+}
