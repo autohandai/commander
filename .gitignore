@@ -36,3 +36,6 @@ user_prompts/
 CLAUDE.md
 CHANGE_LOG.md
 .worktrees/
+
+# Bundled sidecar binaries (downloaded at build time)
+src-tauri/binaries/

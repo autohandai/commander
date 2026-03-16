@@ -20,3 +20,4 @@ pub mod prompt_service;
 pub mod recent_projects;
 pub mod project_sidebar_actions;
 pub mod session_manager_tests;
+pub mod sidecar;

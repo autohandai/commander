@@ -17,3 +17,4 @@ pub mod session_manager;
 pub mod sub_agent_service;
 pub mod autohand;
 pub mod docs_service;
+pub mod sidecar;
