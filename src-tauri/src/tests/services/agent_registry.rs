@@ -18,6 +18,7 @@ mod tests {
             debug_mode: false,
             max_tokens: None,
             temperature: None,
+            transport: None,
         }
     }
 

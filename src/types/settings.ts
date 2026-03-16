@@ -64,6 +64,7 @@ export interface AgentConfig {
   sandbox_mode: boolean;
   auto_approval: boolean;
   debug_mode: boolean;
+  transport?: 'cli-flags' | 'json-rpc' | 'acp';
 }
 
 export interface AllAgentSettings {

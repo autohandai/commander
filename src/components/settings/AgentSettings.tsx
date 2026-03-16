@@ -521,6 +521,7 @@ const SafeAgentSettings = ({
             const isEnabled = tempAgentSettings?.[profile.id] !== false
             const modelOptions = agentModels[profile.id] || []
             const isFetchingModels = fetchingAgentModels[profile.id] || false
+            const effectiveTransport = (settings as GenericAgentSettings & { transport?: AgentTransportKind }).transport || profile.transport
 
             return (
               <TabsContent key={profile.id} value={profile.id} className="mt-0 space-y-5">
@@ -529,9 +530,21 @@ const SafeAgentSettings = ({
                   description={profile.description}
                   actions={
                     <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                        {profile.transport}
-                      </Badge>
+                      <Select
+                        value={effectiveTransport}
+                        onValueChange={(value: AgentTransportKind) => onUpdateAgentSetting(profile.id, 'transport', value)}
+                      >
+                        <SelectTrigger className="h-6 w-[110px] rounded-full border px-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground" aria-label="Transport">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TRANSPORT_OPTIONS.filter(o => o.value !== 'slash-commands').map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Switch checked={isEnabled} onCheckedChange={(checked) => onToggleAgent(profile.id, checked)} aria-label={`${profile.label} enabled`} />
                     </div>
                   }
@@ -543,12 +556,12 @@ const SafeAgentSettings = ({
                     </span>
                     <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
                       <Wand2 className="h-3.5 w-3.5" />
-                      {profile.promptMode}
+                      {transportToPromptMode(effectiveTransport)}
                     </span>
-                    {profile.protocol ? (
+                    {(effectiveTransport === 'json-rpc' || effectiveTransport === 'acp') ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
                         <Settings2 className="h-3.5 w-3.5" />
-                        {profile.protocol}
+                        {effectiveTransport === 'acp' ? 'acp' : 'rpc'}
                       </span>
                     ) : null}
                   </div>

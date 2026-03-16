@@ -45,6 +45,10 @@ pub struct AgentSettings {
     pub debug_mode: bool,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
+    /// Transport override: "cli-flags", "json-rpc", or "acp".
+    /// When None, the built-in default is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
 }
 
 impl Default for AgentSettings {
@@ -59,6 +63,7 @@ impl Default for AgentSettings {
             debug_mode: false,
             max_tokens: None,
             temperature: None,
+            transport: None,
         }
     }
 }
