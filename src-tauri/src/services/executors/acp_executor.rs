@@ -237,10 +237,23 @@ impl AgentExecutor for AcpExecutor {
         _settings: &AgentSettings,
         resume_session_id: Option<&str>,
     ) -> Result<(), CommanderError> {
-        // 1. Resolve agent binary path
-        let agent_path = which::which(agent).map_err(|e| {
-            CommanderError::command(agent, None, format!("agent not found in PATH: {}", e))
-        })?;
+        // 1. Resolve agent binary path.
+        // The caller may pass an absolute path (pre-resolved via sidecar module)
+        // or a bare command name (resolved via PATH).
+        let agent_path = {
+            let candidate = std::path::PathBuf::from(agent);
+            if candidate.is_absolute() && candidate.exists() {
+                candidate
+            } else {
+                which::which(agent).map_err(|e| {
+                    CommanderError::command(
+                        agent,
+                        None,
+                        format!("agent not found in PATH: {}", e),
+                    )
+                })?
+            }
+        };
 
         // 2. Build spawn args
         let mut args: Vec<String> = Vec::new();
