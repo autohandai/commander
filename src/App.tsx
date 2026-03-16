@@ -39,9 +39,11 @@ interface ProjectViewProps {
   onExecutingChange?: (projectPath: string, sessionIds: string[]) => void
   pendingChatPrompt?: string | null
   onPendingChatPromptConsumed?: () => void
+  loadedSession?: { messages: Array<{ id: string; role: string; content: string; timestamp: number; agent: string }>; sessionId: string } | null
+  onLoadedSessionConsumed?: () => void
 }
 
-function ProjectView({ project, selectedAgent, activeTab, onTabChange, onExecutingChange, pendingChatPrompt, onPendingChatPromptConsumed }: ProjectViewProps) {
+function ProjectView({ project, selectedAgent, activeTab, onTabChange, onExecutingChange, pendingChatPrompt, onPendingChatPromptConsumed, loadedSession, onLoadedSessionConsumed }: ProjectViewProps) {
   const handleTabChange = React.useCallback((value: string) => {
     onTabChange(value)
   }, [onTabChange])
@@ -57,6 +59,8 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange, onExecuti
               project={project}
               onExecutingChange={onExecutingChange}
               pendingPrompt={pendingChatPrompt}
+              loadedSession={loadedSession}
+              onLoadedSessionConsumed={onLoadedSessionConsumed}
               onPendingPromptConsumed={onPendingChatPromptConsumed}
             />
           </TabsContent>
@@ -148,6 +152,7 @@ function AppContent() {
   const [pendingChatPrompt, setPendingChatPrompt] = useState<string | null>(null)
   const [activeDocSlug, setActiveDocSlug] = useState<string | null>(null)
   const [chatSidebarOpen, setChatSidebarOpen] = useState(false)
+  const [loadedSession, setLoadedSession] = useState<{ messages: Array<{ id: string; role: string; content: string; timestamp: number; agent: string }>; sessionId: string } | null>(null)
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
   const { projects: allRecentProjects } = useRecentProjects()
   const [homeDir, setHomeDir] = useState<string>("")
@@ -668,6 +673,8 @@ function AppContent() {
               onExecutingChange={handleExecutingChange}
               pendingChatPrompt={pendingChatPrompt}
               onPendingChatPromptConsumed={() => setPendingChatPrompt(null)}
+              loadedSession={loadedSession}
+              onLoadedSessionConsumed={() => setLoadedSession(null)}
             />
           ) : (
             <ScrollArea className="flex-1">
@@ -721,12 +728,11 @@ function AppContent() {
           <ChatHistoryManager
             projectPath={currentProject.path}
             onLoadSession={(messages, sessionId) => {
-              // Session loading will be wired when ChatInterface gains session support
-              console.log('Load session:', sessionId, messages.length, 'messages')
+              setLoadedSession({ messages, sessionId })
+              setActiveTab('chat')
             }}
             onNewChat={() => {
-              // New chat will be wired when ChatInterface gains session support
-              console.log('New chat requested')
+              setLoadedSession(null)
             }}
             onSidebarOverride={setChatSidebarOpen}
           />

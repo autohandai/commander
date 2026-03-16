@@ -44,6 +44,11 @@ import { generateId } from '@/components/chat/utils/id';
 
 // CLISession and SessionStatus moved to chat/types
 
+interface LoadedSessionData {
+  messages: Array<{ id: string; role: string; content: string; timestamp: number; agent: string }>;
+  sessionId: string;
+}
+
 interface ChatInterfaceProps {
   isOpen: boolean;
   selectedAgent?: string;
@@ -51,6 +56,8 @@ interface ChatInterfaceProps {
   onExecutingChange?: (projectPath: string, sessionIds: string[]) => void;
   pendingPrompt?: string | null;
   onPendingPromptConsumed?: () => void;
+  loadedSession?: LoadedSessionData | null;
+  onLoadedSessionConsumed?: () => void;
 }
 
 interface AgentSettings {
@@ -90,7 +97,7 @@ function normalizeProjectPath(rawPath?: string): string | undefined {
 }
 
 
-export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChange, pendingPrompt, onPendingPromptConsumed }: ChatInterfaceProps) {
+export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChange, pendingPrompt, onPendingPromptConsumed, loadedSession, onLoadedSessionConsumed }: ChatInterfaceProps) {
   const normalizedProjectPath = React.useMemo(
     () => normalizeProjectPath(project?.path),
     [project?.path]
@@ -244,6 +251,23 @@ export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChang
     },
     [clampMessages]
   );
+
+  // Load historical session messages when a session is selected from chat history palette
+  useEffect(() => {
+    if (!loadedSession) return;
+    const historicalMessages: ChatMessage[] = loadedSession.messages.map((msg) => ({
+      id: msg.id,
+      content: msg.content,
+      role: msg.role as 'user' | 'assistant',
+      timestamp: msg.timestamp,
+      agent: msg.agent,
+      isStreaming: false,
+    }));
+    // Clear active conversation and replace messages
+    activeConversationRef.current = null;
+    setMessages(historicalMessages);
+    onLoadedSessionConsumed?.();
+  }, [loadedSession, setMessages, onLoadedSessionConsumed]);
 
   // Utilities to normalize agent id and check enablement live in chat/agents
 
