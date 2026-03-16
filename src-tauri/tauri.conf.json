@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "ai.autohand.commander",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bash src-tauri/scripts/download-codex-acp.sh; bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "VITE_SKIP_TYPE_CHECK=1 bun vite build",
+    "beforeBuildCommand": "bash src-tauri/scripts/download-codex-acp.sh && VITE_SKIP_TYPE_CHECK=1 bun vite build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -50,6 +50,9 @@
     ],
     "resources": [
       "cli/commander"
+    ],
+    "externalBin": [
+      "binaries/codex-acp"
     ]
   }
 }
