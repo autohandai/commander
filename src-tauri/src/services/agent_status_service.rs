@@ -186,6 +186,20 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 }
             }
 
+            // Sidecar fallback: for codex, check if codex-acp is bundled
+            if !available && definition.id == "codex" {
+                if crate::services::sidecar::resolve_sidecar(
+                    "codex-acp",
+                    crate::services::sidecar::exe_dir().as_deref(),
+                )
+                .is_ok()
+                {
+                    available = true;
+                    command_version = Some("codex-acp (bundled)".to_string());
+                    error_message = None;
+                }
+            }
+
             let installed_semver = package_semver.clone().or(command_semver.clone());
 
             let installed_version = match (package_version.clone(), command_version.clone()) {

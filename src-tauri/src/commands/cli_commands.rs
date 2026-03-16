@@ -948,7 +948,7 @@ pub async fn execute_persistent_cli_command(
         drop(cache);
 
         // Skip PATH check when sidecar was resolved (binary is bundled, not in PATH)
-        if !sidecar_resolved && !check_command_available(&agent_name).await {
+        if !sidecar_resolved && !check_command_available(&resolved_binary_path).await {
             let error_chunk = StreamChunk {
                 session_id: session_id_clone.clone(),
                 content: format!(
