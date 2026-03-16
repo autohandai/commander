@@ -195,8 +195,18 @@ impl<P: AgentProbe> AgentStatusService<P> {
                 .is_ok()
                 {
                     available = true;
+                    upgrade_available = false;
                     command_version = Some("codex-acp (bundled)".to_string());
                     error_message = None;
+                    // codex-acp is inherently ACP — skip protocol probing and set cache directly.
+                    self.protocol_cache.set(
+                        definition.id,
+                        ProtocolCacheEntry {
+                            protocol: Some(crate::models::protocol::ProtocolMode::Acp),
+                            agent_version: "codex-acp (bundled)".to_string(),
+                            flag_variant: None,
+                        },
+                    );
                 }
             }
 

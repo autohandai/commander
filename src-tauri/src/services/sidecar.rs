@@ -11,7 +11,7 @@ pub fn resolve_sidecar(name: &str, exe_dir: Option<&Path>) -> Result<PathBuf, St
     // 1. Check next to main executable (bundled sidecar)
     if let Some(dir) = exe_dir {
         let sidecar = dir.join(name);
-        if sidecar.exists() {
+        if sidecar.is_file() {
             return Ok(sidecar);
         }
     }
