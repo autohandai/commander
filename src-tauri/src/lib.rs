@@ -494,11 +494,10 @@ pub fn run() {
                 }
             });
 
-            // Start monitoring AI agents on app startup
+            // Start monitoring AI agents on app startup (shares protocol cache)
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = monitor_ai_agents(app_handle).await;
-            });
+            let protocol_cache = app.state::<Arc<TokioMutex<crate::services::agent_status_service::ProtocolCache>>>().inner().clone();
+            crate::commands::llm_commands::start_agent_monitor(app_handle, protocol_cache);
 
             // Start session cleanup task
             tauri::async_runtime::spawn(async move {

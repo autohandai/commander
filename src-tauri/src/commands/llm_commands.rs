@@ -3,9 +3,13 @@ use std::collections::HashMap;
 use tauri::Emitter;
 use tokio::process::Command;
 
+use std::sync::Arc;
+
+use tokio::sync::Mutex as TokioMutex;
+
 use crate::commands::settings_commands::{load_agent_settings, load_all_agent_settings};
 use crate::models::*;
-use crate::services::agent_status_service::AgentStatusService;
+use crate::services::agent_status_service::{AgentStatusService, ProtocolCache};
 use crate::services::llm_service;
 
 // Check if a command is available in the system
@@ -340,8 +344,11 @@ pub async fn fetch_agent_models(agent: String) -> Result<Vec<String>, String> {
     }
 }
 
-#[tauri::command]
-pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, String> {
+/// Internal: check agents using a shared protocol cache to avoid re-probing.
+async fn check_ai_agents_with_shared_cache(
+    app: tauri::AppHandle,
+    cache_arc: &Arc<TokioMutex<ProtocolCache>>,
+) -> Result<AgentStatus, String> {
     let enabled_agents = load_agent_settings(app.clone()).await.unwrap_or_else(|_| {
         HashMap::from([
             ("autohand".to_string(), true),
@@ -352,15 +359,36 @@ pub async fn check_ai_agents(app: tauri::AppHandle) -> Result<AgentStatus, Strin
         ])
     });
 
-    // Load custom agents from persisted settings so they appear in the status bar
     let custom_agents = load_all_agent_settings(app)
         .await
         .map(|s| s.custom_agents)
         .unwrap_or_default();
 
-    let mut service = AgentStatusService::new();
-    service.check_agents_with_custom(&enabled_agents, &custom_agents)
-        .await
+    // Take the cache out, run the check, then put it back.
+    // This avoids holding the lock during the entire (slow) probe cycle.
+    let cache = {
+        let mut guard = cache_arc.lock().await;
+        std::mem::take(&mut *guard)
+    };
+
+    let mut service = AgentStatusService::with_cache(cache);
+    let result = service.check_agents_with_custom(&enabled_agents, &custom_agents).await;
+
+    // Persist probed results back into the shared cache
+    {
+        let mut guard = cache_arc.lock().await;
+        *guard = service.into_cache();
+    }
+
+    result
+}
+
+#[tauri::command]
+pub async fn check_ai_agents(
+    app: tauri::AppHandle,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<AgentStatus, String> {
+    check_ai_agents_with_shared_cache(app, &protocol_cache).await
 }
 
 #[tauri::command]
@@ -422,24 +450,24 @@ pub async fn generate_plan(prompt: String, system_prompt: String) -> Result<Stri
     Ok(response.to_string())
 }
 
-#[tauri::command]
-pub async fn monitor_ai_agents(app: tauri::AppHandle) -> Result<(), String> {
-    // Start a background task to monitor agent status
-    let app_clone = app.clone();
+/// Start monitoring agent status in a background loop.
+/// Called from both the Tauri command and from app setup.
+pub fn start_agent_monitor(app: tauri::AppHandle, cache_arc: Arc<TokioMutex<ProtocolCache>>) {
     tokio::spawn(async move {
         loop {
-            if let Ok(status) = check_ai_agents(app_clone.clone()).await {
-                // Emit the status update to the frontend
-                let _ = app_clone.emit("ai-agent-status", &status);
+            if let Ok(status) = check_ai_agents_with_shared_cache(
+                app.clone(),
+                &cache_arc,
+            ).await {
+                let _ = app.emit("ai-agent-status", &status);
 
-                // Update tray menu with current agent statuses
                 let agents: Vec<(String, bool)> = status
                     .agents
                     .iter()
                     .map(|a| (a.display_name.clone(), a.available))
                     .collect();
-                if let Ok(menu) = crate::build_tray_menu(&app_clone, &agents) {
-                    if let Some(tray) = app_clone.tray_by_id("main") {
+                if let Ok(menu) = crate::build_tray_menu(&app, &agents) {
+                    if let Some(tray) = app.tray_by_id("main") {
                         let _ = tray.set_menu(Some(menu));
                     }
                 }
@@ -448,7 +476,14 @@ pub async fn monitor_ai_agents(app: tauri::AppHandle) -> Result<(), String> {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
     });
+}
 
+#[tauri::command]
+pub async fn monitor_ai_agents(
+    app: tauri::AppHandle,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<(), String> {
+    start_agent_monitor(app, Arc::clone(&*protocol_cache));
     Ok(())
 }
 
