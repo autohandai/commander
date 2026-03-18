@@ -164,6 +164,7 @@ export function useChatPersistence({
   debounceMs = 300,
 }: Params) {
   const [isHydrated, setIsHydrated] = useState(false)
+  const [isTransitioning, setIsTransitioning] = useState(false)
   const onRestoreRef = useRef(onRestore)
   const tauriInvokeRef = useRef(tauriInvoke)
   const messagesRef = useRef(messages)
@@ -194,12 +195,20 @@ export function useChatPersistence({
   useEffect(() => {
     let cancelled = false
     const contextKey = `${projectPath ?? ''}::${storageKey ?? ''}`
+    const isFirstHydration = previousContextKeyRef.current === null
     const didSwitchContext =
       previousContextKeyRef.current !== null && previousContextKeyRef.current !== contextKey
     previousContextKeyRef.current = contextKey
 
     isHydratingRef.current = true
-    setIsHydrated(false)
+
+    // SWR: only blank the UI on first mount, not on branch/context switches.
+    // On context switch, keep isHydrated true so messages remain visible (stale-while-revalidate).
+    if (didSwitchContext) {
+      setIsTransitioning(true)
+    } else if (isFirstHydration) {
+      setIsHydrated(false)
+    }
 
     const restore = async () => {
       const initialSignature = signatureFor(messagesRef.current)
@@ -256,6 +265,7 @@ export function useChatPersistence({
           }
           isHydratingRef.current = false
           setIsHydrated(true)
+          setIsTransitioning(false)
           return
         }
 
@@ -267,6 +277,7 @@ export function useChatPersistence({
         }
         isHydratingRef.current = false
         setIsHydrated(true)
+        setIsTransitioning(false)
       }
     }
 
@@ -305,5 +316,5 @@ export function useChatPersistence({
     return () => clearTimeout(timer)
   }, [messages, storageKey, projectPath, debounceMs, isHydrated])
 
-  return { isHydrated }
+  return { isHydrated, isTransitioning }
 }

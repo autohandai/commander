@@ -6,12 +6,18 @@ interface Props {
   children: ReactNode
   fallback?: ReactNode
   onError?: (error: Error, errorInfo: ErrorInfo) => void
+  /** When any value in this array changes, the error state auto-resets.
+   *  This prevents the boundary from being permanently stuck after a
+   *  transient render error (e.g. a streaming message briefly crashing). */
+  resetKeys?: unknown[]
 }
 
 interface State {
   hasError: boolean
   error?: Error
   errorInfo?: ErrorInfo
+  /** Snapshot of resetKeys at the time the error was caught. */
+  prevResetKeys?: unknown[]
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -19,15 +25,31 @@ export class ErrorBoundary extends Component<Props, State> {
     hasError: false
   }
 
-  public static getDerivedStateFromError(error: Error): State {
+  public static getDerivedStateFromError(error: Error): Partial<State> {
     // Update state so the next render will show the fallback UI
     return { hasError: true, error }
   }
 
+  public static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    // Auto-reset: if resetKeys changed since the error was caught, clear the error.
+    if (state.hasError && state.prevResetKeys && props.resetKeys) {
+      const changed = props.resetKeys.length !== state.prevResetKeys.length ||
+        props.resetKeys.some((key, i) => key !== state.prevResetKeys![i])
+      if (changed) {
+        return { hasError: false, error: undefined, errorInfo: undefined, prevResetKeys: undefined }
+      }
+    }
+    return null
+  }
+
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo)
-    this.setState({ error, errorInfo })
-    
+    this.setState({
+      error,
+      errorInfo,
+      prevResetKeys: this.props.resetKeys ? [...this.props.resetKeys] : undefined,
+    })
+
     // Call the optional error handler
     if (this.props.onError) {
       this.props.onError(error, errorInfo)
@@ -35,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleReset = () => {
-    this.setState({ hasError: false, error: undefined, errorInfo: undefined })
+    this.setState({ hasError: false, error: undefined, errorInfo: undefined, prevResetKeys: undefined })
   }
 
   public render() {

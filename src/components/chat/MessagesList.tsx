@@ -161,7 +161,20 @@ function MessageRowInner({
   )
   const normalized = React.useMemo(() => {
     if (!isAssistant) return null
-    return getNormalizer(agentId)(message.content || '', message)
+    try {
+      return getNormalizer(agentId)(message.content || '', message)
+    } catch (err) {
+      console.error('Normalizer error for agent', agentId, err)
+      // Fallback: render raw content as-is rather than crashing the message list
+      return {
+        reasoning: [],
+        workingSteps: [],
+        answer: message.content || '',
+        meta: null,
+        toolEvents: [],
+        isStreaming: message.isStreaming ?? false,
+      }
+    }
   }, [agentId, isAssistant, message])
 
   if (!isAssistant) {
@@ -181,7 +194,9 @@ function MessageRowInner({
     )
   }
 
-  const content = message.content || ''
+  const rawContent = message.content || ''
+  // Treat whitespace-only content as empty so the fallback renders
+  const content = rawContent.trim() ? rawContent : ''
 
   return (
     <div data-testid="chat-message" className="flex gap-3 items-start">
@@ -217,32 +232,40 @@ function MessageRowInner({
             )}
             data-testid={compact ? 'message-compact' : undefined}
           >
-            {!content && message.isStreaming
+            {!content && (message.isStreaming || message.status === 'thinking' || message.status === 'running')
               ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
                     Thinking…
                   </div>
                 )
-              : shouldDefer && !richContentReady
+              : !content && !message.isStreaming
                 ? (
-                    <div className="space-y-3" data-testid="message-rich-fallback">
-                      <div className="max-h-[520px] overflow-hidden whitespace-pre-wrap break-words text-sm text-foreground">
-                        {content}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span>Formatting large response…</span>
-                        <button
-                          type="button"
-                          className="font-medium text-foreground underline underline-offset-4"
-                          onClick={() => setRichContentReady(true)}
-                        >
-                          Render formatted content
-                        </button>
-                      </div>
+                    <div data-testid="empty-response-fallback" className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {message.status === 'failed'
+                        ? 'Response failed — please try again.'
+                        : 'No response received.'}
                     </div>
                   )
-                : normalized && <UnifiedContent content={normalized} />}
+                : shouldDefer && !richContentReady
+                  ? (
+                      <div className="space-y-3" data-testid="message-rich-fallback">
+                        <div className="max-h-[520px] overflow-hidden whitespace-pre-wrap break-words text-sm text-foreground">
+                          {content}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span>Formatting large response…</span>
+                          <button
+                            type="button"
+                            className="font-medium text-foreground underline underline-offset-4"
+                            onClick={() => setRichContentReady(true)}
+                          >
+                            Render formatted content
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  : normalized && <UnifiedContent content={normalized} />}
           </div>
 
           {compact && (

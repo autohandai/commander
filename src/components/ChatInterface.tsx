@@ -102,10 +102,6 @@ export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChang
     () => normalizeProjectPath(project?.path),
     [project?.path]
   );
-  const projectChatContextKey = React.useMemo(() => {
-    const branch = project?.git_branch?.trim()
-    return branch && branch.length > 0 ? branch : 'detached'
-  }, [project?.git_branch])
   const [inputValue, setInputValue] = useState('');
   const [typedPlaceholder, setTypedPlaceholder] = useState('');
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -169,9 +165,12 @@ export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChang
     };
   }, []);
 
+  // Storage key is per-project only (no branch). Including the branch caused
+  // message wipes when background git-status refreshes briefly changed
+  // git_branch, triggering a persistence context-switch that cleared messages.
   const storageKey = React.useMemo(
-    () => normalizedProjectPath ? `chat:${normalizedProjectPath}:${projectChatContextKey}` : null,
-    [normalizedProjectPath, projectChatContextKey]
+    () => normalizedProjectPath ? `chat:${normalizedProjectPath}` : null,
+    [normalizedProjectPath]
   );
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [historyCompacted, setHistoryCompacted] = useState(false);
@@ -217,8 +216,8 @@ export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChang
   }, [agentModeConfig])
 
   const historyLimit = React.useMemo(() => {
-    const limit = settingsMaxHistory ?? 15
-    if (!limit || limit <= 0) return 15
+    const limit = settingsMaxHistory ?? 50
+    if (!limit || limit <= 0) return 50
     return Math.max(1, Math.floor(limit))
   }, [settingsMaxHistory])
 
@@ -462,7 +461,7 @@ export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChang
   }, [isOpen]);
 
   // Persistence (sessionStorage + tauri store)
-  const { isHydrated } = useChatPersistence({
+  const { isHydrated, isTransitioning } = useChatPersistence({
     projectPath: normalizedProjectPath,
     storageKey,
     messages,
@@ -1354,7 +1353,9 @@ Please focus only on this step.`;
                   </div>
                 </div>
               ) : (
+                <div className={`transition-opacity duration-150 ${isTransitioning ? 'opacity-50' : 'opacity-100'}`}>
                 <ErrorBoundary
+                  resetKeys={[messages.length]}
                   onError={(error, errorInfo) => {
                     console.error('Chat messages render error:', error, errorInfo)
                   }}
@@ -1369,6 +1370,7 @@ Please focus only on this step.`;
                   />
                   <div ref={messagesEndRef} />
                 </ErrorBoundary>
+                </div>
               )}
               </div>
           </div>

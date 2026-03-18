@@ -123,7 +123,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<string>('chat')
   const [executingProjectPaths, setExecutingProjectPaths] = useState<Set<string>>(new Set())
   const projectSessionsRef = useRef<Map<string, Set<string>>>(new Map())
-  const projectContextKey = currentProject ? `${currentProject.path}::${currentProject.git_branch ?? 'detached'}` : null
+  const projectContextKey = currentProject?.path ?? null
 
   const handleExecutingChange = React.useCallback((projectPath: string, sessionIds: string[]) => {
     projectSessionsRef.current.set(projectPath, new Set(sessionIds))

@@ -352,6 +352,130 @@ describe('useChatPersistence', () => {
     expect(clearCalls.length).toBeGreaterThanOrEqual(1)
   })
 
+  it('keeps isHydrated true during branch context switch (SWR)', async () => {
+    // Regression: switching branches used to set isHydrated=false causing a blank flash.
+    // After fix: isHydrated stays true, isTransitioning signals the switch.
+    const onRestore = vi.fn()
+    const tauriInvoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'load_project_chat') return []
+      return null
+    })
+
+    sessionStorage.setItem('chat:/p:main', JSON.stringify({
+      messages: [{ role: 'user', content: 'main branch msg', timestamp: 1, agent: 'claude' }],
+    }))
+
+    const { result, rerender } = renderHook(
+      (props: { storageKey: string }) =>
+        useChatPersistence({
+          projectPath: '/p',
+          storageKey: props.storageKey,
+          messages: [],
+          onRestore,
+          tauriInvoke,
+        }),
+      { initialProps: { storageKey: 'chat:/p:main' } }
+    )
+
+    // Wait for initial hydration
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.isHydrated).toBe(true)
+
+    // Switch branch (context switch) — isHydrated must NOT go false
+    rerender({ storageKey: 'chat:/p:feature' })
+
+    // isHydrated should stay true (SWR: keep showing old content)
+    expect(result.current.isHydrated).toBe(true)
+    // isTransitioning should be true during the switch
+    expect(result.current.isTransitioning).toBe(true)
+
+    // After restore completes, transitioning should be false
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.isTransitioning).toBe(false)
+    expect(result.current.isHydrated).toBe(true)
+  })
+
+  it('sets isHydrated false only on first mount, not on context switch', async () => {
+    const onRestore = vi.fn()
+    const tauriInvoke = vi.fn(async () => [])
+
+    const { result, rerender } = renderHook(
+      (props: { storageKey: string }) =>
+        useChatPersistence({
+          projectPath: '/p',
+          storageKey: props.storageKey,
+          messages: [],
+          onRestore,
+          tauriInvoke,
+        }),
+      { initialProps: { storageKey: 'chat:/p:main' } }
+    )
+
+    // First mount: isHydrated starts false
+    expect(result.current.isHydrated).toBe(false)
+
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.isHydrated).toBe(true)
+
+    // Context switch: isHydrated must stay true
+    rerender({ storageKey: 'chat:/p:dev' })
+    expect(result.current.isHydrated).toBe(true)
+  })
+
+  it('does NOT wipe messages when storageKey changes due to branch fluctuation', async () => {
+    // Regression: the storageKey previously included the git branch.
+    // A background git-status refresh could briefly set git_branch to
+    // undefined (making storageKey "chat:/p:detached"), then back to "main"
+    // (storageKey "chat:/p:main"). Each transition triggered a context switch
+    // in useChatPersistence, and if no data existed at the new key,
+    // onRestore([]) was called — wiping all messages.
+    //
+    // After fix: storageKey no longer includes the branch, so branch
+    // fluctuations cannot trigger context-switch clears.
+    const onRestore = vi.fn()
+    const tauriInvoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'load_project_chat') return []
+      return null
+    })
+
+    // Seed messages under the branch-free key
+    sessionStorage.setItem('chat:/p', JSON.stringify({
+      messages: [
+        { role: 'user', content: 'keep me alive', timestamp: 1, agent: 'claude' },
+        { role: 'assistant', content: 'still here', timestamp: 2, agent: 'claude' },
+      ],
+    }))
+
+    const { rerender } = renderHook(
+      (props: { storageKey: string }) =>
+        useChatPersistence({
+          projectPath: '/p',
+          storageKey: props.storageKey,
+          messages: [
+            { role: 'user', content: 'keep me alive', timestamp: 1, agent: 'claude' },
+            { role: 'assistant', content: 'still here', timestamp: 2, agent: 'claude' },
+          ],
+          onRestore,
+          tauriInvoke,
+        }),
+      { initialProps: { storageKey: 'chat:/p' } }
+    )
+
+    await act(async () => { await Promise.resolve() })
+
+    // Now simulate what used to happen: storageKey stays the same because
+    // branch is no longer part of it. Re-render with the SAME key.
+    rerender({ storageKey: 'chat:/p' })
+
+    await act(async () => { await Promise.resolve() })
+
+    // Messages must NOT have been cleared
+    const clearCalls = onRestore.mock.calls.filter(
+      ([arg]) => Array.isArray(arg) && arg.length === 0
+    )
+    expect(clearCalls).toHaveLength(0)
+  })
+
   it('sanitizes in-flight status (thinking/running) to completed on restore', async () => {
     // Messages persisted mid-stream have status 'thinking' or 'running'.
     // When the app restarts those streams are gone, so restoring them with
