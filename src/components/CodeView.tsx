@@ -108,12 +108,8 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
   const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
 
   useEffect(() => {
-    // Reset existing view immediately to avoid showing stale data during project switch
-    if (typeof (fileMention as any).clearFiles === 'function') {
-      (fileMention as any).clearFiles();
-    }
-    setFileTree([]);
-    // Load all files from the project directory
+    // SWR: keep showing the previous file tree while loading new data.
+    // Do NOT clear fileTree or call clearFiles — that causes a blank flash.
     listFiles({
       directory_path: rootPath || project.path,
       max_depth: 10, // Deep traversal for complete file tree
@@ -208,17 +204,9 @@ function FileExplorer({ project, onFileSelect, selectedFile, rootPath }: {
     }
   }, [files]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-32">
-        <p className="text-sm text-muted-foreground">Loading files...</p>
-      </div>
-    );
-  }
-
   return (
     <ScrollArea className="flex-1 min-h-0" data-testid="code-file-explorer-root">
-      <div className="p-2">
+      <div className={`p-2 transition-opacity duration-150 ${loading ? 'opacity-50' : 'opacity-100'}`}>
         <div className="mb-2 px-2">
           <h3 className="font-semibold text-sm">{project.name}</h3>
           <p className="text-xs text-muted-foreground truncate">{project.path}</p>

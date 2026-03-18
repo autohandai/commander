@@ -453,7 +453,7 @@ pub async fn generate_plan(prompt: String, system_prompt: String) -> Result<Stri
 /// Start monitoring agent status in a background loop.
 /// Called from both the Tauri command and from app setup.
 pub fn start_agent_monitor(app: tauri::AppHandle, cache_arc: Arc<TokioMutex<ProtocolCache>>) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             if let Ok(status) = check_ai_agents_with_shared_cache(
                 app.clone(),

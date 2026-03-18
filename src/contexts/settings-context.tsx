@@ -55,7 +55,7 @@ const defaultSettings: AppSettings = {
   file_mentions_enabled: true,
   chat_send_shortcut: 'mod+enter',
   show_welcome_recent_projects: false,
-  max_chat_history: 15,
+  max_chat_history: 50,
   code_settings: {
     theme: 'github',
     font_size: 14,

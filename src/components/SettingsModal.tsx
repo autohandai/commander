@@ -185,7 +185,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
             setTempChatSendShortcut(sendShortcut)
             const historyCap = typeof (appSettings as any).max_chat_history === 'number'
               ? Math.max(5, Math.floor((appSettings as any).max_chat_history))
-              : 15
+              : 50
             setMaxChatHistory(historyCap)
             setTempMaxChatHistory(historyCap)
             const showWelcome = (appSettings as any).show_welcome_recent_projects ?? true

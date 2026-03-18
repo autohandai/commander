@@ -101,7 +101,7 @@ fn default_show_welcome_recent_projects() -> bool {
 }
 
 fn default_max_chat_history() -> u32 {
-    15
+    50
 }
 
 fn default_default_cli_agent() -> String {
