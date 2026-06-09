@@ -34,7 +34,12 @@ mod tests {
             codex: base_settings(Some("gpt-5-codex")),
             gemini: base_settings(Some("gemini-2.5-pro")),
             autohand: base_settings(None),
-            ollama: base_settings(Some("llama3.2")),
+            cursor: base_settings(None),
+            copilot: base_settings(None),
+            pi: base_settings(None),
+            opencode: base_settings(None),
+            vibe: base_settings(None),
+            amp: base_settings(None),
             custom_agents: vec![],
             max_concurrent_sessions: 12,
         };
@@ -44,8 +49,9 @@ mod tests {
         assert_eq!(registry.max_concurrent_sessions, 12);
         assert_eq!(registry.agents["claude"].settings.model.as_deref(), Some("claude-sonnet"));
         assert_eq!(registry.agents["codex"].enabled, false);
-        assert_eq!(registry.agents["ollama"].settings.model.as_deref(), Some("llama3.2"));
         assert!(registry.agents.contains_key("autohand"));
+        assert!(registry.agents.contains_key("cursor"));
+        assert!(registry.agents.contains_key("amp"));
     }
 
     #[test]

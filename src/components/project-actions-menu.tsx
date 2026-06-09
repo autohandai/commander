@@ -1,6 +1,6 @@
 import * as React from "react"
 import { invoke } from "@tauri-apps/api/core"
-import { AlertTriangle, ChevronDown, Copy, FolderGit, FolderOpen, GitBranch, Loader2, Trash2 } from "lucide-react"
+import { AlertTriangle, ChevronDown, Copy, FolderGit, FolderOpen, GitBranch, Loader2, MessageSquare, Trash2 } from "lucide-react"
 
 import { RecentProject } from "@/hooks/use-recent-projects"
 import { ProjectApplicationIcon } from "@/components/project-application-icon"
@@ -115,6 +115,7 @@ interface ProjectActionsMenuProps {
   onProjectDeleted?: (projectPath: string) => void
   onProjectBranchCreated?: (project: RecentProject, branch: string) => Promise<void> | void
   onProjectWorktreeCreated?: (project: RecentProject, worktreePath: string) => Promise<void> | void
+  onNewChat?: (project: RecentProject) => void
   projectApplications?: ProjectApplicationTarget[]
   loadingProjectApplications?: boolean
   showLaunchActions?: boolean
@@ -133,6 +134,7 @@ export function ProjectActionsMenu({
   onProjectDeleted,
   onProjectBranchCreated,
   onProjectWorktreeCreated,
+  onNewChat,
   projectApplications = [],
   loadingProjectApplications = false,
   showLaunchActions = false,
@@ -157,8 +159,9 @@ export function ProjectActionsMenu({
   const [deletingProjectPath, setDeletingProjectPath] = React.useState<string | null>(null)
   const openDirectoryLabel = React.useMemo(() => getOpenDirectoryLabel(), [])
   const { showError, showSuccess } = useToast()
+  const availableProjectApplications = Array.isArray(projectApplications) ? projectApplications : []
   const hasCreateActions = showCreateActions && project.is_git_repo
-  const hasLaunchActions = showLaunchActions && (loadingProjectApplications || projectApplications.length > 0)
+  const hasLaunchActions = showLaunchActions && (loadingProjectApplications || availableProjectApplications.length > 0)
 
   const handleCopyProjectName = React.useCallback(async () => {
     try {
@@ -280,6 +283,18 @@ export function ProjectActionsMenu({
           {composedTrigger}
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align} sideOffset={sideOffset} className={contentClassName ?? "min-w-[210px]"}>
+          {onNewChat ? (
+            <DropdownMenuItem
+              onClick={() => {
+                setOpen(false)
+                onNewChat(project)
+              }}
+            >
+              <MessageSquare className="size-4" />
+              New Chat
+            </DropdownMenuItem>
+          ) : null}
+          {onNewChat && hasCreateActions ? <DropdownMenuSeparator /> : null}
           {hasCreateActions ? (
             <>
               <DropdownMenuItem
@@ -302,7 +317,7 @@ export function ProjectActionsMenu({
               </DropdownMenuItem>
             </>
           ) : null}
-          {hasCreateActions && (showLaunchActions || showDeleteAction) ? (
+          {hasCreateActions && (showLaunchActions || showDeleteAction || onNewChat) ? (
             <DropdownMenuSeparator />
           ) : null}
           {showLaunchActions ? (
@@ -325,7 +340,7 @@ export function ProjectActionsMenu({
                   Checking apps...
                 </DropdownMenuItem>
               ) : (
-                projectApplications.map((application) => (
+                availableProjectApplications.map((application) => (
                   <DropdownMenuItem
                     key={application.id}
                     disabled={!application.installed}

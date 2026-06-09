@@ -2,10 +2,10 @@ import { createContext, useContext, useState, useEffect, useLayoutEffect, ReactN
 import { invoke } from '@tauri-apps/api/core';
 import { applyDashboardPalette } from '@/lib/dashboard-palettes';
 
-type DefaultCliAgent = 'autohand' | 'claude' | 'codex' | 'gemini';
+type DefaultCliAgent = 'autohand' | 'claude' | 'codex' | 'gemini' | 'ollama';
 
 const FALLBACK_AGENT: DefaultCliAgent = 'claude';
-const allowedDefaultAgents: DefaultCliAgent[] = ['autohand', 'claude', 'codex', 'gemini'];
+const allowedDefaultAgents: DefaultCliAgent[] = ['autohand', 'claude', 'codex', 'gemini', 'ollama'];
 
 function normalizeDefaultAgent(value?: string | null): DefaultCliAgent {
   if (!value) return FALLBACK_AGENT;
@@ -18,6 +18,7 @@ interface CodeSettings {
   font_size: number;
   auto_collapse_sidebar: boolean;
   show_file_explorer: boolean;
+  show_project_sessions_in_sidebar: boolean;
 }
 
 interface AppSettings {
@@ -61,6 +62,7 @@ const defaultSettings: AppSettings = {
     font_size: 14,
     auto_collapse_sidebar: false,
     show_file_explorer: true,
+    show_project_sessions_in_sidebar: true,
   },
   default_cli_agent: FALLBACK_AGENT,
   suggest_create_agents_md: true,

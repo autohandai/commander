@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
@@ -89,23 +89,6 @@ impl Drop for ActiveSession {
     }
 }
 
-// Session management helper functions
-fn generate_session_key(agent: &str, working_dir: &Option<String>) -> String {
-    match working_dir {
-        Some(dir) => format!("{}:{}", agent, dir),
-        None => agent.to_string(),
-    }
-}
-
-fn get_agent_quit_command(agent: &str) -> &str {
-    match agent {
-        "claude" => "/quit",
-        "codex" => "/exit",
-        "gemini" => "/quit",
-        _ => "/quit",
-    }
-}
-
 pub(crate) async fn build_agent_command_args(
     agent: &str,
     message: &str,
@@ -127,7 +110,6 @@ pub(crate) async fn build_agent_command_args(
         "claude" => &agent_settings.claude,
         "codex" => &agent_settings.codex,
         "gemini" => &agent_settings.gemini,
-        "ollama" => &agent_settings.ollama,
         _ => &AgentSettings::default(),
     };
 
@@ -780,7 +762,7 @@ pub async fn execute_persistent_cli_command(
     working_dir: Option<String>,
     #[allow(non_snake_case)] executionMode: Option<String>,
     #[allow(non_snake_case)] dangerousBypass: Option<bool>,
-    #[allow(non_snake_case)] permissionMode: Option<String>,
+    #[allow(non_snake_case)] _permissionMode: Option<String>,
     #[allow(non_snake_case)] resumeSessionId: Option<String>,
     session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
     protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
@@ -904,6 +886,12 @@ pub async fn execute_persistent_cli_command(
             "claude" => settings.claude.clone(),
             "codex" => settings.codex.clone(),
             "gemini" => settings.gemini.clone(),
+            "cursor" => settings.cursor.clone(),
+            "copilot" => settings.copilot.clone(),
+            "pi" => settings.pi.clone(),
+            "opencode" => settings.opencode.clone(),
+            "vibe" => settings.vibe.clone(),
+            "amp" => settings.amp.clone(),
             _ => AgentSettings::default(),
         };
 
@@ -961,8 +949,14 @@ pub async fn execute_persistent_cli_command(
 
             let install_instructions = match agent_name.as_str() {
                 "claude" => "Install Claude CLI: https://docs.anthropic.com/claude/docs/cli\n",
-                "codex" => "Install GitHub Copilot CLI: https://github.com/features/copilot\n",
-                "gemini" => "Install Gemini CLI: https://cloud.google.com/sdk/docs/install\n",
+                "codex" => "Install Codex CLI: npm install -g @openai/codex\n",
+                "gemini" => "Install Gemini CLI: npm install -g @google/gemini-cli\n",
+                "cursor" => "Install Cursor CLI: curl https://cursor.com/install -fsS | bash\n",
+                "copilot" => "Install GitHub Copilot CLI: npm install -g @github/copilot\n",
+                "pi" => "Install Pi coding agent: npm install -g @mariozechner/pi-coding-agent\n",
+                "opencode" => "Install OpenCode: npm install -g opencode-ai\n",
+                "vibe" => "Install Mistral Vibe: curl -LsSf https://mistral.ai/vibe/install.sh | bash\n",
+                "amp" => "Install Amp: npm install -g @sourcegraph/amp\n",
                 _ => "Please check the official documentation for installation instructions.\n",
             };
 
@@ -985,12 +979,8 @@ pub async fn execute_persistent_cli_command(
             let mut mgr = sm.lock().await;
             mgr.insert(ManagedSession {
                 session_id: session_id_clone.clone(),
-                agent: agent_name.clone(),
-                protocol: executor.protocol(),
-                agent_session_id: None,
                 permission_sender: perm_tx,
                 abort_sender: Some(abort_tx),
-                started_at: std::time::Instant::now(),
             });
         }
 
@@ -1237,8 +1227,12 @@ pub async fn execute_gemini_command(
     .await
 }
 
+// ---------------------------------------------------------------------------
+// ACP agent commands — Cursor, Copilot, Pi, OpenCode, Vibestral, Amp
+// ---------------------------------------------------------------------------
+
 #[tauri::command]
-pub async fn execute_ollama_command(
+pub async fn execute_cursor_command(
     app: tauri::AppHandle,
     #[allow(non_snake_case)] sessionId: String,
     message: String,
@@ -1249,7 +1243,132 @@ pub async fn execute_ollama_command(
     execute_persistent_cli_command(
         app,
         sessionId,
-        "ollama".to_string(),
+        "cursor".to_string(),
+        message,
+        workingDir,
+        None,
+        None,
+        None,
+        None,
+        session_manager,
+        protocol_cache,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn execute_copilot_command(
+    app: tauri::AppHandle,
+    #[allow(non_snake_case)] sessionId: String,
+    message: String,
+    #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<(), String> {
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "copilot".to_string(),
+        message,
+        workingDir,
+        None,
+        None,
+        None,
+        None,
+        session_manager,
+        protocol_cache,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn execute_pi_command(
+    app: tauri::AppHandle,
+    #[allow(non_snake_case)] sessionId: String,
+    message: String,
+    #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<(), String> {
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "pi".to_string(),
+        message,
+        workingDir,
+        None,
+        None,
+        None,
+        None,
+        session_manager,
+        protocol_cache,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn execute_opencode_command(
+    app: tauri::AppHandle,
+    #[allow(non_snake_case)] sessionId: String,
+    message: String,
+    #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<(), String> {
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "opencode".to_string(),
+        message,
+        workingDir,
+        None,
+        None,
+        None,
+        None,
+        session_manager,
+        protocol_cache,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn execute_vibe_command(
+    app: tauri::AppHandle,
+    #[allow(non_snake_case)] sessionId: String,
+    message: String,
+    #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<(), String> {
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "vibe".to_string(),
+        message,
+        workingDir,
+        None,
+        None,
+        None,
+        None,
+        session_manager,
+        protocol_cache,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn execute_amp_command(
+    app: tauri::AppHandle,
+    #[allow(non_snake_case)] sessionId: String,
+    message: String,
+    #[allow(non_snake_case)] workingDir: Option<String>,
+    session_manager: tauri::State<'_, Arc<TokioMutex<SessionManager>>>,
+    protocol_cache: tauri::State<'_, Arc<TokioMutex<ProtocolCache>>>,
+) -> Result<(), String> {
+    execute_persistent_cli_command(
+        app,
+        sessionId,
+        "amp".to_string(),
         message,
         workingDir,
         None,

@@ -5,6 +5,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
+fn sqlite_i64(value: u64, field: &str) -> Result<i64, String> {
+    i64::try_from(value).map_err(|_| format!("{} exceeds SQLite INTEGER range", field))
+}
+
+fn sqlite_u64(value: i64, field: &str) -> Result<u64, String> {
+    u64::try_from(value).map_err(|_| format!("{} is negative in SQLite storage", field))
+}
+
 pub struct IndexDb {
     conn: Mutex<Connection>,
 }
@@ -249,6 +257,7 @@ impl IndexDb {
 
     pub fn upsert_daily_stats(&self, stats: &DailyAgentStats) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let total_tokens = sqlite_i64(stats.total_tokens, "total_tokens")?;
         conn.execute(
             "INSERT INTO daily_stats (date, agent_id, message_count, session_count, total_tokens)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -261,7 +270,7 @@ impl IndexDb {
                 stats.agent_id,
                 stats.message_count,
                 stats.session_count,
-                stats.total_tokens,
+                total_tokens,
             ],
         )
         .map_err(|e| format!("Failed to upsert daily stats: {}", e))?;
@@ -282,7 +291,12 @@ impl IndexDb {
                         source_file: row.get(0)?,
                         agent_id: row.get(1)?,
                         file_mtime: row.get(2)?,
-                        file_size: row.get(3)?,
+                        file_size: sqlite_u64(row.get(3)?, "file_size")
+                            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                                3,
+                                rusqlite::types::Type::Integer,
+                                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+                            ))?,
                     })
                 },
             )
@@ -293,6 +307,7 @@ impl IndexDb {
 
     pub fn upsert_scan_record(&self, record: &ScanRecord) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let file_size = sqlite_i64(record.file_size, "file_size")?;
         conn.execute(
             "INSERT INTO scan_metadata (source_file, agent_id, file_mtime, file_size)
              VALUES (?1, ?2, ?3, ?4)
@@ -303,7 +318,7 @@ impl IndexDb {
                 record.source_file,
                 record.agent_id,
                 record.file_mtime,
-                record.file_size,
+                file_size,
             ],
         )
         .map_err(|e| format!("Failed to upsert scan record: {}", e))?;
@@ -559,20 +574,35 @@ mod tests {
     }
 
     #[test]
+    fn test_daily_stats_accept_large_u64_tokens_with_signed_sqlite_storage() {
+        let (db, _dir) = test_db();
+        let stats = DailyAgentStats {
+            date: "2026-03-05".into(),
+            agent_id: "codex".into(),
+            message_count: 1,
+            session_count: 1,
+            total_tokens: 5_000_000_000,
+        };
+
+        db.upsert_daily_stats(&stats).unwrap();
+        assert_eq!(db.get_total_tokens().unwrap(), 5_000_000_000);
+    }
+
+    #[test]
     fn test_scan_record_round_trip() {
         let (db, _dir) = test_db();
         let record = ScanRecord {
             source_file: "/test/file.jsonl".into(),
             agent_id: "codex".into(),
             file_mtime: 1709600000,
-            file_size: 4096,
+            file_size: 5_000_000_000,
         };
         db.upsert_scan_record(&record).unwrap();
         let fetched = db.get_scan_record("/test/file.jsonl", "codex").unwrap();
         assert!(fetched.is_some());
         let fetched = fetched.unwrap();
         assert_eq!(fetched.file_mtime, 1709600000);
-        assert_eq!(fetched.file_size, 4096);
+        assert_eq!(fetched.file_size, 5_000_000_000);
     }
 
     #[test]

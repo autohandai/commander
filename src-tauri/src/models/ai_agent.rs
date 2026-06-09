@@ -99,7 +99,17 @@ pub struct AllAgentSettings {
     #[serde(default)]
     pub gemini: AgentSettings,
     #[serde(default)]
-    pub ollama: AgentSettings,
+    pub cursor: AgentSettings,
+    #[serde(default)]
+    pub copilot: AgentSettings,
+    #[serde(default)]
+    pub pi: AgentSettings,
+    #[serde(default)]
+    pub opencode: AgentSettings,
+    #[serde(default)]
+    pub vibe: AgentSettings,
+    #[serde(default)]
+    pub amp: AgentSettings,
     #[serde(default)]
     pub custom_agents: Vec<CustomAgentDefinition>,
     #[serde(default = "default_max_concurrent_sessions")]
@@ -117,7 +127,12 @@ impl Default for AllAgentSettings {
             codex: AgentSettings::default(),
             gemini: AgentSettings::default(),
             autohand: AgentSettings::default(),
-            ollama: AgentSettings::default(),
+            cursor: AgentSettings::default(),
+            copilot: AgentSettings::default(),
+            pi: AgentSettings::default(),
+            opencode: AgentSettings::default(),
+            vibe: AgentSettings::default(),
+            amp: AgentSettings::default(),
             custom_agents: Vec::new(),
             max_concurrent_sessions: default_max_concurrent_sessions(),
         }
@@ -156,7 +171,12 @@ pub fn normalize_legacy_agent_registry(
         ("claude", "Claude Code CLI", "claude", "cli-flags", None, &legacy.claude),
         ("codex", "Codex", "codex", "cli-flags", None, &legacy.codex),
         ("gemini", "Gemini", "gemini", "cli-flags", None, &legacy.gemini),
-        ("ollama", "Ollama", "ollama", "cli-flags", None, &legacy.ollama),
+        ("cursor", "Cursor", "cursor", "acp", Some("acp".to_string()), &legacy.cursor),
+        ("copilot", "GitHub Copilot", "copilot", "acp", Some("acp".to_string()), &legacy.copilot),
+        ("pi", "Pi", "pi", "json-rpc", Some("rpc".to_string()), &legacy.pi),
+        ("opencode", "OpenCode", "opencode", "acp", Some("acp".to_string()), &legacy.opencode),
+        ("vibe", "Vibestral", "vibe", "acp", Some("acp".to_string()), &legacy.vibe),
+        ("amp", "Amp", "amp", "acp", Some("acp".to_string()), &legacy.amp),
     ];
 
     for (id, label, command, transport, protocol, settings) in builtins {

@@ -1,3 +1,5 @@
+type ToolCallState = { name: string; description?: string; input?: any; partial?: string; emitted?: boolean }
+
 export class ClaudeStreamParser {
   private buf = ''
   private headerPrinted = false
@@ -6,7 +8,7 @@ export class ClaudeStreamParser {
   private agent: string
   private model: string | null = null
   private textBlocks: Map<number, string> = new Map()
-  private toolCalls: Map<string, { name: string; description?: string; input?: any; partial?: string; emitted?: boolean }> = new Map()
+  private toolCalls: Map<string, ToolCallState> = new Map()
   private nativeSessionId: string | null = null
 
   constructor(agent: string = 'claude') {
@@ -197,7 +199,7 @@ export class ClaudeStreamParser {
         const name = ev?.content_block?.name || 'Tool'
         const description = ev?.content_block?.input?.description
         const input = ev?.content_block?.input
-        const state = this.toolCalls.get(id) || { name }
+        const state: ToolCallState = this.toolCalls.get(id) || { name }
         state.name = name
         state.description = description
         if (input && Object.keys(input).length) {

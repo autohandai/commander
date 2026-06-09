@@ -60,11 +60,11 @@ export function LLMSettings({
     }
     
     if (!status.configured) {
-      return <Badge variant="warning" className="flex items-center gap-1"><AlertCircle className="h-3 w-3" />Not Configured</Badge>
+      return <Badge variant="secondary" className="flex items-center gap-1"><AlertCircle className="h-3 w-3" />Not Configured</Badge>
     }
     
     if (status.models_loaded) {
-      return <Badge variant="success" className="flex items-center gap-1"><CheckCircle className="h-3 w-3" />Ready</Badge>
+      return <Badge variant="default" className="flex items-center gap-1"><CheckCircle className="h-3 w-3" />Ready</Badge>
     }
     
     return <Badge variant="outline" className="flex items-center gap-1"><AlertCircle className="h-3 w-3" />No Models</Badge>

@@ -226,13 +226,9 @@ if (typeof document !== 'undefined') describe('App welcome screen recent project
     fireEvent.click(projectButton)
 
     await waitFor(() => {
-      const chatTab = screen.getByRole('tab', { name: /chat/i })
-      expect(chatTab).toHaveAttribute('data-state', 'active')
+      expect(screen.getByTestId('chat-root')).toBeVisible()
     })
 
-    await waitFor(() => {
-      const codeTab = screen.getByRole('tab', { name: /code/i })
-      expect(codeTab).toHaveAttribute('data-state', 'inactive')
-    })
+    expect(screen.getByText('Start a conversation')).toBeVisible()
   })
 })

@@ -47,8 +47,8 @@ pub enum AcpMessage {
     },
     /// Agent session state has changed.
     StateChange { status: String, context_percent: Option<f64> },
-    /// An unrecognized message type (forward the raw JSON).
-    Unknown(serde_json::Value),
+    /// An unrecognized message type.
+    Unknown,
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ pub fn classify_acp_message(line: &str) -> Result<AcpMessage, String> {
                 context_percent,
             })
         }
-        _ => Ok(AcpMessage::Unknown(value)),
+        _ => Ok(AcpMessage::Unknown),
     }
 }
 
@@ -482,7 +482,7 @@ fn acp_message_to_protocol_event(session_id: &str, msg: AcpMessage) -> ProtocolE
                 context_percent,
             }
         }
-        AcpMessage::Unknown(_) => ProtocolEvent::Error {
+        AcpMessage::Unknown => ProtocolEvent::Error {
             session_id: session_id.to_string(),
             message: "received unknown ACP message type".to_string(),
         },

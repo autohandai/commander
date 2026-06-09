@@ -50,6 +50,7 @@ if (typeof document !== 'undefined') describe('CodeSettings auto-collapse prefer
           font_size: 14,
           auto_collapse_sidebar: true,
           show_file_explorer: true,
+          show_project_sessions_in_sidebar: true,
         },
       })
     })

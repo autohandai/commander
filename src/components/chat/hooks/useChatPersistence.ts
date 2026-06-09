@@ -16,6 +16,15 @@ export interface PersistableMessage {
     startedAt?: number
     finishedAt?: number
   }[]
+  toolEvents?: {
+    tool_id: string
+    tool_name: string
+    phase: 'start' | 'update' | 'end'
+    args?: Record<string, unknown>
+    output?: string
+    success?: boolean
+    duration_ms?: number
+  }[]
 }
 
 interface Params {
@@ -29,6 +38,7 @@ interface Params {
 
 const STATUS_VALUES = new Set(['thinking', 'running', 'completed', 'failed'] as const)
 const STEP_STATUS_VALUES = new Set(['pending', 'in_progress', 'completed', 'failed'] as const)
+const TOOL_EVENT_PHASE_VALUES = new Set(['start', 'update', 'end'] as const)
 
 function normalizeMessage(raw: any, index: number, source: 'session' | 'backend'): PersistableMessage {
   const timestamp = Number(raw?.timestamp)
@@ -78,6 +88,42 @@ function normalizeMessage(raw: any, index: number, source: 'session' | 'backend'
         .filter(Boolean)
     : undefined
 
+  const rawToolEvents = Array.isArray(raw?.toolEvents)
+    ? raw.toolEvents
+    : Array.isArray(raw?.tool_events)
+      ? raw.tool_events
+      : undefined
+  const toolEvents = rawToolEvents
+    ? rawToolEvents
+        .map((event: any) => {
+          const phaseCandidate = event?.phase
+          const phase =
+            typeof phaseCandidate === 'string' && TOOL_EVENT_PHASE_VALUES.has(phaseCandidate as any)
+              ? (phaseCandidate as NonNullable<PersistableMessage['toolEvents']>[number]['phase'])
+              : 'end'
+          const toolId = event?.tool_id ?? event?.toolId
+          const toolName = event?.tool_name ?? event?.toolName
+          if (typeof toolName !== 'string' || toolName.length === 0) return null
+          return {
+            tool_id: typeof toolId === 'string' && toolId.length > 0 ? toolId : `${id}-tool-${phase}`,
+            tool_name: toolName,
+            phase,
+            args: event?.args && typeof event.args === 'object' ? event.args : undefined,
+            output:
+              typeof event?.output === 'string'
+                ? event.output
+                : event?.output === undefined || event?.output === null
+                  ? undefined
+                  : JSON.stringify(event.output),
+            success: typeof event?.success === 'boolean' ? event.success : undefined,
+            duration_ms: Number.isFinite(Number(event?.duration_ms ?? event?.durationMs))
+              ? Number(event.duration_ms ?? event.durationMs)
+              : undefined,
+          }
+        })
+        .filter(Boolean) as PersistableMessage['toolEvents']
+    : undefined
+
   const contentValue =
     raw?.content ??
     raw?.text ??
@@ -100,6 +146,7 @@ function normalizeMessage(raw: any, index: number, source: 'session' | 'backend'
           : undefined,
     status,
     steps,
+    toolEvents,
   }
 }
 
@@ -114,7 +161,8 @@ function scoreMessages(messages: PersistableMessage[]): RestoreStats {
     (acc, message) => {
       const text = message.content.trim()
       const hasSteps = Array.isArray(message.steps) && message.steps.length > 0
-      const meaningful = text.length > 0 || hasSteps
+      const hasToolEvents = Array.isArray(message.toolEvents) && message.toolEvents.length > 0
+      const meaningful = text.length > 0 || hasSteps || hasToolEvents
       return {
         meaningfulCount: acc.meaningfulCount + (meaningful ? 1 : 0),
         contentChars: acc.contentChars + text.length,
@@ -310,6 +358,7 @@ export function useChatPersistence({
         conversationId: m.conversationId,
         status: m.status,
         steps: m.steps,
+        toolEvents: m.toolEvents,
       }))
       invokeFn('save_project_chat', { projectPath, messages: cleaned }).catch(() => {})
     }, debounceMs)

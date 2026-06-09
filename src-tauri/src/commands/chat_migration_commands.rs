@@ -145,6 +145,7 @@ pub async fn save_enhanced_chat_message(
         conversation_id: None,
         status: None,
         steps: None,
+        tool_events: None,
     };
 
     // Load existing legacy messages and append

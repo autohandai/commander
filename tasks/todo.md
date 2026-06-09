@@ -1,5 +1,34 @@
 # Task Plan
 
+- [x] Inspect current dependency state, sidebar implementation, session APIs, settings model, and existing tests
+- [x] Write PRD/TDD for dependency refresh and project sessions sidebar
+- [x] Add failing regression tests for lazy project session loading, session row selection, and Code settings persistence
+- [x] Implement settings-backed project session rows in the sidebar while preserving branch/worktree navigation
+- [x] Update frontend and Rust dependencies to the latest feasible versions
+- [x] Run focused and broad verification gates for sidebar, settings, dependencies, and app build
+- [x] Add sidebar performance guard for large collapsed project lists and single-project lazy child loading
+- [x] Split sidebar project rows into a memoized row surface to reduce parent-state render churn
+- [x] Re-run sidebar-focused and broad verification after the performance hardening
+- [x] Write PRD/TDD for Tailwind compatibility UI regression
+- [x] Add failing regression coverage for the styling stack compatibility contract
+- [x] Restore latest Tailwind 3-compatible PostCSS setup and remove Tailwind 4 artifacts
+- [x] Run focused styling/sidebar verification and build
+- [x] Write PRD/TDD for Rust warning cleanup
+- [x] Remove unused CLI imports/helpers and unused Tauri command binding warning
+- [x] Simplify unused session manager metadata and ACP unknown payload warnings
+- [x] Run focused Rust tests, full Rust tests, and warning-free cargo check
+- [x] Write PRD/TDD for chat log scroll, session continuation, and restored structured rendering
+- [x] Add regressions for full-height chat viewport scrolling and footer ownership
+- [x] Add regressions for continuing a loaded session until explicit New chat
+- [x] Add regressions for restored thought/tool-call rendering
+- [x] Implement chat layout, loaded-session identity, and structured message restore fixes
+- [x] Run focused frontend/Rust tests and runtime server verification
+- [ ] Obtain screenshot-level native app/browser verification for chat scroll behavior
+- [x] Write PRD/TDD for duplicate tray icon and wrong tray asset
+- [x] Add failing regressions for single tray ownership, explicit Commander icon, title-cased hover label, and visible green agent rows
+- [x] Remove duplicate tray config and bind the programmatic tray to the Commander icon
+- [ ] Run focused tray tests, cargo check, and runtime verification
+
 - [x] Inspect execution mode dropdown behavior and confirm root cause
 - [x] Write PRD and TDD for dropdown stability and dynamic agent mode updates
 - [x] Add failing frontend regression tests for selector interaction and intended-agent mode switching
@@ -164,6 +193,61 @@
 
 # Review
 
+- Dependency refresh and project sessions sidebar pass:
+  - Wrote PRD/TDD in `PRD/dependency_refresh_and_project_sessions_sidebar.md` and docs pointer in `docs/dependency_refresh_and_project_sessions_sidebar.md`.
+  - Added settings-backed project session rows under each expanded project while preserving branch/worktree visibility and navigation.
+  - Updated frontend dependencies to latest available via Bun; `bun outdated` exits cleanly with no outdated table.
+  - Updated Rust dependencies to latest feasible versions for local Rust 1.88; `rusqlite` is held at 0.39 because 0.40 pulls a `libsqlite3-sys` release requiring a newer Rust feature.
+  - `bun run build` passed after Tailwind 4 PostCSS migration.
+  - `bun run test -- --exclude '.worktrees/**'` passed: 111 files, 357 tests.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed with existing warnings.
+  - `cargo test --manifest-path src-tauri/Cargo.toml` passed: 281 tests.
+  - `bun tauri dev` launched Vite at `http://localhost:1420/` and started the native Commander binary, menu, and tray; the smoke-check processes were stopped afterward.
+- Sidebar performance hardening continuation:
+  - Added large-list regression coverage proving collapsed project rows remain API-cold and expanding one project only loads that project child data.
+  - Split project rows into a memoized `ProjectSidebarRow` and stabilized sidebar child-data callbacks through refs.
+  - `bun x vitest run --exclude '.worktrees/**' src/components/__tests__/app-sidebar.project-actions.test.tsx` passed: 5 tests.
+  - `bun run build` passed with existing Vite chunk-size warnings.
+  - `bun run test -- --exclude '.worktrees/**'` passed: 111 files, 358 tests.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed with existing warnings.
+  - `cargo test --manifest-path src-tauri/Cargo.toml` passed: 281 tests.
+  - Final dependency audit: `bun outdated` produced no outdated table; `cargo update --manifest-path src-tauri/Cargo.toml --dry-run` found 8 compatible patch updates, which were applied with `cargo update --manifest-path src-tauri/Cargo.toml`.
+  - Final post-update verification repeated: `bun run build`, `cargo check --manifest-path src-tauri/Cargo.toml`, and `cargo test --manifest-path src-tauri/Cargo.toml` all passed.
+  - `bun run dev` served `http://localhost:1420/`; `curl -sS http://localhost:1420/` returned the Vite HTML entrypoint. Playwright browser automation was unavailable because the repo does not install `playwright`.
+- Tailwind compatibility UI regression fix:
+  - Root cause: Tailwind 4/PostCSS migration compiled but broke Commander's Tailwind 3 shadcn styling contract, producing visibly broken layout/charts.
+  - Wrote PRD/TDD in `PRD/tailwind_compat_ui_regression_fix.md`.
+  - Added `src/scripts/__tests__/tailwind-compat.test.ts`; confirmed it failed against Tailwind 4 before the fix.
+  - Restored `tailwindcss@3.4.19`, removed `@tailwindcss/postcss`, restored `postcss.config.js` to the Tailwind 3 plugin, and removed Tailwind 4-only `@config` from `src/index.css`.
+  - `bun x vitest run --exclude '.worktrees/**' src/scripts/__tests__/tailwind-compat.test.ts src/components/__tests__/app-sidebar.project-actions.test.tsx` passed: 2 files, 6 tests.
+  - `bun run build` passed with existing Vite chunk-size warnings.
+  - `bun run test -- --exclude '.worktrees/**'` passed: 112 files, 359 tests.
+- Rust warning cleanup:
+  - Wrote PRD/TDD in `PRD/rust_warning_cleanup.md`.
+  - Removed unused CLI import/helper functions and preserved the unused Tauri command argument as `_permissionMode`.
+  - Trimmed unused session metadata/accessors and changed unknown ACP messages to a unit variant because the raw payload was never read.
+  - `cargo test session_manager_tests --manifest-path src-tauri/Cargo.toml` passed: 5 tests.
+  - `cargo test acp_executor_tests --manifest-path src-tauri/Cargo.toml` passed: 8 tests.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed warning-free.
+  - `cargo test --manifest-path src-tauri/Cargo.toml` passed: 280 tests plus doc tests.
+  - `bun tauri dev` reached the Rust compile path without the listed warnings, then stopped because an existing Commander Vite server was already listening on port 1420.
+- Chat log session restore regression fix:
+  - Wrote PRD/TDD in `PRD/chat_log_session_restore_regression_fix.md` and docs pointer in `docs/chat_log_session_restore_regression_fix.md`.
+  - Fixed chat scroll ownership by making the Radix ScrollArea root and viewport keep full-height/min-height constraints.
+  - Follow-up hardening replaced the chat log's nested Radix ScrollArea with a single native `theme-scrollbar` scroll owner to avoid WebKit/Tauri partial-height viewport behavior.
+  - Loading a previous session now restores the active conversation id plus Claude/Autohand resume id, so typing continues the opened chat until New chat is explicitly invoked.
+  - Restored messages now preserve `steps` and `toolEvents`; project chat persistence now round-trips `toolEvents` instead of dropping tool calls.
+  - Added regressions in `ChatInterface.loadedSession.restore.test.tsx`, layout/fixed-layout tests, persistence tests, and a Rust `toolEvents` round-trip test.
+  - `bun x vitest run --exclude '.worktrees/**' src/components/chat/__tests__/ChatInterface.loadedSession.restore.test.tsx src/components/chat/__tests__/ChatInterface.layout.test.tsx src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx src/components/chat/__tests__/MessagesList.test.tsx` passed: 4 files, 13 tests.
+  - `bun x vitest run --exclude '.worktrees/**' src/components/chat/hooks/__tests__/useChatPersistence.test.tsx src/components/chat/hooks/__tests__/useChatExecution.session.test.tsx src/components/chat/__tests__/ChatInterface.newSessionShortcut.test.tsx` passed: 3 files, 21 tests.
+  - `bun x vitest run --exclude '.worktrees/**' src/components/chat/__tests__/ChatInterface.fixed.layout.test.tsx src/components/chat/__tests__/ChatInterface.layout.test.tsx src/components/chat/__tests__/ChatInterface.breadcrumb.viewport.test.tsx src/components/__tests__/chatinterface.breadcrumbs.test.tsx src/components/chat/__tests__/ChatInterface.loadedSession.restore.test.tsx` passed after native-scroll hardening: 5 files, 10 tests.
+  - `bun run build` passed with existing Vite large-chunk/dynamic-import warnings.
+  - `bun run test -- --exclude '.worktrees/**'` passed after native-scroll hardening: 114 files, 365 tests.
+  - `cargo test chat_message_roundtrips_tool_events --manifest-path src-tauri/Cargo.toml` passed.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed warning-free on the resumed pass, confirming the pasted Rust warnings are cleared.
+  - `cargo test --manifest-path src-tauri/Cargo.toml` passed: 281 tests plus doc tests.
+  - `bun run dev` found port 1420 already in use; `curl -sS http://localhost:1420/` returned the Commander Vite HTML entrypoint, so the local frontend is already being served.
+  - Computer Use timed out/exited while attempting native app visual inspection, including a resumed `Commander` state check returning `codex app-server exited before returning a response`; screenshot-level verification is still outstanding.
 - Focused frontend regression suite passed:
   - `src/components/chat/__tests__/ChatControlsBar.test.tsx`
   - `src/components/chat/__tests__/ChatInput.dynamicModes.test.tsx`

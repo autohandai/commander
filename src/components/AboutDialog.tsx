@@ -19,9 +19,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
         </DialogHeader>
         <div className="space-y-4">
           <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center text-xl font-bold">
-              C
-            </div>
+            <img src="/icon.png" alt="Commander" className="h-12 w-12 rounded-xl object-cover" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold truncate">Autohand.ai – Commander</h3>

@@ -261,7 +261,6 @@ export function MetricsStrip({
   currentStreak,
   agentsUsed,
   dailyActivity,
-  paletteKey,
   selectedAgent,
 }: MetricsStripProps) {
   const tooltip = useChartTooltip()

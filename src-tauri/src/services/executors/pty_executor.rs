@@ -74,7 +74,13 @@ impl AgentExecutor for PtyExecutor {
         let prefer_pty = working_dir_opt.is_none()
             || agent.eq_ignore_ascii_case("codex")
             || agent.eq_ignore_ascii_case("claude")
-            || agent.eq_ignore_ascii_case("gemini");
+            || agent.eq_ignore_ascii_case("gemini")
+            || agent.eq_ignore_ascii_case("cursor")
+            || agent.eq_ignore_ascii_case("copilot")
+            || agent.eq_ignore_ascii_case("pi")
+            || agent.eq_ignore_ascii_case("opencode")
+            || agent.eq_ignore_ascii_case("vibe")
+            || agent.eq_ignore_ascii_case("amp");
 
         if prefer_pty {
             if let Err(e) = try_spawn_with_pty(

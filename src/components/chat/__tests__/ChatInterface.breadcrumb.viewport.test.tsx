@@ -192,8 +192,10 @@ if (typeof document !== 'undefined') describe('ChatInterface breadcrumb viewport
     const header = screen.getByTestId('fixed-header')
     const chatScrollWrapper = screen.getByTestId('chat-scroll-wrapper')
 
-    // Verify scroll wrapper has proper constraints with native overflow
-    expect(chatScrollWrapper).toHaveClass('overflow-y-auto', 'min-h-0', 'p-6')
+    // Verify the chat log itself owns scrolling so the header is outside the
+    // scrollable region and no nested viewport can clip scrollbar height.
+    expect(chatScrollWrapper).toHaveClass('overflow-y-auto', 'theme-scrollbar', 'min-h-0')
+    expect(chatScrollWrapper.querySelector('[data-radix-scroll-area-viewport]')).not.toBeInTheDocument()
     
     // Header should remain in fixed position
     const initialHeaderRect = header.getBoundingClientRect()

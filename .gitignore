@@ -39,3 +39,6 @@ CHANGE_LOG.md
 
 # Bundled sidecar binaries (downloaded at build time)
 src-tauri/binaries/
+
+# Generated documentation
+docs/

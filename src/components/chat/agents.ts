@@ -15,10 +15,10 @@ export interface AgentCapability {
   category: string
 }
 
-export const allowedAgentIds = ['autohand', 'claude', 'codex', 'gemini', 'ollama', 'test'] as const
+export const allowedAgentIds = ['autohand', 'claude', 'codex', 'gemini', 'cursor', 'copilot', 'pi', 'opencode', 'vibe', 'amp', 'test'] as const
 
 export type AllowedAgentId = typeof allowedAgentIds[number]
-export const DEFAULT_CLI_AGENT_IDS = ['autohand', 'claude', 'codex', 'gemini'] as const
+export const DEFAULT_CLI_AGENT_IDS = ['autohand', 'claude', 'codex', 'gemini', 'cursor', 'copilot', 'pi', 'opencode', 'vibe', 'amp'] as const
 export type DefaultCliAgentId = typeof DEFAULT_CLI_AGENT_IDS[number]
 
 export const DISPLAY_TO_ID: Record<string, string> = {
@@ -26,7 +26,12 @@ export const DISPLAY_TO_ID: Record<string, string> = {
   'Claude Code CLI': 'claude',
   'Codex': 'codex',
   'Gemini': 'gemini',
-  'Ollama': 'ollama',
+  'Cursor': 'cursor',
+  'GitHub Copilot': 'copilot',
+  'Pi': 'pi',
+  'OpenCode': 'opencode',
+  'Vibestral': 'vibe',
+  'Amp': 'amp',
   'Test CLI': 'test',
 }
 
@@ -35,7 +40,12 @@ export const AGENT_COMMAND_TO_DISPLAY: Record<string, string> = {
   claude: 'Claude Code CLI',
   codex: 'Codex',
   gemini: 'Gemini',
-  ollama: 'Ollama',
+  cursor: 'Cursor',
+  copilot: 'GitHub Copilot',
+  pi: 'Pi',
+  opencode: 'OpenCode',
+  vibe: 'Vibestral',
+  amp: 'Amp',
   test: 'Test CLI',
 }
 
@@ -69,11 +79,46 @@ export const AGENTS: Agent[] = [
     description: "Google's multimodal AI assistant",
   },
   {
-    id: 'ollama',
-    name: 'ollama',
-    displayName: 'Ollama',
-    icon: Bot,
-    description: 'Local-first models served through the Ollama runtime',
+    id: 'cursor',
+    name: 'cursor',
+    displayName: 'Cursor',
+    icon: Terminal,
+    description: 'AI-powered code editor agent with ACP protocol support',
+  },
+  {
+    id: 'copilot',
+    name: 'copilot',
+    displayName: 'GitHub Copilot',
+    icon: Code,
+    description: 'GitHub Copilot CLI agent with ACP protocol support',
+  },
+  {
+    id: 'pi',
+    name: 'pi',
+    displayName: 'Pi',
+    icon: Terminal,
+    description: 'Minimal terminal coding agent with RPC protocol support',
+  },
+  {
+    id: 'opencode',
+    name: 'opencode',
+    displayName: 'OpenCode',
+    icon: Code,
+    description: 'Open-source coding agent with ACP protocol support',
+  },
+  {
+    id: 'vibe',
+    name: 'vibe',
+    displayName: 'Vibestral',
+    icon: Brain,
+    description: 'Mistral AI coding agent with ACP protocol support',
+  },
+  {
+    id: 'amp',
+    name: 'amp',
+    displayName: 'Amp',
+    icon: Code,
+    description: 'Sourcegraph coding agent with ACP protocol support',
   },
   {
     id: 'test',
@@ -112,9 +157,29 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapability[]> = {
     { id: 'search', name: 'Web Integration', description: 'Real-time web search and integration', category: 'Integration' },
     { id: 'creative', name: 'Creative Solutions', description: 'Innovative problem-solving approaches', category: 'Creativity' },
   ],
-  ollama: [
-    { id: 'local', name: 'Local Execution', description: 'Runs models locally via the Ollama runtime', category: 'Offline' },
-    { id: 'custom', name: 'Custom Models', description: 'Switch between downloaded Ollama models', category: 'Configuration' },
+  cursor: [
+    { id: 'acp', name: 'ACP Protocol', description: 'Communicates via Agent Client Protocol', category: 'Protocol' },
+    { id: 'coding', name: 'Code Generation', description: 'AI-powered code editing and generation', category: 'Development' },
+  ],
+  copilot: [
+    { id: 'acp', name: 'ACP Protocol', description: 'Communicates via Agent Client Protocol', category: 'Protocol' },
+    { id: 'coding', name: 'Code Completion', description: 'Context-aware code suggestions and generation', category: 'Development' },
+  ],
+  pi: [
+    { id: 'rpc', name: 'RPC Protocol', description: 'Communicates via JSON-RPC over stdio', category: 'Protocol' },
+    { id: 'minimal', name: 'Minimal Agent', description: 'Lightweight terminal coding agent', category: 'Development' },
+  ],
+  opencode: [
+    { id: 'acp', name: 'ACP Protocol', description: 'Communicates via Agent Client Protocol', category: 'Protocol' },
+    { id: 'opensource', name: 'Open Source', description: 'Community-driven open-source coding agent', category: 'Development' },
+  ],
+  vibe: [
+    { id: 'acp', name: 'ACP Protocol', description: 'Communicates via Agent Client Protocol', category: 'Protocol' },
+    { id: 'mistral', name: 'Mistral Models', description: 'Powered by Mistral AI models', category: 'AI' },
+  ],
+  amp: [
+    { id: 'acp', name: 'ACP Protocol', description: 'Communicates via Agent Client Protocol', category: 'Protocol' },
+    { id: 'sourcegraph', name: 'Code Intelligence', description: 'Sourcegraph-powered code intelligence', category: 'Development' },
   ],
 }
 
@@ -219,7 +284,12 @@ export const AGENT_EXECUTION_MODES: Record<string, AgentExecutionModeConfig> = {
     defaultMode: 'unrestricted',
     backendParamName: 'permissionMode',
   },
-  ollama: { modes: [], defaultMode: '', backendParamName: '' },
+  cursor: { modes: [], defaultMode: '', backendParamName: '' },
+  copilot: { modes: [], defaultMode: '', backendParamName: '' },
+  pi: { modes: [], defaultMode: '', backendParamName: '' },
+  opencode: { modes: [], defaultMode: '', backendParamName: '' },
+  vibe: { modes: [], defaultMode: '', backendParamName: '' },
+  amp: { modes: [], defaultMode: '', backendParamName: '' },
   test: { modes: [], defaultMode: '', backendParamName: '' },
 }
 

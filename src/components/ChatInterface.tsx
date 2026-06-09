@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageCircle, Activity, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { invoke } from '@tauri-apps/api/core';
 import { RecentProject } from '@/hooks/use-recent-projects';
 import { useFileMention } from '@/hooks/use-file-mention';
@@ -22,7 +21,7 @@ import { useProtocolEvents } from '@/components/chat/hooks/useProtocolEvents'
 import { useRotatingPlaceholder } from '@/components/chat/hooks/useRotatingPlaceholder';
 import { useChatPersistence } from '@/components/chat/hooks/useChatPersistence';
 import { useAgentEnablement } from '@/components/chat/hooks/useAgentEnablement';
-import type { ChatMessage } from '@/components/chat/types';
+import type { ChatMessage, ChatMessageToolEvent, TimelineStep } from '@/components/chat/types';
 import type { SessionStatus } from '@/components/chat/types';
 import { useChatExecution } from '@/components/chat/hooks/useChatExecution';
 import { ClaudeStreamParser } from '@/components/chat/stream/claudeStreamParser'
@@ -44,9 +43,28 @@ import { generateId } from '@/components/chat/utils/id';
 
 // CLISession and SessionStatus moved to chat/types
 
+interface LoadedSessionMessage {
+  id: string;
+  role: string;
+  content: string;
+  timestamp: number;
+  agent: string;
+  conversationId?: string;
+  conversation_id?: string;
+  status?: ChatMessage['status'];
+  steps?: TimelineStep[];
+  toolEvents?: ChatMessageToolEvent[];
+  tool_events?: ChatMessageToolEvent[];
+  metadata?: {
+    session_id?: string;
+  };
+}
+
 interface LoadedSessionData {
-  messages: Array<{ id: string; role: string; content: string; timestamp: number; agent: string }>;
+  messages: LoadedSessionMessage[];
   sessionId: string;
+  agentSessionId?: string;
+  autohandSessionId?: string;
 }
 
 interface ChatInterfaceProps {
@@ -254,16 +272,40 @@ export function ChatInterface({ isOpen, selectedAgent, project, onExecutingChang
   // Load historical session messages when a session is selected from chat history palette
   useEffect(() => {
     if (!loadedSession) return;
+    const messageWithConversation = loadedSession.messages.find((msg) => msg.conversationId || msg.conversation_id);
+    const restoredConversationId =
+      messageWithConversation?.conversationId ??
+      messageWithConversation?.conversation_id ??
+      loadedSession.sessionId;
+    const restoredAgentId = getAgentId(
+      loadedSession.messages.find((msg) => msg.role === 'assistant')?.agent ??
+      loadedSession.messages[0]?.agent
+    );
+    const restoredNativeSessionId =
+      loadedSession.agentSessionId ??
+      loadedSession.autohandSessionId ??
+      loadedSession.messages.find((msg) => msg.metadata?.session_id)?.metadata?.session_id ??
+      loadedSession.sessionId;
+
     const historicalMessages: ChatMessage[] = loadedSession.messages.map((msg) => ({
       id: msg.id,
       content: msg.content,
       role: msg.role as 'user' | 'assistant',
       timestamp: msg.timestamp,
       agent: msg.agent,
+      conversationId: msg.conversationId ?? msg.conversation_id ?? restoredConversationId,
+      status: msg.status,
+      steps: msg.steps,
+      toolEvents: msg.toolEvents ?? msg.tool_events,
       isStreaming: false,
     }));
-    // Clear active conversation and replace messages
-    activeConversationRef.current = null;
+    // Opening a historical session makes it the active conversation. A follow-up
+    // should continue here until the user explicitly starts a new chat.
+    activeConversationRef.current = {
+      conversationId: restoredConversationId,
+      agentSessionId: restoredAgentId === 'claude' ? restoredNativeSessionId : undefined,
+      autohandSessionId: restoredAgentId === 'autohand' ? restoredNativeSessionId : undefined,
+    };
     setMessages(historicalMessages);
     onLoadedSessionConsumed?.();
   }, [loadedSession, setMessages, onLoadedSessionConsumed]);
@@ -1303,8 +1345,9 @@ Please focus only on this step.`;
             </span>
             <Button
               variant="outline"
-              size="xs"
+              size="sm"
               onClick={handleCompactConversation}
+              className="h-7 px-2 text-xs"
             >
               Compact conversation
             </Button>
@@ -1324,8 +1367,11 @@ Please focus only on this step.`;
       )}
 
       {/* Messages area: only this region scrolls; input stays visible as footer */}
-      <ScrollArea className="relative flex-1 min-h-0" data-testid="chat-scroll-wrapper">
-        <div className="p-6">
+      <div
+        className="theme-scrollbar relative h-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain"
+        data-testid="chat-scroll-wrapper"
+      >
+        <div className="min-h-full p-6">
           <div className="max-w-4xl mx-auto pb-6">
               <div className="space-y-4">
               {!isHydrated ? (
@@ -1375,7 +1421,7 @@ Please focus only on this step.`;
               </div>
           </div>
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Chat Input Area - fixed in layout flow (no overlay on messages) */}
       <div className="shrink-0 border-t bg-background p-4 pb-8" data-testid="chat-input-area">

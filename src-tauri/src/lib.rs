@@ -128,11 +128,10 @@ pub fn build_tray_menu(
 
     // Add agent status items (display-only)
     for (name, available) in agents {
-        let icon = if *available { "\u{25CF}" } else { "\u{25CB}" };
+        let icon = if *available { "🟢" } else { "○" };
         let status_text = if *available { "available" } else { "not found" };
         let label = format!("{} {}  {}", icon, name, status_text);
         let item = MenuItemBuilder::with_id(format!("agent_{}", name.to_lowercase()), &label)
-            .enabled(false)
             .build(app)?;
         builder = builder.item(&item);
     }
@@ -155,12 +154,14 @@ fn create_tray(app: &tauri::App) -> Result<(), tauri::Error> {
         ("Claude".to_string(), false),
         ("Codex".to_string(), false),
         ("Gemini".to_string(), false),
-        ("Ollama".to_string(), false),
+        ("Cursor".to_string(), false),
+        ("Copilot".to_string(), false),
     ];
 
     let menu = build_tray_menu(handle, &initial_agents)?;
 
     let _tray = TrayIconBuilder::with_id("main")
+        .icon(app.default_window_icon().expect("default window icon should be bundled").clone())
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("Commander")
@@ -221,7 +222,12 @@ pub fn run() {
             execute_claude_command,
             execute_codex_command,
             execute_gemini_command,
-            execute_ollama_command,
+            execute_cursor_command,
+            execute_copilot_command,
+            execute_pi_command,
+            execute_opencode_command,
+            execute_vibe_command,
+            execute_amp_command,
             execute_test_command,
             get_active_sessions,
             terminate_session,

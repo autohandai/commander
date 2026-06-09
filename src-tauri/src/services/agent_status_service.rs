@@ -65,13 +65,6 @@ pub struct AgentStatusService<P: AgentProbe = SystemAgentProbe> {
 }
 
 impl AgentStatusService<SystemAgentProbe> {
-    pub fn new() -> Self {
-        Self {
-            probe: SystemAgentProbe,
-            protocol_cache: ProtocolCache::new(),
-        }
-    }
-
     /// Create a service that reuses an existing protocol cache.
     /// This avoids re-probing agents on every status check cycle.
     pub fn with_cache(cache: ProtocolCache) -> Self {

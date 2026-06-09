@@ -85,8 +85,9 @@ if (typeof document !== 'undefined') describe('ChatInterface layout constraints'
     // Check that chat root has proper constraint classes
     expect(chatRoot).toHaveClass('flex', 'flex-col', 'h-full', 'min-h-0')
 
-    // ScrollArea root uses overflow-hidden; actual scrolling is inside the Radix viewport
-    expect(chatScrollWrapper).toHaveClass('overflow-hidden')
+    // Chat log owns native vertical scrolling directly.
+    expect(chatScrollWrapper).toHaveClass('overflow-y-auto', 'theme-scrollbar')
+    expect(chatScrollWrapper.querySelector('[data-radix-scroll-area-viewport]')).not.toBeInTheDocument()
     
     // Verify breadcrumb is initially visible
     expect(breadcrumbArea).toBeVisible()
@@ -152,7 +153,9 @@ if (typeof document !== 'undefined') describe('ChatInterface layout constraints'
 
     const scrollWrapper = screen.getByTestId('chat-scroll-wrapper')
 
-    // ScrollArea uses Radix ScrollArea with overflow-hidden root
-    expect(scrollWrapper).toHaveClass('overflow-hidden')
+    // The chat log participates in the flex column and directly owns scrolling.
+    // A nested viewport recreates the half-space scrollbar/blocking bug.
+    expect(scrollWrapper).toHaveClass('flex-1', 'min-h-0', 'h-full', 'overflow-y-auto', 'theme-scrollbar')
+    expect(scrollWrapper.querySelector('[data-radix-scroll-area-viewport]')).not.toBeInTheDocument()
   })
 })

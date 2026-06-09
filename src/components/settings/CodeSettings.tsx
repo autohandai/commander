@@ -10,19 +10,25 @@ export function CodeSettings() {
   const [tempShowExplorer, setTempShowExplorer] = useState(
     settings.code_settings.show_file_explorer ?? true
   );
+  const [tempShowProjectSessions, setTempShowProjectSessions] = useState(
+    settings.code_settings.show_project_sessions_in_sidebar ?? true
+  );
   const [isSaving, setIsSaving] = useState(false);
 
   // Sync temp values when settings change from external sources
   useEffect(() => {
     setTempAutoCollapse(settings.code_settings.auto_collapse_sidebar);
     setTempShowExplorer(settings.code_settings.show_file_explorer ?? true);
+    setTempShowProjectSessions(settings.code_settings.show_project_sessions_in_sidebar ?? true);
   }, [
     settings.code_settings.auto_collapse_sidebar,
     settings.code_settings.show_file_explorer,
+    settings.code_settings.show_project_sessions_in_sidebar,
   ]);
 
   const hasChanges = tempAutoCollapse !== settings.code_settings.auto_collapse_sidebar ||
-                    tempShowExplorer !== (settings.code_settings.show_file_explorer ?? true);
+                    tempShowExplorer !== (settings.code_settings.show_file_explorer ?? true) ||
+                    tempShowProjectSessions !== (settings.code_settings.show_project_sessions_in_sidebar ?? true);
 
   const handleSave = async () => {
     if (!hasChanges) return;
@@ -35,6 +41,7 @@ export function CodeSettings() {
           font_size: settings.code_settings.font_size,
           auto_collapse_sidebar: tempAutoCollapse,
           show_file_explorer: tempShowExplorer,
+          show_project_sessions_in_sidebar: tempShowProjectSessions,
         }
       });
     } catch (error) {
@@ -47,6 +54,7 @@ export function CodeSettings() {
   const handleDiscard = () => {
     setTempAutoCollapse(settings.code_settings.auto_collapse_sidebar);
     setTempShowExplorer(settings.code_settings.show_file_explorer ?? true);
+    setTempShowProjectSessions(settings.code_settings.show_project_sessions_in_sidebar ?? true);
   };
   return (
     <div className="space-y-6">
@@ -85,6 +93,23 @@ export function CodeSettings() {
             checked={tempShowExplorer}
             onCheckedChange={setTempShowExplorer}
             aria-label="Show File Explorer"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border/60 p-4">
+          <div>
+            <Label htmlFor="show-project-sessions-sidebar">Show project sessions in sidebar</Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              Display recent chat sessions below each expanded project while keeping branches and worktrees visible.
+            </p>
+          </div>
+          <Switch
+            id="show-project-sessions-sidebar"
+            checked={tempShowProjectSessions}
+            onCheckedChange={setTempShowProjectSessions}
+            aria-label="Show project sessions in sidebar"
           />
         </div>
       </div>

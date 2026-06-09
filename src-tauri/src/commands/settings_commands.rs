@@ -341,7 +341,12 @@ pub async fn load_agent_settings(app: tauri::AppHandle) -> Result<HashMap<String
             default.insert("claude".to_string(), true);
             default.insert("codex".to_string(), true);
             default.insert("gemini".to_string(), true);
-            default.insert("ollama".to_string(), true);
+            default.insert("cursor".to_string(), true);
+            default.insert("copilot".to_string(), true);
+            default.insert("pi".to_string(), true);
+            default.insert("opencode".to_string(), true);
+            default.insert("vibe".to_string(), true);
+            default.insert("amp".to_string(), true);
             Ok(default)
         }
     }

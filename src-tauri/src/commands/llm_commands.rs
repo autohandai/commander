@@ -355,7 +355,12 @@ async fn check_ai_agents_with_shared_cache(
             ("claude".to_string(), true),
             ("codex".to_string(), true),
             ("gemini".to_string(), true),
-            ("ollama".to_string(), true),
+            ("cursor".to_string(), true),
+            ("copilot".to_string(), true),
+            ("pi".to_string(), true),
+            ("opencode".to_string(), true),
+            ("vibe".to_string(), true),
+            ("amp".to_string(), true),
         ])
     });
 
@@ -520,7 +525,7 @@ const AGENT_CANDIDATES: &[AgentCandidate] = &[
 ];
 
 /// Built-in agent IDs that should be excluded from detection results.
-const BUILTIN_AGENT_IDS: &[&str] = &["autohand", "claude", "codex", "gemini", "ollama"];
+const BUILTIN_AGENT_IDS: &[&str] = &["autohand", "claude", "codex", "gemini", "cursor", "copilot", "pi", "opencode", "vibe", "amp"];
 
 /// Scan the system for known coding CLI agents and check for RPC/ACP support.
 ///

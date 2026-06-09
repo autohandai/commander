@@ -28,7 +28,6 @@ export function ActivityTimeline({
   agentsUsed,
   totalTokens,
   totalMessages,
-  paletteKey,
   selectedAgent,
   onAgentClick,
 }: ActivityTimelineProps) {

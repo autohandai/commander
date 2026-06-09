@@ -25,27 +25,27 @@ tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 tauri-plugin-global-shortcut = "2.3.0"
 tauri-plugin-dialog = "2"
-dirs = "5.0"
+dirs = "6"
 filetime = "0.2"
 once_cell = "1.19"
 chrono = { version = "0.4", features = ["serde"] }
 home = "0.5"
-portable-pty = "0.8"
-which = "6"
+portable-pty = "0.9"
+which = "8"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 regex = "1.10"
 async-trait = "0.1"
 semver = "1"
 futures = "0.3.32"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
-mockall = "0.12"
+mockall = "0.14"
 tempfile = "3.8"
 assert_cmd = "2.0"
 serial_test = "3.0"

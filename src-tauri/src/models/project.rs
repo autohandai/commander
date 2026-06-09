@@ -139,6 +139,8 @@ pub struct CodeSettings {
     pub auto_collapse_sidebar: bool,
     #[serde(default = "default_show_file_explorer")]
     pub show_file_explorer: bool,
+    #[serde(default = "default_show_project_sessions_in_sidebar")]
+    pub show_project_sessions_in_sidebar: bool,
 }
 
 fn default_code_theme() -> String {
@@ -151,6 +153,7 @@ fn default_auto_collapse_sidebar() -> bool {
     false
 }
 fn default_show_file_explorer() -> bool { true }
+fn default_show_project_sessions_in_sidebar() -> bool { true }
 fn default_suggest_create_agents_md() -> bool { true }
 fn default_has_completed_onboarding() -> bool { false }
 fn default_dashboard_time_range() -> u32 { 30 }
@@ -166,6 +169,7 @@ impl Default for CodeSettings {
             font_size: default_font_size(),
             auto_collapse_sidebar: default_auto_collapse_sidebar(),
             show_file_explorer: default_show_file_explorer(),
+            show_project_sessions_in_sidebar: default_show_project_sessions_in_sidebar(),
         }
     }
 }

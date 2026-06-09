@@ -16,8 +16,12 @@ vi.mock('@openai/codex-sdk', () => {
 
   const startThread = vi.fn(() => ({ runStreamed }))
 
+  const Codex = vi.fn(function Codex(this: any) {
+    this.startThread = startThread
+  })
+
   return {
-    Codex: vi.fn(() => ({ startThread })),
+    Codex,
     __runStreamed: runStreamed,
     __startThread: startThread,
   }

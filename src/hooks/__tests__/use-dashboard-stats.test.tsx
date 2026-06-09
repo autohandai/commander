@@ -5,6 +5,7 @@ const tauriCore = vi.hoisted(() => ({
   invoke: vi.fn(),
 }))
 vi.mock('@tauri-apps/api/core', () => tauriCore)
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }))
 
 import { useDashboardStats } from '@/hooks/use-dashboard-stats'
 

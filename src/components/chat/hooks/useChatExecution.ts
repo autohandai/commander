@@ -31,7 +31,12 @@ export function useChatExecution({ resolveWorkingDir, setMessages, setExecutingS
         claude: 'execute_claude_command',
         codex: 'execute_codex_command',
         gemini: 'execute_gemini_command',
-        ollama: 'execute_ollama_command',
+        cursor: 'execute_cursor_command',
+        copilot: 'execute_copilot_command',
+        pi: 'execute_pi_command',
+        opencode: 'execute_opencode_command',
+        vibe: 'execute_vibe_command',
+        amp: 'execute_amp_command',
         test: 'execute_test_command',
       } as const
 

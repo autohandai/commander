@@ -1,4 +1,3 @@
-import React from 'react'
 import { Activity, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -50,4 +49,3 @@ export function SessionStatusHeader({ sessionStatus, showSessionPanel, onToggleP
     </div>
   )
 }
-

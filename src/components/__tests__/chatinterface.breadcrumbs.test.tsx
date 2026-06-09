@@ -84,6 +84,8 @@ if (typeof document !== 'undefined') describe('ChatInterface layout', () => {
       // The chat scroll area container should be present
       const scroll = screen.getByTestId('chat-scroll-wrapper')
       expect(scroll).toBeInTheDocument()
+      expect(scroll).toHaveClass('overflow-y-auto', 'theme-scrollbar')
+      expect(scroll.querySelector('[data-radix-scroll-area-viewport]')).not.toBeInTheDocument()
       // Root should allow inner scroll by using min-h-0
       const root = screen.getByTestId('chat-root')
       expect(root.className).toMatch(/min-h-0/)
@@ -95,4 +97,3 @@ if (typeof document !== 'undefined') describe('ChatInterface layout', () => {
     expect(scroll.contains(breadcrumb)).toBe(false)
   })
 })
-

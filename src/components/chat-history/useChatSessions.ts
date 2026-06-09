@@ -24,6 +24,35 @@ export interface SessionMessage {
   content: string
   timestamp: number
   agent: string
+  conversationId?: string
+  conversation_id?: string
+  status?: 'thinking' | 'running' | 'completed' | 'failed'
+  steps?: Array<{
+    id: string
+    label: string
+    detail?: string
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    startedAt?: number
+    finishedAt?: number
+  }>
+  toolEvents?: Array<{
+    tool_id: string
+    tool_name: string
+    phase: 'start' | 'update' | 'end'
+    args?: Record<string, unknown>
+    output?: string
+    success?: boolean
+    duration_ms?: number
+  }>
+  tool_events?: Array<{
+    tool_id: string
+    tool_name: string
+    phase: 'start' | 'update' | 'end'
+    args?: Record<string, unknown>
+    output?: string
+    success?: boolean
+    duration_ms?: number
+  }>
   metadata?: Record<string, unknown>
 }
 

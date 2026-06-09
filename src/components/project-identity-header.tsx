@@ -18,6 +18,7 @@ interface ProjectIdentityHeaderProps {
   onCopyPath: () => void
   activeTab?: string
   onTabChange?: (tab: string) => void
+  onNewChat?: (project: RecentProject) => void
 }
 
 function normalizeGitRefName(value?: string | null) {
@@ -46,6 +47,7 @@ export function ProjectIdentityHeader({
   onCopyPath,
   activeTab,
   onTabChange,
+  onNewChat,
 }: ProjectIdentityHeaderProps) {
   const { projectApplications, loadingProjectApplications } = useProjectApplications()
   const [worktrees, setWorktrees] = React.useState<ProjectGitWorktree[]>([])
@@ -60,9 +62,9 @@ export function ProjectIdentityHeader({
       }
 
       try {
-        const list = await invoke<ProjectGitWorktree[]>("get_project_git_worktrees", { projectPath: project.path })
+        const list = await invoke<ProjectGitWorktree[] | null>("get_project_git_worktrees", { projectPath: project.path })
         if (!cancelled) {
-          setWorktrees(list)
+          setWorktrees(Array.isArray(list) ? list : [])
         }
       } catch (error) {
         if (!cancelled) {
@@ -172,6 +174,7 @@ export function ProjectIdentityHeader({
           showCreateActions={false}
           showDeleteAction={false}
           onCopyPath={onCopyPath}
+          onNewChat={onNewChat}
           triggerLabel={`Project actions for ${project.name}`}
         />
       </div>

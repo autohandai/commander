@@ -37,7 +37,6 @@ import { useLLMSettings } from "@/hooks/use-llm-settings"
 import { useSettings as useAppSettingsContext } from "@/contexts/settings-context"
 import type { SettingsModalProps, SettingsTab } from "@/types/settings"
 import {
-  defaultCustomAgentDefinition,
   defaultEnabledAgentsMap,
   type CustomAgentDefinition,
 } from "@/components/settings/agent-registry"
@@ -141,7 +140,7 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
   const [agentSettingsLoading, setAgentSettingsLoading] = useState(true)
   const [agentSettingsError, setAgentSettingsError] = useState<string | null>(null)
   const [settingsHydrated, setSettingsHydrated] = useState(false)
-  const { updateSettings: updateAppSettings, settings: appSettingsContext, isLoading: appSettingsLoading } = useAppSettingsContext()
+  const { updateSettings: updateAppSettings, settings: appSettingsContext } = useAppSettingsContext()
 
   // Code settings
   const [codeTheme, setCodeTheme] = useState<string>('github')
@@ -797,7 +796,13 @@ export function SettingsModal({ isOpen, onClose, initialTab, workingDir }: Setti
         chat_send_shortcut: tempChatSendShortcut,
         show_welcome_recent_projects: tempShowWelcomeRecentProjects,
         default_cli_agent: tempDefaultCliAgent,
-        code_settings: { theme: tempCodeTheme, font_size: tempCodeFontSize, auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar },
+        code_settings: {
+          theme: tempCodeTheme,
+          font_size: tempCodeFontSize,
+          show_file_explorer: appSettingsContext.code_settings.show_file_explorer,
+          auto_collapse_sidebar: appSettingsContext.code_settings.auto_collapse_sidebar,
+          show_project_sessions_in_sidebar: appSettingsContext.code_settings.show_project_sessions_in_sidebar,
+        },
         dashboard_color_palette: tempDashboardColorPalette,
         show_dashboard_activity: tempShowDashboardActivity,
         dashboard_chart_type: tempDashboardChartType,

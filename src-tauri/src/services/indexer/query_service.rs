@@ -31,7 +31,7 @@ pub fn get_dashboard_stats_from_db(
 }
 
 fn get_available_agents() -> Vec<DashboardAgentInfo> {
-    let agents = ["claude", "codex", "gemini", "ollama"];
+    let agents = ["autohand", "claude", "codex", "gemini", "cursor", "copilot", "pi", "opencode", "vibe", "amp"];
     agents
         .iter()
         .map(|name| {

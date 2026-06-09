@@ -775,6 +775,22 @@ pub struct ChatStep {
     pub finished_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatToolEvent {
+    pub tool_id: String,
+    pub tool_name: String,
+    pub phase: String,
+    #[serde(default)]
+    pub args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub output: Option<serde_json::Value>,
+    #[serde(default)]
+    pub success: Option<bool>,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
@@ -788,6 +804,43 @@ pub struct ChatMessage {
     pub status: Option<String>,
     #[serde(default)]
     pub steps: Option<Vec<ChatStep>>,
+    #[serde(default)]
+    pub tool_events: Option<Vec<ChatToolEvent>>,
+}
+
+#[cfg(test)]
+mod chat_message_persistence_tests {
+    use super::{ChatMessage, ChatToolEvent};
+
+    #[test]
+    fn chat_message_roundtrips_tool_events() {
+        let message = ChatMessage {
+            role: "assistant".to_string(),
+            content: "Done".to_string(),
+            timestamp: 1,
+            agent: Some("autohand".to_string()),
+            conversation_id: Some("conv-1".to_string()),
+            status: Some("completed".to_string()),
+            steps: None,
+            tool_events: Some(vec![ChatToolEvent {
+                tool_id: "tool-1".to_string(),
+                tool_name: "read_file".to_string(),
+                phase: "end".to_string(),
+                args: Some(serde_json::json!({ "path": "src/App.tsx" })),
+                output: Some(serde_json::json!("file contents")),
+                success: Some(true),
+                duration_ms: Some(12),
+            }]),
+        };
+
+        let value = serde_json::to_value(&message).expect("serialize chat message");
+        assert!(value.get("toolEvents").is_some());
+
+        let restored: ChatMessage = serde_json::from_value(value).expect("deserialize chat message");
+        let events = restored.tool_events.expect("tool events should roundtrip");
+        assert_eq!(events[0].tool_name, "read_file");
+        assert_eq!(events[0].success, Some(true));
+    }
 }
 
 fn chat_store_key(project_path: &str) -> String {

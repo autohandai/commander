@@ -108,8 +108,11 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     // Chat root should keep constrained flex layout
     expect(chatRoot).toHaveClass('relative', 'flex', 'flex-col', 'flex-1', 'min-h-0', 'overflow-hidden')
 
-    // Scroll wrapper uses Radix ScrollArea (overflow-hidden root, flex-1 min-h-0)
-    expect(scrollWrapper).toHaveClass('relative', 'flex-1', 'min-h-0', 'overflow-hidden')
+    // The chat log has exactly one scroll owner between the header/status
+    // panels and the composer footer. Avoid nested Radix viewports here because
+    // WebKit/Tauri can render their scrollbar at partial height.
+    expect(scrollWrapper).toHaveClass('theme-scrollbar', 'relative', 'flex-1', 'min-h-0', 'h-full', 'overflow-y-auto', 'overflow-x-hidden')
+    expect(scrollWrapper.querySelector('[data-radix-scroll-area-viewport]')).not.toBeInTheDocument()
 
     // Content keeps a small breathing room at the bottom
     const paddedContent = scrollWrapper.querySelector('.pb-6')
@@ -179,8 +182,9 @@ if (typeof document !== 'undefined') describe('ChatInterface fixed layout soluti
     const paddedContent = scrollWrapper.querySelector('.pb-6')
     expect(paddedContent).toBeTruthy()
 
-    // Verify scroll wrapper uses Radix ScrollArea (overflow-hidden root)
-    expect(scrollWrapper).toHaveClass('overflow-hidden')
+    // Verify scroll wrapper is the native scroll owner
+    expect(scrollWrapper).toHaveClass('overflow-y-auto', 'theme-scrollbar')
+    expect(scrollWrapper.querySelector('[data-radix-scroll-area-viewport]')).not.toBeInTheDocument()
     
     // Messages should scroll within this constrained area
     const input = screen.getByRole('textbox')

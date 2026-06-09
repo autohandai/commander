@@ -30,7 +30,7 @@ export interface AppSettings {
   show_welcome_recent_projects?: boolean;
   // Maximum number of chat messages retained per session
   max_chat_history?: number;
-  code_settings?: { theme: string; font_size: number; auto_collapse_sidebar?: boolean; show_file_explorer?: boolean };
+  code_settings?: { theme: string; font_size: number; auto_collapse_sidebar?: boolean; show_file_explorer?: boolean; show_project_sessions_in_sidebar?: boolean };
   dashboard_time_range?: number;
   time_saved_multiplier?: number;
   show_dashboard_activity?: boolean;

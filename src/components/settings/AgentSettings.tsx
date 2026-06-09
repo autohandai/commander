@@ -31,7 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AgentSettingsProps } from "@/types/settings"
 
 type GenericAgentSettings = {
-  model?: string
+  model?: string | null
   output_format?: string
   session_timeout_minutes?: number
   max_tokens?: number | null
@@ -433,9 +433,6 @@ const SafeAgentSettings = ({
 
   const getBuiltInSettings = (agentId: string) =>
     (tempAllAgentSettings?.[agentId as keyof typeof tempAllAgentSettings] as GenericAgentSettings | undefined) || defaultAgentSettings()
-
-  const selectedBuiltIn = BUILTIN_AGENT_PROFILES.find((profile) => profile.id === activeAgentId)
-  const selectedCustom = customAgents.find((agent) => agent.id === activeAgentId)
 
   const createAgent = () => {
     const id = normalizeAgentId(draftAgent.id || draftAgent.name)

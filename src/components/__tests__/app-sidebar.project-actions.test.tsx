@@ -6,6 +6,18 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarWidthProvider } from '@/contexts/sidebar-width-context'
 
 const invokeMock = vi.fn()
+const refreshProjectsMock = vi.fn()
+
+const defaultProject = {
+  name: 'my-project',
+  path: '/tmp/my-project',
+  last_accessed: 1,
+  is_git_repo: true,
+  git_branch: 'main',
+  git_status: 'dirty',
+}
+
+let recentProjects = [defaultProject]
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: Parameters<typeof invokeMock>) => invokeMock(...args),
@@ -13,19 +25,10 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 vi.mock('@/hooks/use-recent-projects', () => ({
   useRecentProjects: () => ({
-    projects: [
-      {
-        name: 'my-project',
-        path: '/tmp/my-project',
-        last_accessed: 1,
-        is_git_repo: true,
-        git_branch: 'main',
-        git_status: 'dirty',
-      },
-    ],
+    projects: recentProjects,
     loading: false,
     error: null,
-    refreshProjects: vi.fn(),
+    refreshProjects: refreshProjectsMock,
   }),
 }))
 
@@ -66,6 +69,8 @@ function renderSidebar(props: Partial<React.ComponentProps<typeof AppSidebar>> =
 describe('AppSidebar project navigation', () => {
   beforeEach(() => {
     invokeMock.mockReset()
+    refreshProjectsMock.mockReset()
+    recentProjects = [defaultProject]
     invokeMock.mockImplementation(async (cmd: string) => {
       switch (cmd) {
         case 'get_available_project_applications':
@@ -79,6 +84,25 @@ describe('AppSidebar project navigation', () => {
           return [
             { path: '/tmp/my-project', branch: 'refs/heads/main', is_main: true },
             { path: '/tmp/my-project/.commander/sidebar', branch: 'refs/heads/workspace/sidebar', is_main: false },
+          ]
+        case 'load_unified_chat_sessions':
+          return [
+            {
+              id: 'session-1',
+              start_time: 1700000000,
+              end_time: 1700000300,
+              agent: 'codex',
+              branch: 'feature/sidebar',
+              message_count: 8,
+              summary: 'Implement sidebar sessions',
+              archived: false,
+              custom_title: null,
+              ai_summary: null,
+              forked_from: null,
+              source: 'local',
+              source_file: null,
+              model: 'gpt-5.5',
+            },
           ]
         case 'delete_project':
           return null
@@ -154,6 +178,21 @@ describe('AppSidebar project navigation', () => {
     expect(screen.getByRole('button', { name: /copy project name/i })).toBeInTheDocument()
   })
 
+  it('shows a New Chat action in the project menu', async () => {
+    const handleNewChat = vi.fn()
+    renderSidebar({
+      onNewChatProject: handleNewChat,
+    } as any)
+
+    fireEvent.click(await screen.findByRole('button', { name: /project actions for my-project/i }))
+    expect(await screen.findByRole('menuitem', { name: /new chat/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /new chat/i }))
+    await waitFor(() => {
+      expect(handleNewChat).toHaveBeenCalledWith(expect.objectContaining({ path: '/tmp/my-project' }))
+    })
+  })
+
   it('expands a project row and renders project branches and worktrees', async () => {
     const handleBranchSelect = vi.fn()
     const handleWorktreeSelect = vi.fn()
@@ -166,7 +205,7 @@ describe('AppSidebar project navigation', () => {
 
     expect(await screen.findByText('Branches')).toBeInTheDocument()
     expect(screen.getByText('Worktrees')).toBeInTheDocument()
-    expect(await screen.findByText('feature/sidebar')).toBeInTheDocument()
+    expect((await screen.findAllByText('feature/sidebar')).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('workspace/sidebar')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: /^feature\/sidebar$/i }))
@@ -185,5 +224,50 @@ describe('AppSidebar project navigation', () => {
       )
     })
     expect(handleBranchSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render sessions under an expanded project', async () => {
+    renderSidebar()
+
+    fireEvent.click(screen.getByRole('link', { name: /my-project/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Branches')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Sessions')).not.toBeInTheDocument()
+    expect(invokeMock).not.toHaveBeenCalledWith('load_unified_chat_sessions', expect.anything())
+  })
+
+  it('keeps large collapsed project lists API-cold and scopes child loading to the expanded project', async () => {
+    recentProjects = Array.from({ length: 75 }, (_, index) => ({
+      ...defaultProject,
+      name: `project-${index}`,
+      path: `/tmp/project-${index}`,
+      last_accessed: 100 - index,
+      git_branch: index % 2 === 0 ? 'main' : 'feature/sidebar',
+    }))
+
+    renderSidebar()
+
+    expect(await screen.findByRole('link', { name: /project-0/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /project-74/i })).toBeInTheDocument()
+    expect(invokeMock).not.toHaveBeenCalledWith('get_git_branches', expect.anything())
+    expect(invokeMock).not.toHaveBeenCalledWith('get_project_git_worktrees', expect.anything())
+    expect(invokeMock).not.toHaveBeenCalledWith('load_unified_chat_sessions', expect.anything())
+
+    fireEvent.click(screen.getByRole('link', { name: /project-42/i }))
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('get_git_branches', expect.objectContaining({
+        projectPath: '/tmp/project-42',
+      }))
+    })
+
+    const childDataCalls = invokeMock.mock.calls.filter(([cmd]) =>
+      cmd === 'get_git_branches' ||
+      cmd === 'get_project_git_worktrees'
+    )
+    expect(childDataCalls).toHaveLength(2)
+    expect(childDataCalls.every(([, args]) => args?.projectPath === '/tmp/project-42')).toBe(true)
   })
 })

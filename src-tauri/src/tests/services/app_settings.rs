@@ -25,6 +25,29 @@ mod tests {
     }
 
     #[test]
+    fn default_code_settings_enable_project_sessions_sidebar() {
+        let settings = AppSettings::default();
+        assert!(
+            settings.code_settings.show_project_sessions_in_sidebar,
+            "project session rows should be visible in the sidebar by default"
+        );
+    }
+
+    #[test]
+    fn project_sessions_sidebar_setting_round_trips() {
+        let mut raw = serde_json::to_value(AppSettings::default()).expect("serialize defaults");
+        raw["code_settings"]["show_project_sessions_in_sidebar"] = Value::Bool(false);
+
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("deserialize settings with sidebar sessions flag");
+
+        assert!(
+            !settings.code_settings.show_project_sessions_in_sidebar,
+            "explicitly disabling project session rows should survive deserialization"
+        );
+    }
+
+    #[test]
     fn serialization_round_trips_explicit_agent_selection() {
         let mut raw = serde_json::to_value(AppSettings::default()).expect("serialize defaults");
         raw["default_cli_agent"] = Value::String("codex".to_string());

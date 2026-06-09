@@ -4,11 +4,11 @@ import { SessionScatterChart } from '@/components/dashboard/SessionScatterChart'
 
 // Mock ResizeObserver for jsdom
 beforeAll(() => {
-  globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  }))
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe = vi.fn()
+    unobserve = vi.fn()
+    disconnect = vi.fn()
+  } as any
 })
 
 const mockActivity = [

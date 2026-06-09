@@ -78,7 +78,7 @@ mod tests {
         let line = r#"{"type":"something_new","data":{"foo":"bar"}}"#;
         let msg = classify_acp_message(line).expect("should parse");
         match msg {
-            AcpMessage::Unknown(_) => {}
+            AcpMessage::Unknown => {}
             other => panic!("expected Unknown, got {:?}", other),
         }
     }

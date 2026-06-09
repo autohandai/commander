@@ -17,6 +17,7 @@ const baseSettings = {
     font_size: 14,
     auto_collapse_sidebar: false,
     show_file_explorer: true,
+    show_project_sessions_in_sidebar: true,
   },
 }
 
@@ -51,9 +52,33 @@ if (typeof document !== 'undefined') describe('CodeSettings Show File Explorer t
           font_size: 14,
           auto_collapse_sidebar: false,
           show_file_explorer: false,
+          show_project_sessions_in_sidebar: true,
+        },
+      })
+    })
+  })
+
+  it('saves updated project sessions sidebar flag when toggled', async () => {
+    render(<CodeSettings />)
+
+    const toggle = screen.getByRole('switch', { name: /show project sessions in sidebar/i })
+    expect(toggle).toHaveAttribute('data-state', 'checked')
+
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle).toHaveAttribute('data-state', 'unchecked'))
+
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledWith({
+        code_settings: {
+          theme: 'github',
+          font_size: 14,
+          auto_collapse_sidebar: false,
+          show_file_explorer: true,
+          show_project_sessions_in_sidebar: false,
         },
       })
     })
   })
 })
-

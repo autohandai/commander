@@ -3,11 +3,11 @@ import { render, screen } from '@testing-library/react'
 
 // Mock ResizeObserver for jsdom (used by SessionScatterChart)
 beforeAll(() => {
-  globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  }))
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe = vi.fn()
+    unobserve = vi.fn()
+    disconnect = vi.fn()
+  } as any
 })
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))

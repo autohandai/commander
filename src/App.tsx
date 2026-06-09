@@ -30,6 +30,45 @@ import { useRecentProjects, RecentProject } from "@/hooks/use-recent-projects"
 import { useSettings } from "@/contexts/settings-context"
 import type { MenuEventPayload } from "@/types/menu"
 
+interface LoadedChatMessage {
+  id: string
+  role: string
+  content: string
+  timestamp: number
+  agent: string
+  conversationId?: string
+  conversation_id?: string
+  status?: 'thinking' | 'running' | 'completed' | 'failed'
+  steps?: Array<{
+    id: string
+    label: string
+    detail?: string
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    startedAt?: number
+    finishedAt?: number
+  }>
+  toolEvents?: Array<{
+    tool_id: string
+    tool_name: string
+    phase: 'start' | 'update' | 'end'
+    args?: Record<string, unknown>
+    output?: string
+    success?: boolean
+    duration_ms?: number
+  }>
+  tool_events?: Array<{
+    tool_id: string
+    tool_name: string
+    phase: 'start' | 'update' | 'end'
+    args?: Record<string, unknown>
+    output?: string
+    success?: boolean
+    duration_ms?: number
+  }>
+  metadata?: {
+    session_id?: string
+  }
+}
 
 interface ProjectViewProps {
   project: RecentProject
@@ -39,8 +78,15 @@ interface ProjectViewProps {
   onExecutingChange?: (projectPath: string, sessionIds: string[]) => void
   pendingChatPrompt?: string | null
   onPendingChatPromptConsumed?: () => void
-  loadedSession?: { messages: Array<{ id: string; role: string; content: string; timestamp: number; agent: string }>; sessionId: string } | null
+  loadedSession?: { messages: LoadedChatMessage[]; sessionId: string } | null
   onLoadedSessionConsumed?: () => void
+}
+
+interface SidebarChatSession {
+  id: string
+  agent: string
+  source: 'local' | 'indexed'
+  source_file: string | null
 }
 
 function ProjectView({ project, selectedAgent, activeTab, onTabChange, onExecutingChange, pendingChatPrompt, onPendingChatPromptConsumed, loadedSession, onLoadedSessionConsumed }: ProjectViewProps) {
@@ -76,6 +122,22 @@ function ProjectView({ project, selectedAgent, activeTab, onTabChange, onExecuti
       </div>
     </div>
   )
+}
+
+const isMacPlatform = () =>
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '')
+
+/**
+ * Reserves horizontal space for the macOS native traffic-light window controls
+ * when the sidebar is collapsed. With `titleBarStyle: Overlay`, the red/yellow/
+ * green buttons sit on top of the header's top-left corner; while the sidebar is
+ * expanded it pushes the header right and there is no overlap, but once collapsed
+ * (offcanvas → width 0) the sidebar toggle would slide under those buttons.
+ */
+export function TrafficLightSpacer() {
+  const { state } = useSidebar()
+  if (state !== 'collapsed' || !isMacPlatform()) return null
+  return <div aria-hidden data-testid="traffic-light-spacer" className="shrink-0 w-[52px]" />
 }
 
 function SidebarAutoCollapseManager({ activeTab, enabled, projectActive, chatHistoryOpen }: { activeTab: string; enabled: boolean; projectActive: boolean; chatHistoryOpen: boolean }) {
@@ -152,7 +214,7 @@ function AppContent() {
   const [pendingChatPrompt, setPendingChatPrompt] = useState<string | null>(null)
   const [activeDocSlug, setActiveDocSlug] = useState<string | null>(null)
   const [chatSidebarOpen, setChatSidebarOpen] = useState(false)
-  const [loadedSession, setLoadedSession] = useState<{ messages: Array<{ id: string; role: string; content: string; timestamp: number; agent: string }>; sessionId: string } | null>(null)
+  const [loadedSession, setLoadedSession] = useState<{ messages: LoadedChatMessage[]; sessionId: string } | null>(null)
   const projectsRefreshRef = useRef<{ refresh: () => void } | null>(null)
   const { projects: allRecentProjects } = useRecentProjects()
   const [homeDir, setHomeDir] = useState<string>("")
@@ -270,6 +332,19 @@ function AppContent() {
     })
   }, [openProjectPath, showError])
 
+  const handleNewChat = React.useCallback(async (project: RecentProject) => {
+    try {
+      await openProjectPath(project.path, { refreshProjectsList: false })
+      setActiveTab('chat')
+      setLoadedSession(null)
+      setPendingChatPrompt(null)
+    } catch (error) {
+      console.error('❌ Failed to start new chat:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start new chat'
+      showError(errorMessage, 'New Chat Error')
+    }
+  }, [openProjectPath, showError])
+
   const handleProjectBranchSelect = React.useCallback(async (project: RecentProject, branch: string) => {
     try {
       await invoke('switch_project_git_branch', { projectPath: project.path, branch })
@@ -290,6 +365,28 @@ function AppContent() {
       const detail = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
       const errorMessage = detail || `Failed to open worktree at ${worktree.path}`
       showError(errorMessage, 'Worktree Switch Error')
+    }
+  }, [openProjectPath, showError])
+
+  const handleProjectSessionSelect = React.useCallback(async (project: RecentProject, session: SidebarChatSession) => {
+    try {
+      const opened = await openProjectPath(project.path, { refreshProjectsList: false })
+      const messages = session.source === 'indexed' && session.source_file
+        ? await invoke<LoadedChatMessage[]>('load_indexed_session_messages', {
+            agentId: session.agent,
+            sourceFile: session.source_file,
+          })
+        : await invoke<LoadedChatMessage[]>('get_session_messages', {
+            projectPath: opened.path,
+            sessionId: session.id,
+          })
+
+      setLoadedSession({ messages, sessionId: session.id })
+      setActiveTab('chat')
+    } catch (error) {
+      console.error('❌ Failed to open sidebar session:', error)
+      const detail = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
+      showError(detail || 'Failed to open session', 'Session Open Error')
     }
   }, [openProjectPath, showError])
 
@@ -479,7 +576,6 @@ function AppContent() {
         // Handle opening project from menu
         
         if (event.payload && typeof event.payload === 'string') {
-          const projectPath = event.payload
           // Query backend for updated recents and set the first (MRU) as current including git info
           const recents = await invoke<RecentProject[]>('list_recent_projects')
           if (recents && recents.length > 0) {
@@ -626,22 +722,18 @@ function AppContent() {
           onProjectWorktreeSelect={handleProjectWorktreeSelect}
           onProjectBranchCreated={handleProjectBranchCreated}
           onProjectWorktreeCreated={handleProjectWorktreeCreated}
+          onProjectSessionSelect={handleProjectSessionSelect}
+          onNewChatProject={handleNewChat}
           onDocSelect={(slug) => setActiveDocSlug(slug)}
         />
         <SidebarInset className="flex flex-col h-screen">
-        {/* Title bar drag area — just enough for macOS traffic-light clearance */}
-        <div
-          className="h-2 w-full drag-area"
-          data-tauri-drag-region
-          onMouseDown={handleDragStart}
-        ></div>
-
         <header
           className="flex min-h-10 min-w-0 shrink-0 items-center overflow-hidden border-b w-full drag-fallback"
           data-tauri-drag-region
           onMouseDown={handleDragStart}
         >
           <div className="flex min-w-0 items-center gap-3 px-3 py-1.5 w-full overflow-hidden">
+            <TrafficLightSpacer />
             <SidebarTrigger className="no-drag" />
             <Separator orientation="vertical" className="h-6" />
             {currentProject ? (
@@ -651,6 +743,7 @@ function AppContent() {
                 onCopyPath={copyProjectPath}
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
+                onNewChat={handleNewChat}
               />
             ) : (
               <div className="min-w-0 flex-1">

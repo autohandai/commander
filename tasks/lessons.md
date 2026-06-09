@@ -31,3 +31,6 @@
 - Sidebar rows should stay focused on navigation; when a project action needs creation or destructive flows, anchor it in the active project header instead of duplicating menus in the sidebar list.
 - When the user explicitly points project actions back to the sidebar, do not leave a competing header menu in place; one clear ownership point beats duplicated controls.
 - When both sidebar and header dots are needed, split responsibilities explicitly instead of removing one: sidebar for branch/worktree/delete, header for launch/open actions.
+- Loading an existing chat must restore its conversation identity and structured render fields, not just message text; otherwise the next typed message forks a new session and historical thoughts/tool calls degrade into plain text.
+- Chat scroll regressions need tests against the actual scroll viewport and flex/min-height ownership, not only the outer wrapper class list.
+- Tauri tray icons must have one owner; do not mix declarative `app.trayIcon` config with a programmatic `TrayIconBuilder`, and set the app icon explicitly on the tray that owns the menu.

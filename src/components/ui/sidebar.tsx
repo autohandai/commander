@@ -407,11 +407,14 @@ SidebarSeparator.displayName = "SidebarSeparator"
 const SidebarContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div">
->(({ className, children, ...props }, ref) => {
+>(({ className, children, dir, ...props }, ref) => {
+  const scrollDir = dir === "ltr" || dir === "rtl" ? dir : undefined
+
   return (
     <ScrollArea
       ref={ref as React.Ref<HTMLDivElement>}
       data-sidebar="content"
+      dir={scrollDir}
       className={cn(
         "min-h-0 flex-1 group-data-[collapsible=icon]:overflow-hidden",
         "[&_[data-radix-scroll-area-viewport]>div]:!block",

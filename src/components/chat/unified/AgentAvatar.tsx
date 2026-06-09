@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-type AgentId = 'claude' | 'codex' | 'autohand' | 'gemini' | 'ollama' | 'user'
+type AgentId = 'claude' | 'codex' | 'autohand' | 'gemini' | 'cursor' | 'copilot' | 'pi' | 'opencode' | 'vibe' | 'amp' | 'ollama' | 'user'
 
 interface AgentColorConfig {
   accent: string
@@ -39,12 +39,54 @@ const AGENT_COLORS: Record<AgentId, AgentColorConfig> = {
     border: 'border-amber-500/30',
     gradient: 'from-amber-500 to-orange-600',
   },
+  cursor: {
+    accent: 'text-cyan-500',
+    bg: 'bg-cyan-500/10',
+    text: 'text-cyan-400',
+    border: 'border-cyan-500/30',
+    gradient: 'from-cyan-500 to-teal-600',
+  },
+  copilot: {
+    accent: 'text-sky-500',
+    bg: 'bg-sky-500/10',
+    text: 'text-sky-400',
+    border: 'border-sky-500/30',
+    gradient: 'from-sky-500 to-blue-600',
+  },
+  pi: {
+    accent: 'text-rose-500',
+    bg: 'bg-rose-500/10',
+    text: 'text-rose-400',
+    border: 'border-rose-500/30',
+    gradient: 'from-rose-500 to-pink-600',
+  },
+  opencode: {
+    accent: 'text-lime-500',
+    bg: 'bg-lime-500/10',
+    text: 'text-lime-400',
+    border: 'border-lime-500/30',
+    gradient: 'from-lime-500 to-green-600',
+  },
+  vibe: {
+    accent: 'text-orange-500',
+    bg: 'bg-orange-500/10',
+    text: 'text-orange-400',
+    border: 'border-orange-500/30',
+    gradient: 'from-orange-500 to-red-600',
+  },
+  amp: {
+    accent: 'text-indigo-500',
+    bg: 'bg-indigo-500/10',
+    text: 'text-indigo-400',
+    border: 'border-indigo-500/30',
+    gradient: 'from-indigo-500 to-violet-600',
+  },
   ollama: {
-    accent: 'text-slate-500',
-    bg: 'bg-slate-500/10',
-    text: 'text-slate-400',
-    border: 'border-slate-500/30',
-    gradient: 'from-slate-500 to-gray-600',
+    accent: 'text-emerald-500',
+    bg: 'bg-emerald-500/10',
+    text: 'text-emerald-400',
+    border: 'border-emerald-500/30',
+    gradient: 'from-emerald-500 to-teal-600',
   },
   user: {
     accent: 'text-zinc-400',
@@ -68,6 +110,12 @@ const AGENT_LABELS: Record<AgentId, string> = {
   codex: 'Codex',
   autohand: 'Autohand',
   gemini: 'Gemini',
+  cursor: 'Cursor',
+  copilot: 'Copilot',
+  pi: 'Pi',
+  opencode: 'OpenCode',
+  vibe: 'Vibestral',
+  amp: 'Amp',
   ollama: 'Ollama',
   user: 'You',
 }
